@@ -1,0 +1,296 @@
+import { useEffect } from "react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import {
+  Minus,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
+import { useFlashProgress } from "@/hooks/useFlashProgress";
+
+interface FlashDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onMinimize: () => void;
+  onCancel: () => void | Promise<void>;
+  canCancel: boolean;
+}
+
+export function FlashDialog({
+  open,
+  onOpenChange,
+  onMinimize,
+  onCancel,
+  canCancel,
+}: FlashDialogProps) {
+  const {
+    phase,
+    runMode,
+    operation,
+    partition,
+    bytes,
+    total,
+    speedBps,
+    overallBytes,
+    overallTotal,
+    summary,
+    errorMessage,
+    setIsMinimized,
+  } = useFlashProgress();
+
+  useEffect(() => {
+    if (open) setIsMinimized(false);
+  }, [open, setIsMinimized]);
+
+  const imagePct = total > 0 ? Math.round((bytes / total) * 100) : 0;
+  const overallPct = overallTotal > 0 ? Math.round((overallBytes / overallTotal) * 100) : 0;
+  const tone = phaseTone(phase);
+  const isFinished = phase === "complete" || phase === "cancelled" || phase === "error";
+
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        onOpenChange(nextOpen);
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-stone-950/18 backdrop-blur-sm transition-opacity duration-150 data-closed:opacity-0 data-open:opacity-100" />
+        <DialogPrimitive.Popup
+          data-slot="flash-dialog"
+          className="fixed top-1/2 left-1/2 z-50 flex w-[min(34rem,calc(100vw-1rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md border border-border bg-background shadow-[var(--overlay-shadow)] pointer-events-auto outline-none transition-all duration-150 data-closed:scale-[0.99] data-closed:opacity-0 data-open:scale-100 data-open:opacity-100"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <DialogPrimitive.Title className={cn("truncate text-base font-semibold", tone.title)}>
+                {compactTitle(phase, runMode, operation)}
+              </DialogPrimitive.Title>
+            </div>
+            <div className="relative z-10 flex shrink-0 items-center gap-2">
+              {canCancel && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-sm whitespace-nowrap"
+                  onClick={onCancel}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Cancel
+                </Button>
+              )}
+              {canCancel ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-sm whitespace-nowrap"
+                  aria-label="Hide flash dialog"
+                  onClick={() => {
+                    setIsMinimized(true);
+                    onMinimize();
+                  }}
+                >
+                  <Minus className="h-4 w-4" />
+                  Minimize
+                </Button>
+              ) : isFinished ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-sm whitespace-nowrap"
+                  onClick={() => onOpenChange(false)}
+                >
+                  <X className="h-4 w-4" />
+                  Close
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="space-y-4 px-4 py-4">
+            {errorMessage && (phase === "error" || phase === "cancelled") && (
+              <p className={cn("rounded-sm border px-3 py-2 text-sm break-words leading-6", phase === "cancelled" ? "border-warning/20 bg-warning/8 text-warning" : "border-error/20 bg-error/8 text-error")}>
+                {errorMessage}
+              </p>
+            )}
+
+            <div className="space-y-3">
+              <ProgressBlock
+                label={operation === "erase" ? "Current erase" : "Current image"}
+                value={phase === "waiting" ? 0 : imagePct}
+                toneClass={tone.bar}
+                caption={partitionLabel(phase, operation, partition)}
+                amount={phase === "waiting" ? "" : formatBytesProgress(bytes, total)}
+                speedText={phase === "flashing" && speedBps > 0 ? formatSpeed(speedBps) : undefined}
+              />
+              <ProgressBlock
+                label="Overall progress"
+                value={overallPct}
+                toneClass={tone.bar}
+                caption={overallCaption(phase, overallBytes, overallTotal)}
+                amount={overallTotal > 0 ? formatBytesProgress(overallBytes, overallTotal) : ""}
+              />
+            </div>
+
+            {summary && (
+              <div className="grid grid-cols-2 gap-2 border-t border-border pt-3">
+                <Metric label="Flashed" value={summary.flash_count} />
+                <Metric label="Wiped" value={summary.wipe_count} />
+                <Metric label="Skipped" value={summary.skipped_count} />
+                <Metric label="Total" value={`${(summary.total_bytes / 1e9).toFixed(2)} GiB`} />
+              </div>
+            )}
+          </div>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+function ProgressBlock({
+  label,
+  value,
+  toneClass,
+  caption,
+  amount,
+  speedText,
+}: {
+  label: string;
+  value: number;
+  toneClass: string;
+  caption: string;
+  amount: string;
+  speedText?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-3 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        <span className="min-w-0 truncate">{label}</span>
+        <span className="tabular-nums">{value}%</span>
+      </div>
+      <Progress value={value} indicatorClassName={toneClass} className="gap-0" />
+      {speedText && (
+        <p className="text-right text-xs tabular-nums text-muted-foreground">{speedText}</p>
+      )}
+      <div className="flex min-w-0 items-center justify-between gap-3 text-sm">
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{caption}</span>
+        <span className="shrink-0 tabular-nums text-muted-foreground">{amount}</span>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="status-shell px-3 py-2">
+      <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function phaseTone(phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error") {
+  switch (phase) {
+    case "error":
+      return {
+        title: "text-error",
+        bar: "bg-error",
+      };
+    case "cancelled":
+      return {
+        title: "text-warning",
+        bar: "bg-warning",
+      };
+    case "complete":
+      return {
+        title: "text-success",
+        bar: "bg-success",
+      };
+    case "waiting":
+      return {
+        title: "text-foreground",
+        bar: "bg-info",
+      };
+    default:
+      return {
+        title: "text-foreground",
+        bar: "bg-accent-brand",
+      };
+  }
+}
+
+function compactTitle(
+  phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
+  runMode: "" | "live" | "dry_run",
+  operation: "" | "flash" | "erase",
+) {
+  if (phase === "waiting") return "Waiting for device...";
+  if (phase === "flashing" && runMode === "dry_run") {
+    return "Dry run progress";
+  }
+  if (phase === "flashing") {
+    return operation === "erase" ? "Erase progress" : "Flash progress";
+  }
+  if (phase === "complete") return runMode === "dry_run" ? "Dry run complete" : "Flash complete";
+  if (phase === "cancelled") return "Cancelled";
+  if (phase === "error") return "Flash failed";
+  return "Preparing...";
+}
+
+function partitionLabel(
+  phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
+  operation: "" | "flash" | "erase",
+  partition: string,
+) {
+  if (phase === "waiting") return "No device connected";
+  if (!partition) return operation === "erase" ? "Erase step" : "Pending image";
+  return partition;
+}
+
+function overallCaption(
+  phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
+  overallBytes: number,
+  overallTotal: number,
+) {
+  if (phase === "waiting") return "Ready to start";
+  if (phase === "complete") return "";
+  if (phase === "cancelled") return "Stopped before finishing all actions";
+  if (phase === "error") return "Stopped due to an error";
+  if (overallTotal <= 0 && overallBytes <= 0) return "Preparing progress";
+  return "Cumulative transfer";
+}
+
+function formatBytesProgress(bytes: number, total: number) {
+  if (total <= 0) return "";
+  return `${formatBytes(bytes)} / ${formatBytes(total)}`;
+}
+
+function formatBytes(value: number) {
+  if (value <= 0) return "0 B";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let size = value;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  const precision = unitIndex === 0 ? 0 : size >= 100 ? 0 : size >= 10 ? 1 : 2;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function formatSpeed(speedBps: number): string {
+  if (speedBps <= 0) return "";
+  const units = ["B/s", "KiB/s", "MiB/s", "GiB/s", "TiB/s"];
+  let value = speedBps;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const precision = unitIndex === 0 ? 0 : value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}

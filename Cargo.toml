@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "force-fastboot",
+    "mtk-scatter-parser",
+    "fastboot-rs",
+    "fastboot-flasher",
+    "terminal-output",
+]
+resolver = "2"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1

@@ -1,0 +1,11 @@
+[package]
+name = "terminal-output"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+comfy-table = "7"
+crossterm = "0.29"
+console = "0.15"
+indicatif = "0.17"
+textwrap = { version = "0.16.2", features = ["terminal_size"] }
