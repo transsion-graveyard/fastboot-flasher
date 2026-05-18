@@ -311,6 +311,11 @@ pub struct ScatterFile {
 }
 
 impl ScatterFile {
+    /// Return a canonical chipset label derived from scatter metadata.
+    pub fn chipset(&self) -> Option<String> {
+        chipset_label(self.platform.as_deref(), self.project.as_deref())
+    }
+
     /// Return selected layouts according to the storage policy.
     pub fn selected_layouts(
         &self,
@@ -397,6 +402,7 @@ impl ScatterFile {
             "sha256_text": self.text_hash,
             "platform": self.platform,
             "project": self.project,
+            "chipset": self.chipset(),
             "general": self.general,
             "storage_selection": storage.as_python(),
             "layout_names": layouts.keys().collect::<Vec<_>>(),
@@ -2664,6 +2670,31 @@ fn normalize_none_string(value: Option<&Value>) -> Option<String> {
     }
 }
 
+fn chipset_label(platform: Option<&str>, project: Option<&str>) -> Option<String> {
+    normalize_chipset_value(platform).or_else(|| normalize_chipset_value(project))
+}
+
+fn normalize_chipset_value(value: Option<&str>) -> Option<String> {
+    let text = value?.trim().trim_matches('"').trim_matches('\'').trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    let stripped = text.strip_prefix('@').unwrap_or(text).trim();
+    if stripped.is_empty() {
+        return None;
+    }
+
+    let upper = stripped.to_uppercase();
+    if NONE_TOKENS.contains(&upper.as_str())
+        || matches!(upper.as_str(), "TMP" | "TEMP" | "TEMPORARY" | "UNKNOWN")
+    {
+        None
+    } else {
+        Some(stripped.to_string())
+    }
+}
+
 fn normalize_path_display(value: &str) -> String {
     value.replace('\\', "/")
 }
@@ -2883,6 +2914,40 @@ mod tests {
             find_general_value(&general, "project").as_deref(),
             Some("tb8781p1_64")
         );
+    }
+
+    #[test]
+    fn scatter_chipset_should_skip_tmp_placeholders() {
+        let scatter = ScatterFile {
+            path: PathBuf::from("scatter.txt"),
+            format: "yaml".to_string(),
+            text_hash: String::new(),
+            platform: Some("@tmp".to_string()),
+            project: Some("tb8781p1_64".to_string()),
+            general: json!({}),
+            layouts: BTreeMap::new(),
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        };
+
+        assert_eq!(scatter.chipset().as_deref(), Some("tb8781p1_64"));
+    }
+
+    #[test]
+    fn scatter_chipset_should_strip_leading_at_from_real_values() {
+        let scatter = ScatterFile {
+            path: PathBuf::from("scatter.txt"),
+            format: "xml".to_string(),
+            text_hash: String::new(),
+            platform: Some("@MT6789".to_string()),
+            project: None,
+            general: json!({}),
+            layouts: BTreeMap::new(),
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        };
+
+        assert_eq!(scatter.chipset().as_deref(), Some("MT6789"));
     }
 
     #[test]

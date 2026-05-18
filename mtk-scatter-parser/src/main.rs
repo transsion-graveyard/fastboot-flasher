@@ -162,6 +162,7 @@ fn run() -> anyhow::Result<i32> {
                 "format": scatter.format,
                 "platform": scatter.platform,
                 "project": scatter.project,
+                "chipset": scatter.chipset(),
                 "storage_selection": storage_name(args.storage),
                 "selected_layouts": scatter.selected_layouts(args.storage).keys().collect::<Vec<_>>(),
                 "parser_warnings": scatter.warnings,

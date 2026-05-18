@@ -643,10 +643,7 @@ async fn parse_scatter(
         false,
     )
     .map_err(|e| format!("parse scatter: {e}"))?;
-    let dto = plan_to_dto(
-        &plan,
-        resolve_chipset_label(scatter.platform, scatter.project),
-    );
+    let dto = plan_to_dto(&plan, scatter.chipset());
     let plan_id = store_flash_plan(&state, plan);
     Ok(ParseScatterResponseDto { plan_id, plan: dto })
 }
@@ -1564,13 +1561,6 @@ fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
         warnings: plan.warnings.clone(),
         errors: plan.errors.clone(),
     }
-}
-
-fn resolve_chipset_label(platform: Option<String>, project: Option<String>) -> Option<String> {
-    platform
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| project.filter(|value| !value.trim().is_empty()))
-        .or_else(|| Some("Unknown".to_string()))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
