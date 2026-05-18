@@ -22,6 +22,35 @@ use tokio::time::{sleep, Duration};
 
 const CANCELLED_MESSAGE: &str = "cancelled by user";
 
+fn format_tools_platform() -> Result<&'static str, String> {
+    #[cfg(target_os = "windows")]
+    {
+        Ok("windows")
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Ok("linux")
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err("format tools are only supported on Linux and Windows hosts".to_string())
+    }
+}
+
+fn build_format_tools(root: PathBuf, platform: &str) -> FormatTools {
+    let dir = root.join(platform);
+    let exe = if platform == "windows" { ".exe" } else { "" };
+
+    FormatTools {
+        root,
+        dir: dir.clone(),
+        mke2fs: dir.join(format!("mke2fs{exe}")),
+        make_f2fs: dir.join(format!("make_f2fs{exe}")),
+        make_f2fs_casefold: dir.join(format!("make_f2fs_casefold{exe}")),
+        mke2fs_conf: dir.join("mke2fs.conf"),
+    }
+}
+
 struct AppState {
     device: Mutex<Option<NusbFastBoot>>,
     flash_plans: Mutex<StoredPlans>,
@@ -1000,19 +1029,13 @@ async fn wipe_data(
 fn resolve_format_tools(app: &tauri::AppHandle) -> Result<FormatTools, String> {
     let bundled = app
         .path()
-        .resolve("../../fastboot-flasher/assets/bin/linux", BaseDirectory::Resource)
+        .resolve("../../fastboot-flasher/assets/bin", BaseDirectory::Resource)
         .ok();
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fastboot-flasher/assets/bin/linux");
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fastboot-flasher/assets/bin");
 
-    let dir = bundled.filter(|path| path.exists()).unwrap_or(dev);
-    Ok(FormatTools {
-        root: dir.clone(),
-        mke2fs: dir.join("mke2fs"),
-        make_f2fs: dir.join("make_f2fs"),
-        make_f2fs_casefold: dir.join("make_f2fs_casefold"),
-        mke2fs_conf: dir.join("mke2fs.conf"),
-        dir,
-    })
+    let root = bundled.filter(|path| path.exists()).unwrap_or(dev);
+    let platform = format_tools_platform()?;
+    Ok(build_format_tools(root, platform))
 }
 
 async fn format_userdata_inner(
@@ -1604,14 +1627,15 @@ mod tests {
         cancel_force_fastboot_session, display_safety_class, filter_actions, load_flash_plan,
         normalize_storage_label, parse_flash_mode, parse_plan_request,
         plan_requires_connected_device, plan_to_dto, resolve_image_path_for_action,
-        start_force_fastboot_session, store_flash_plan, update_overall_progress, AppState,
-        FlashRunControl, ForceFastbootState, StoredPlans,
+        start_force_fastboot_session, store_flash_plan, update_overall_progress,
+        AppState, FlashRunControl, ForceFastbootState, StoredPlans,
     };
     use fastboot_flasher::plan::slot_to_scatter;
     use mtk_scatter_parser::{FlashAction, FlashPlan, FlashPlanSummary};
     use serde_json::json;
     use std::collections::BTreeMap;
     use std::collections::HashMap;
+    use std::ffi::OsStr;
     use std::path::PathBuf;
     use std::sync::atomic::Ordering;
     use std::sync::Mutex;
@@ -1712,6 +1736,16 @@ mod tests {
         plan.mode = "dry_run".to_string();
 
         assert!(!plan_requires_connected_device(&plan));
+    }
+
+    #[test]
+    fn resolve_format_tools_uses_current_platform_directory() {
+        let platform = super::format_tools_platform().unwrap();
+        let root = PathBuf::from("/tmp/format-bin");
+        let tools = super::build_format_tools(root.clone(), platform);
+
+        assert_eq!(tools.dir.parent(), Some(root.as_path()));
+        assert_eq!(tools.dir.file_name(), Some(OsStr::new(platform)));
     }
 
     #[test]

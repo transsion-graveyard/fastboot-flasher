@@ -28,9 +28,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": [
-      "../../fastboot-flasher/assets/bin/linux"
-    ],
     "icon": [
       "icons/256x256.png",
       "icons/128x128.png",
