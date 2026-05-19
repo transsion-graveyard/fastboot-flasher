@@ -20,8 +20,8 @@ use pawflash::{
 };
 
 use crate::{
-    build_format_tools, format_tools_platform, resolve_format_tools, AppState, FlashEvent,
-    FlashRunControl, FlashSummaryDto, CANCELLED_MESSAGE,
+    resolve_format_tools, AppState, FlashEvent, FlashRunControl, FlashSummaryDto,
+    CANCELLED_MESSAGE,
 };
 
 pub(crate) const GSI_WORKER_ARG: &str = "--gsi-worker";
@@ -406,8 +406,7 @@ fn write_worker_message(sink: &mut impl Write, message: GsiWorkerMessage) -> Res
 }
 
 fn build_worker_format_tools(root: &Path) -> Result<FormatTools, String> {
-    let platform = format_tools_platform()?;
-    Ok(build_format_tools(root.to_path_buf(), platform))
+    FormatTools::from_bin_root(root).map_err(|error| error.to_string())
 }
 
 fn flash_summary_from_gsi(summary: GsiFlashSummary) -> FlashSummaryDto {

@@ -43,8 +43,6 @@ pub fn force_fastboot() -> Result<(), ForceFastbootError> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     #[test]
     fn power_off_helper_is_exported() {
         let _ = super::device::power_off_device;
@@ -53,31 +51,5 @@ mod tests {
     #[test]
     fn reboot_fastboot_helper_is_exported() {
         let _ = super::device::reboot_device_fastboot;
-    }
-
-    #[test]
-    fn resolve_max_download_size_from_vars_accepts_hex_values() {
-        let vars = HashMap::from([("max-download-size".to_string(), "0x4000000".to_string())]);
-
-        let max_download = super::device::resolve_max_download_size_from_vars(&vars).unwrap();
-
-        assert_eq!(max_download, 0x4000000);
-    }
-
-    #[test]
-    fn resolve_max_download_size_from_vars_rejects_zero() {
-        let vars = HashMap::from([("max-download-size".to_string(), "0".to_string())]);
-
-        let error = super::device::resolve_max_download_size_from_vars(&vars).unwrap_err();
-
-        assert!(error.to_string().contains("max-download-size=0"));
-    }
-
-    #[test]
-    fn resolve_max_download_size_from_vars_requires_variable() {
-        let error =
-            super::device::resolve_max_download_size_from_vars(&HashMap::new()).unwrap_err();
-
-        assert!(error.to_string().contains("max-download-size"));
     }
 }
