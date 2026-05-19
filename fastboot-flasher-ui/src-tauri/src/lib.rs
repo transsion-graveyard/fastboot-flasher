@@ -14,11 +14,10 @@ use fastboot_flasher::{
     },
     manual::{disable_vbmeta_actions, standalone_disable_vbmeta_path},
     progress::dry_run_steps,
-    resolve_max_download_size_from_vars, NusbFastBoot,
+    resolve_max_download_size_from_vars, FastbootDevice,
 };
 use fastboot_rs::{
-    transport::nusb::{devices as list_fastboot_devices, NusbFastBootOpenError},
-    FlashProgress,
+    open_fastboot_with_observer, BackendKind, FlashProgress, ProbeLogLevel,
 };
 use mtk_scatter_parser::FlashPlan;
 use serde::{Deserialize, Serialize};
@@ -72,7 +71,7 @@ fn build_format_tools(root: PathBuf, platform: &str) -> FormatTools {
 }
 
 struct AppState {
-    device: Mutex<Option<NusbFastBoot>>,
+    device: Mutex<Option<FastbootDevice>>,
     flash_plans: Mutex<StoredPlans>,
     flash_control: FlashRunControl,
     force_fastboot: Mutex<ForceFastbootState>,
@@ -238,7 +237,7 @@ pub enum ForceFastbootEvent {
     Error { session_id: u64, message: String },
 }
 
-fn lock_device(state: &AppState) -> Result<std::sync::MutexGuard<'_, Option<NusbFastBoot>>, String> {
+fn lock_device(state: &AppState) -> Result<std::sync::MutexGuard<'_, Option<FastbootDevice>>, String> {
     match state.device.lock() {
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
@@ -294,11 +293,11 @@ impl Drop for FlashGuard<'_> {
     }
 }
 
-fn take_device(state: &AppState) -> Result<Option<NusbFastBoot>, String> {
+fn take_device(state: &AppState) -> Result<Option<FastbootDevice>, String> {
     Ok(lock_device(state)?.take())
 }
 
-fn put_device(state: &AppState, dev: NusbFastBoot) -> Result<(), String> {
+fn put_device(state: &AppState, dev: FastbootDevice) -> Result<(), String> {
     *lock_device(state)? = Some(dev);
     Ok(())
 }
@@ -308,7 +307,7 @@ fn invalidate_cached_device(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-async fn take_or_connect_device(state: &AppState) -> Result<NusbFastBoot, String> {
+async fn take_or_connect_device(state: &AppState) -> Result<FastbootDevice, String> {
     match take_device(state)? {
         Some(dev) => Ok(dev),
         None => fastboot_flasher::connect_fastboot()
@@ -585,7 +584,7 @@ async fn ensure_device_with_policy(
     app: &tauri::AppHandle,
     control: &FlashRunControl,
     policy: DeviceSessionPolicy,
-) -> Result<NusbFastBoot, String> {
+) -> Result<FastbootDevice, String> {
     match policy {
         DeviceSessionPolicy::ReuseCached => match take_device(state)? {
             Some(dev) => Ok(dev),
@@ -601,7 +600,7 @@ async fn ensure_device_with_policy(
 async fn connect_device_for_run(
     app: &tauri::AppHandle,
     control: &FlashRunControl,
-) -> Result<NusbFastBoot, String> {
+) -> Result<FastbootDevice, String> {
     app.emit("flash-progress", FlashEvent::WaitingForDevice)
         .map_err(|e| format!("emit: {e}"))?;
     tokio::select! {
@@ -615,7 +614,7 @@ async fn connect_device_for_run(
 async fn connect_device_with_policy(
     state: &AppState,
     policy: DeviceSessionPolicy,
-) -> Result<NusbFastBoot, String> {
+) -> Result<FastbootDevice, String> {
     match policy {
         DeviceSessionPolicy::ReuseCached => take_or_connect_device(state).await,
         DeviceSessionPolicy::Fresh => {
@@ -629,77 +628,43 @@ async fn connect_device_with_policy(
 
 async fn connect_fastboot_for_device_check(
     app: &tauri::AppHandle,
-) -> Result<NusbFastBoot, FastbootProbeFailure> {
+) -> Result<FastbootDevice, FastbootProbeFailure> {
     let deadline = Instant::now() + Duration::from_millis(DEVICE_CHECK_TIMEOUT_MS);
-    let mut last_open_error = None;
     let mut attempt = 0_u64;
+    let mut errors = Vec::new();
 
     loop {
         attempt = attempt.saturating_add(1);
-        let _ = emit_device_check_diagnostic(
-            app,
-            "enumerating",
-            "info",
-            format!("Attempt {attempt}: scanning for fastboot devices"),
-        );
-        let mut infos = list_fastboot_devices()
-            .await
-            .map_err(|error| FastbootProbeFailure::OpenFailed(format!("enumerate fastboot devices: {error}")))?;
-        let mut saw_candidate = false;
-        let mut candidate_index = 0_u64;
-
-        for info in infos.by_ref() {
-            saw_candidate = true;
-            candidate_index = candidate_index.saturating_add(1);
+        let device = open_fastboot_with_observer(|event| {
+            let level = match event.level {
+                ProbeLogLevel::Info => "info",
+                ProbeLogLevel::Warning => "warning",
+                ProbeLogLevel::Error => "error",
+            };
+            let backend = match event.backend {
+                BackendKind::Nusb => "nusb",
+                #[cfg(windows)]
+                BackendKind::AdbWinApi => "adbwinapi",
+            };
             let _ = emit_device_check_diagnostic(
                 app,
-                "candidate_found",
-                "info",
-                format!("Attempt {attempt}: candidate {candidate_index} reported a fastboot interface"),
+                event.stage,
+                level,
+                format!("Attempt {attempt}: backend={backend} {}", event.message),
             );
-            match NusbFastBoot::from_info(&info).await {
-                Ok(dev) => {
-                    eprintln!("[device-check] opened fastboot interface");
-                    let _ = emit_device_check_diagnostic(
-                        app,
-                        "open_ok",
-                        "info",
-                        format!("Attempt {attempt}: opened candidate {candidate_index}"),
-                    );
-                    return Ok(dev);
-                }
-                Err(error) => {
-                    eprintln!("[device-check] failed to open fastboot interface: {error}");
-                    let open_error = match error {
-                        NusbFastBootOpenError::Device(inner) => format!("open device: {inner}"),
-                        NusbFastBootOpenError::Interface(inner) => {
-                            format!("claim fastboot interface: {inner}")
-                        }
-                        other => other.to_string(),
-                    };
-                    let _ = emit_device_check_diagnostic(
-                        app,
-                        "open_failed",
-                        "warning",
-                        format!("Attempt {attempt}: candidate {candidate_index}: {open_error}"),
-                    );
-                    last_open_error = Some(open_error);
-                }
-            }
-        }
-
-        if !saw_candidate {
-            eprintln!("[device-check] no fastboot interface detected");
-            let _ = emit_device_check_diagnostic(
-                app,
-                "no_interface_yet",
-                "warning",
-                format!("Attempt {attempt}: no fastboot interface detected"),
-            );
+        })
+        .await;
+        match device {
+            Ok(device) => return Ok(device),
+            Err(error) => errors.push(error.to_string()),
         }
 
         if Instant::now() >= deadline {
-            break;
+            return Err(if let Some(error) = errors.pop() {
+                FastbootProbeFailure::OpenFailed(error)
+            } else {
+                FastbootProbeFailure::NoFastbootInterface
+            });
         }
 
         let _ = emit_device_check_diagnostic(
@@ -711,16 +676,12 @@ async fn connect_fastboot_for_device_check(
         sleep(Duration::from_millis(DEVICE_RETRY_DELAY_MS)).await;
     }
 
-    Err(match last_open_error {
-        Some(error) => FastbootProbeFailure::OpenFailed(error),
-        None => FastbootProbeFailure::NoFastbootInterface,
-    })
 }
 
 async fn connect_or_reconnect_device_for_check(
     state: &AppState,
     app: &tauri::AppHandle,
-) -> Result<NusbFastBoot, String> {
+) -> Result<FastbootDevice, String> {
     if let Some(dev) = take_device(state)? {
         let _ = emit_device_check_diagnostic(
             app,
@@ -741,7 +702,7 @@ async fn connect_or_reconnect_device_for_check(
 }
 
 async fn read_device_info_with_diagnostics(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     app: &tauri::AppHandle,
 ) -> Result<DeviceInfo, String> {
     let _ = emit_device_check_diagnostic(app, "reading_vars", "info", "Reading device variables");
@@ -810,7 +771,7 @@ async fn check_device_with_diagnostics(
 }
 
 async fn flash_partition_and_emit(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     app: &tauri::AppHandle,
     summary: &mut FlashSummaryDto,
     control: &FlashRunControl,
@@ -873,7 +834,7 @@ async fn flash_partition_and_emit(
 }
 
 async fn erase_partition_and_emit(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     app: &tauri::AppHandle,
     summary: &mut FlashSummaryDto,
     control: &FlashRunControl,
@@ -921,7 +882,7 @@ async fn erase_partition_and_emit(
 }
 
 async fn erase_optional_partition_and_emit(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     app: &tauri::AppHandle,
     summary: &mut FlashSummaryDto,
     control: &FlashRunControl,
@@ -1009,7 +970,7 @@ async fn get_all_variables(
     result
 }
 
-async fn read_device_info(dev: &mut NusbFastBoot) -> Result<DeviceInfo, String> {
+async fn read_device_info(dev: &mut FastbootDevice) -> Result<DeviceInfo, String> {
     let vars = fastboot_flasher::read_all_variables(dev)
         .await
         .map_err(|e| format!("read vars: {e}"))?;
@@ -1354,7 +1315,7 @@ async fn simulate_dry_run_actions(
 async fn execute_plan_actions(
     actions: &[&mtk_scatter_parser::FlashAction],
     image_overrides: &HashMap<String, String>,
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     max_download_size: u32,
     app: &tauri::AppHandle,
     control: &FlashRunControl,
@@ -1792,7 +1753,7 @@ async fn execute_manual_actions(
 
 async fn execute_manual_flash(
     actions: &[fastboot_flasher::manual::ManualFlashAction],
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     max_download_size: u32,
     app: &tauri::AppHandle,
     control: &FlashRunControl,
@@ -1821,7 +1782,7 @@ async fn execute_manual_flash(
 }
 
 async fn flash_one_partition_evented(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     max_download_size: u32,
     partition: &str,
     image: &std::path::Path,

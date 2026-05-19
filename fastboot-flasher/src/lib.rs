@@ -1,4 +1,4 @@
-#![deny(unsafe_code)]
+#![cfg_attr(not(windows), deny(unsafe_code))]
 
 //! Orchestration helpers for the `fastboot-flasher` CLI and Tauri backend.
 
@@ -10,7 +10,7 @@ pub mod manual;
 pub mod plan;
 pub mod progress;
 
-pub use fastboot_rs::{transport::nusb::NusbFastBoot, FastbootExecutionError, FlashProgress};
+pub use fastboot_rs::{FastbootDevice, FastbootError, FastbootExecutionError, FlashProgress};
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,8 +18,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use fastboot_rs::{
-    flash_prepared_image, parse_max_download_size, prepare_image,
-    transport::nusb::{devices, NusbFastBootError},
+    flash_prepared_image, open_fastboot, parse_max_download_size, prepare_image,
 };
 use inquire::Confirm;
 use mtk_scatter_parser::FlashPlan;
@@ -29,10 +28,10 @@ use tokio::time::sleep;
 use crate::cli::{FlashMode, SlotArg};
 
 pub fn should_skip_failed_partition(err: &FastbootExecutionError) -> bool {
-    matches!(
-        err,
-        FastbootExecutionError::Fastboot(NusbFastBootError::FastbootFailed(_))
-    )
+    match err {
+        FastbootExecutionError::Fastboot(error) => is_fastboot_failed(error),
+        _ => false,
+    }
 }
 
 pub fn handle_failed_partition(
@@ -59,12 +58,8 @@ pub fn handle_failed_partition(
         .prompt()?)
 }
 
-pub fn handle_failed_erase(
-    yes: bool,
-    partition: &str,
-    err: &NusbFastBootError,
-) -> anyhow::Result<bool> {
-    if !matches!(err, NusbFastBootError::FastbootFailed(_)) {
+pub fn handle_failed_erase(yes: bool, partition: &str, err: &FastbootError) -> anyhow::Result<bool> {
+    if !is_fastboot_failed(err) {
         return Ok(false);
     }
     eprintln!(
@@ -83,31 +78,34 @@ pub fn handle_failed_erase(
         .prompt()?)
 }
 
-pub async fn connect_fastboot() -> anyhow::Result<NusbFastBoot> {
+pub async fn connect_fastboot() -> anyhow::Result<FastbootDevice> {
     loop {
-        let mut infos = devices().await?;
-        if let Some(info) = infos.next() {
-            match NusbFastBoot::from_info(&info).await {
-                Ok(dev) => return Ok(dev),
-                Err(error) if error.is_retryable() => {
-                    sleep(Duration::from_millis(250)).await;
-                    continue;
-                }
-                Err(error) => return Err(anyhow::Error::from(error)),
-            }
+        match open_fastboot().await {
+            Ok(dev) => return Ok(dev),
+            Err(_) => sleep(Duration::from_millis(250)).await,
         }
-        sleep(Duration::from_millis(500)).await;
     }
 }
 
-pub async fn read_variable(dev: &mut NusbFastBoot, var: &str) -> anyhow::Result<String> {
+fn is_fastboot_failed(err: &FastbootError) -> bool {
+    match err {
+        FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => true,
+        #[cfg(windows)]
+        FastbootError::AdbWinApi(
+            fastboot_rs::transport::adbwinapi::AdbWinApiFastbootError::FastbootFailed(_),
+        ) => true,
+        _ => false,
+    }
+}
+
+pub async fn read_variable(dev: &mut FastbootDevice, var: &str) -> anyhow::Result<String> {
     dev.get_var(var)
         .await
         .map_err(anyhow::Error::from)
         .with_context(|| format!("get variable {var}"))
 }
 
-pub async fn read_all_variables(dev: &mut NusbFastBoot) -> anyhow::Result<HashMap<String, String>> {
+pub async fn read_all_variables(dev: &mut FastbootDevice) -> anyhow::Result<HashMap<String, String>> {
     dev.get_all_vars()
         .await
         .map_err(anyhow::Error::from)
@@ -126,49 +124,49 @@ pub fn resolve_max_download_size_from_vars(vars: &HashMap<String, String>) -> an
     Ok(max_download)
 }
 
-pub async fn set_fastboot_active_slot(dev: &mut NusbFastBoot, slot: &str) -> anyhow::Result<()> {
+pub async fn set_fastboot_active_slot(dev: &mut FastbootDevice, slot: &str) -> anyhow::Result<()> {
     dev.set_active(slot)
         .await
         .map_err(anyhow::Error::from)
         .with_context(|| format!("set active slot to {slot}"))
 }
 
-pub async fn reboot_device(dev: &mut NusbFastBoot) -> anyhow::Result<()> {
+pub async fn reboot_device(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.reboot()
         .await
         .map_err(anyhow::Error::from)
         .context("reboot device")
 }
 
-pub async fn reboot_device_bootloader(dev: &mut NusbFastBoot) -> anyhow::Result<()> {
+pub async fn reboot_device_bootloader(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.reboot_bootloader()
         .await
         .map_err(anyhow::Error::from)
         .context("reboot to bootloader")
 }
 
-pub async fn reboot_device_fastboot(dev: &mut NusbFastBoot) -> anyhow::Result<()> {
+pub async fn reboot_device_fastboot(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.reboot_fastboot()
         .await
         .map_err(anyhow::Error::from)
         .context("reboot to fastboot")
 }
 
-pub async fn power_off_device(dev: &mut NusbFastBoot) -> anyhow::Result<()> {
+pub async fn power_off_device(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.power_down()
         .await
         .map_err(anyhow::Error::from)
         .context("power off device")
 }
 
-pub async fn send_flashing_unlock(dev: &mut NusbFastBoot) -> anyhow::Result<()> {
+pub async fn send_flashing_unlock(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.unlock_bootloader()
         .await
         .map_err(anyhow::Error::from)
         .context("unlock bootloader")
 }
 
-pub async fn send_flashing_lock(dev: &mut NusbFastBoot) -> anyhow::Result<()> {
+pub async fn send_flashing_lock(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.lock_bootloader()
         .await
         .map_err(anyhow::Error::from)
@@ -176,7 +174,7 @@ pub async fn send_flashing_lock(dev: &mut NusbFastBoot) -> anyhow::Result<()> {
 }
 
 pub async fn flash_one_partition(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     partition: &str,
     image: &Path,
     max_download: u32,
@@ -228,7 +226,7 @@ pub async fn flash_one_partition(
         .with_context(|| format!("flash {partition}"))
 }
 
-pub async fn erase_one_partition(dev: &mut NusbFastBoot, partition: &str) -> anyhow::Result<()> {
+pub async fn erase_one_partition(dev: &mut FastbootDevice, partition: &str) -> anyhow::Result<()> {
     dev.erase(partition)
         .await
         .map_err(anyhow::Error::from)

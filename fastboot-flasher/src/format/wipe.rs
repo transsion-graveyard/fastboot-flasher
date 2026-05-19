@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use fastboot_rs::{transport::nusb::NusbFastBootError, FlashProgress};
+use fastboot_rs::{FastbootDevice, FastbootError, FlashProgress};
 use tempfile::TempDir;
 
-use crate::{erase_one_partition, flash_one_partition, NusbFastBoot};
+use crate::{erase_one_partition, flash_one_partition};
 
 use super::{ext4::build_ext4_image, f2fs::build_f2fs_image, tools::FormatTools};
 
@@ -99,14 +99,14 @@ pub fn parse_fastboot_u64(value: &str) -> anyhow::Result<u64> {
     }
 }
 
-async fn get_var_optional(dev: &mut NusbFastBoot, name: &str) -> Option<String> {
+async fn get_var_optional(dev: &mut FastbootDevice, name: &str) -> Option<String> {
     dev.get_var(name)
         .await
         .ok()
         .map(|value| value.trim().to_string())
 }
 
-pub async fn detect_userdata(dev: &mut NusbFastBoot) -> anyhow::Result<UserdataInfo> {
+pub async fn detect_userdata(dev: &mut FastbootDevice) -> anyhow::Result<UserdataInfo> {
     let fs_type = dev
         .get_var("partition-type:userdata")
         .await
@@ -169,7 +169,7 @@ pub fn generate_userdata_image(
 }
 
 pub async fn format_userdata(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     tools: &FormatTools,
     options: &FormatUserdataOptions,
     on_progress: impl FnMut(FlashProgress),
@@ -179,7 +179,7 @@ pub async fn format_userdata(
 }
 
 pub async fn format_userdata_with_info(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     tools: &FormatTools,
     info: UserdataInfo,
     options: &FormatUserdataOptions,
@@ -216,7 +216,7 @@ pub async fn format_userdata_with_info(
 }
 
 pub async fn wipe_data(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     tools: &FormatTools,
     options: &WipeDataOptions,
     on_progress: impl FnMut(FlashProgress),
@@ -226,7 +226,7 @@ pub async fn wipe_data(
 }
 
 pub async fn wipe_data_with_info(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     tools: &FormatTools,
     info: UserdataInfo,
     options: &WipeDataOptions,
@@ -269,15 +269,26 @@ pub async fn wipe_data_with_info(
 }
 
 pub async fn erase_optional_partition(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     partition: &str,
 ) -> anyhow::Result<OptionalEraseOutcome> {
     match dev.erase(partition).await {
         Ok(()) => Ok(OptionalEraseOutcome::Erased),
-        Err(NusbFastBootError::FastbootFailed(reason)) => {
-            Ok(OptionalEraseOutcome::Skipped { reason })
+        Err(error) if is_skippable_fastboot_error(&error) => {
+            Ok(OptionalEraseOutcome::Skipped { reason: error.to_string() })
         }
         Err(error) => Err(anyhow::Error::from(error)).with_context(|| format!("erase {partition}")),
+    }
+}
+
+fn is_skippable_fastboot_error(error: &FastbootError) -> bool {
+    match error {
+        FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => true,
+        #[cfg(windows)]
+        FastbootError::AdbWinApi(
+            fastboot_rs::transport::adbwinapi::AdbWinApiFastbootError::FastbootFailed(_),
+        ) => true,
+        _ => false,
     }
 }
 

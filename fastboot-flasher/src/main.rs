@@ -6,9 +6,7 @@ use std::{
 use anyhow::{bail, Context};
 use clap::{CommandFactory, Parser};
 use fastboot_rs::{
-    flash_prepared_image, prepare_image,
-    transport::nusb::{devices, NusbFastBoot},
-    FlashProgress,
+    flash_prepared_image, prepare_image, FastbootDevice, FlashProgress,
 };
 
 use fastboot_flasher::{
@@ -17,6 +15,7 @@ use fastboot_flasher::{
         flash_mode_from_flags, flash_modifier_without_flash, validate_args, Args, Command,
         FlashMode, SlotArg,
     },
+    connect_fastboot,
     device::{compact_device_info, mock_device_info},
     format::{
         detect_userdata, format_userdata_with_info, wipe_data_with_info, FormatTools,
@@ -1249,7 +1248,7 @@ fn simulate_manual_actions(actions: &[ManualFlashAction]) -> anyhow::Result<()> 
 
 async fn execute_plan(
     plan: &FlashPlan,
-    fastboot: &mut NusbFastBoot,
+    fastboot: &mut FastbootDevice,
     yes: bool,
 ) -> anyhow::Result<ActionSummary> {
     let max_download = fastboot.max_download_size().await?;
@@ -1348,7 +1347,7 @@ async fn execute_plan(
 
 async fn execute_manual_actions(
     actions: &[ManualFlashAction],
-    fastboot: &mut NusbFastBoot,
+    fastboot: &mut FastbootDevice,
     yes: bool,
 ) -> anyhow::Result<ActionSummary> {
     let max_download = fastboot.max_download_size().await?;
@@ -1404,7 +1403,7 @@ struct FlashContext<'a> {
 }
 
 async fn execute_one_flash(
-    fastboot: &mut NusbFastBoot,
+    fastboot: &mut FastbootDevice,
     partition: &str,
     image_path: &Path,
     index: usize,
@@ -1485,29 +1484,18 @@ fn update_flash_progress(pb: &ProgressBar, overall: &ProgressBar, event: FlashPr
     }
 }
 
-async fn wait_for_fastboot() -> anyhow::Result<NusbFastBoot> {
+async fn wait_for_fastboot() -> anyhow::Result<FastbootDevice> {
     let spinner = ProgressBar::new_spinner();
     spinner.set_message("waiting for fastboot device");
     spinner.enable_steady_tick(Duration::from_millis(120));
     loop {
-        let mut infos = devices().await?;
-        if let Some(info) = infos.next() {
-            match NusbFastBoot::from_info(&info).await {
-                Ok(dev) => {
-                    spinner.finish_and_clear();
-                    return Ok(dev);
-                }
-                Err(error) if error.is_retryable() => {
-                    sleep(Duration::from_millis(250)).await;
-                    continue;
-                }
-                Err(error) => {
-                    spinner.finish_and_clear();
-                    return Err(anyhow::Error::from(error));
-                }
+        match connect_fastboot().await {
+            Ok(dev) => {
+                spinner.finish_and_clear();
+                return Ok(dev);
             }
+            Err(_) => sleep(Duration::from_millis(250)).await,
         }
-        sleep(Duration::from_millis(500)).await;
     }
 }
 

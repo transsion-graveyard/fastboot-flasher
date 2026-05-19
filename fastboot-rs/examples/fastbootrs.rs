@@ -9,7 +9,7 @@ use fastboot_rs::protocol::parse_u32;
 use fastboot_rs::sparse::{
     split::split_image, ChunkHeader, FileHeader, FileHeaderBytes, CHUNK_HEADER_BYTES_LEN,
 };
-use fastboot_rs::transport::nusb::NusbFastBoot;
+use fastboot_rs::{open_fastboot, FastbootDevice};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 
 #[derive(Parser)]
@@ -21,7 +21,7 @@ enum Opts {
 }
 
 async fn flash_raw<R>(
-    fb: &mut NusbFastBoot,
+    fb: &mut FastbootDevice,
     target: &str,
     mut file: R,
     file_size: u32,
@@ -75,7 +75,7 @@ async fn read_exact_padded<R: AsyncRead + Unpin>(
     Ok(total)
 }
 
-async fn flash(fb: &mut NusbFastBoot, target: &str, file: &Path) -> anyhow::Result<()> {
+async fn flash(fb: &mut FastbootDevice, target: &str, file: &Path) -> anyhow::Result<()> {
     let max_download = fb.get_var("max-download-size").await?;
     let max_download = parse_u32(&max_download)
         .with_context(|| anyhow::anyhow!("Failed to parse max download size: {max_download}"))?;
@@ -150,20 +150,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let opts = Opts::parse();
 
-    let mut devices = fastboot_rs::transport::nusb::devices().await?;
-    let info = devices
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("No Device found"))?;
-
-    println!(
-        "Using Fastboot device: {}:{} M: {} P: {}",
-        info.bus_id(),
-        info.device_address(),
-        info.manufacturer_string().unwrap_or_default(),
-        info.product_string().unwrap_or_default()
-    );
-
-    let mut fb = NusbFastBoot::from_info(&info).await?;
+    let mut fb = open_fastboot().await?;
 
     match opts {
         Opts::GetVar { var } => {

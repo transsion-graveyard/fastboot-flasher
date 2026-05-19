@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::{
     image::{ImagePayloadError, ImageTransfer, PreparedImage},
-    transport::nusb::{DataDownload, DownloadError, NusbFastBoot, NusbFastBootError},
+    transport::{DataDownload, FastbootDevice, FastbootError},
 };
 
 const STREAM_CHUNK_SIZE: usize = 64 * 1024;
@@ -53,10 +53,7 @@ pub enum FlashProgress {
 pub enum FastbootExecutionError {
     /// Fastboot transport failed.
     #[error(transparent)]
-    Fastboot(#[from] NusbFastBootError),
-    /// Download streaming failed.
-    #[error(transparent)]
-    Download(#[from] DownloadError),
+    Fastboot(#[from] FastbootError),
     /// Transfer payload materialization failed.
     #[error(transparent)]
     Payload(#[from] ImagePayloadError),
@@ -64,7 +61,7 @@ pub enum FastbootExecutionError {
 
 /// Download and flash all transfers for one prepared partition image.
 pub async fn flash_prepared_image(
-    fastboot: &mut NusbFastBoot,
+    fastboot: &mut FastbootDevice,
     partition: &str,
     image: &PreparedImage,
     mut progress: impl FnMut(FlashProgress),

@@ -19,7 +19,7 @@ use crate::{
     manual::resolved_disable_vbmeta_image_path,
     read_all_variables, read_variable, reboot_device_bootloader, reboot_device_fastboot,
     resolve_max_download_size_from_vars,
-    NusbFastBoot,
+    FastbootDevice,
 };
 
 pub const PRODUCT_GSI_SIZE_BYTES: u64 = 335_872;
@@ -158,7 +158,7 @@ pub struct GsiFlashSummary {
 }
 
 pub struct GsiFlashOutcome {
-    pub device: NusbFastBoot,
+    pub device: FastbootDevice,
     pub summary: GsiFlashSummary,
 }
 
@@ -341,7 +341,7 @@ fn partition_var_name(partition: &str) -> String {
 }
 
 async fn try_partition_size(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     vars: &mut HashMap<String, String>,
     partition: &str,
 ) -> anyhow::Result<Option<u64>> {
@@ -363,7 +363,7 @@ async fn try_partition_size(
 }
 
 async fn resolve_device_partition(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     vars: &mut HashMap<String, String>,
     base: &'static str,
     current_slot: Option<&str>,
@@ -385,7 +385,7 @@ async fn resolve_device_partition(
         .map(|partition| (partition, 0))
 }
 
-async fn wait_for_device_vars() -> anyhow::Result<(NusbFastBoot, HashMap<String, String>)> {
+async fn wait_for_device_vars() -> anyhow::Result<(FastbootDevice, HashMap<String, String>)> {
     let mut last_error = None;
 
     for _ in 0..MODE_WAIT_ATTEMPTS {
@@ -416,7 +416,7 @@ fn resolve_fastboot_capabilities(vars: &HashMap<String, String>) -> anyhow::Resu
 }
 
 pub async fn maybe_needs_product_gsi(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     vars: &HashMap<String, String>,
     gsi_expanded_size: u64,
 ) -> anyhow::Result<Option<bool>> {
@@ -434,11 +434,11 @@ pub async fn maybe_needs_product_gsi(
 const MODE_TRANSITION_TIMEOUT_SECS: u64 = 120;
 
 async fn transition_mode(
-    mut dev: NusbFastBoot,
+    mut dev: FastbootDevice,
     vars: HashMap<String, String>,
     target_mode: FastbootMode,
     report: &mut impl FnMut(GsiEvent),
-) -> anyhow::Result<(NusbFastBoot, HashMap<String, String>, FastbootCapabilities)> {
+) -> anyhow::Result<(FastbootDevice, HashMap<String, String>, FastbootCapabilities)> {
     if detect_fastboot_mode(&vars) == target_mode {
         report(GsiEvent::ModeReady(target_mode));
         let capabilities = resolve_fastboot_capabilities(&vars)?;
@@ -481,7 +481,7 @@ async fn transition_mode(
 }
 
 async fn flash_vbmeta_logged(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     vars: &mut HashMap<String, String>,
     capabilities: &FastbootCapabilities,
     image: &Path,
@@ -515,7 +515,7 @@ async fn flash_vbmeta_logged(
 }
 
 async fn flash_fastbootd_gsi_logged(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     vars: &mut HashMap<String, String>,
     capabilities: &FastbootCapabilities,
     image: &Path,
@@ -587,7 +587,7 @@ async fn flash_fastbootd_gsi_logged(
 }
 
 async fn flash_partition_logged(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     partition: &str,
     image: &Path,
     size_bytes: u64,
@@ -643,7 +643,7 @@ async fn flash_partition_logged(
 }
 
 async fn erase_optional_partition_logged(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     partition: &'static str,
     summary: &mut GsiFlashSummary,
     report: &mut impl FnMut(GsiEvent),
@@ -666,7 +666,7 @@ async fn erase_optional_partition_logged(
 }
 
 async fn wipe_userdata_logged(
-    dev: &mut NusbFastBoot,
+    dev: &mut FastbootDevice,
     tools: &FormatTools,
     info: &crate::format::UserdataInfo,
     wipe_data: &WipeDataOptions,
@@ -736,7 +736,7 @@ async fn wipe_userdata_logged(
 }
 
 pub async fn execute_gsi_flash(
-    mut dev: NusbFastBoot,
+    mut dev: FastbootDevice,
     image: &Path,
     tools: &FormatTools,
     options: &GsiFlashOptions,
@@ -747,7 +747,7 @@ pub async fn execute_gsi_flash(
 }
 
 pub async fn execute_gsi_flash_with_vars(
-    mut dev: NusbFastBoot,
+    mut dev: FastbootDevice,
     mut vars: HashMap<String, String>,
     image: &Path,
     tools: &FormatTools,

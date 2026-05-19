@@ -794,8 +794,8 @@ fn mock_device_info_should_be_marked_as_mocked() {
 
 #[test]
 fn should_skip_failed_partition_should_match_fastboot_failures_only() {
-    let err = FastbootExecutionError::Fastboot(NusbFastBootError::FastbootFailed(
-        "flashing is not allowed".to_string(),
+    let err = FastbootExecutionError::Fastboot(fastboot_flasher::FastbootError::Nusb(
+        NusbFastBootError::FastbootFailed("flashing is not allowed".to_string()),
     ));
 
     assert!(should_skip_failed_partition(&err));

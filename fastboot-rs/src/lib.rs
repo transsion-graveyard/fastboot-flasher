@@ -1,4 +1,4 @@
-#![deny(unsafe_code)]
+#![cfg_attr(not(windows), deny(unsafe_code))]
 #![doc = include_str!("../README.md")]
 
 /// Higher-level fastboot operation executors.
@@ -24,3 +24,4 @@ pub use operation::{
     resolve_slot_suffix, OperationKind, OperationSequence, OperationStep, PartitionTarget,
     PlannedOperation, SlotResolutionError, SlotSelection,
 };
+pub use transport::{open_fastboot, open_fastboot_with_observer, BackendKind, FastbootDevice, FastbootError, FastbootOpenError, ProbeEvent, ProbeLogLevel};

@@ -18,6 +18,13 @@ pub async fn devices() -> Result<impl Iterator<Item = DeviceInfo>, nusb::Error> 
         .filter(|d| NusbFastBoot::find_fastboot_interface(d).is_some()))
 }
 
+/// Open the first fastboot device visible to nusb.
+pub async fn open_first_fastboot() -> Result<NusbFastBoot, NusbFastBootOpenError> {
+    let mut infos = devices().await.map_err(NusbFastBootOpenError::Device)?;
+    let info = infos.next().ok_or(NusbFastBootOpenError::MissingInterface)?;
+    NusbFastBoot::from_info(&info).await
+}
+
 /// Fastboot communication errors
 #[derive(Debug, Error)]
 pub enum NusbFastBootError {
