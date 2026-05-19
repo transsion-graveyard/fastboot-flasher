@@ -1,4 +1,5 @@
 #![cfg_attr(not(windows), deny(unsafe_code))]
+#![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
 /// Higher-level fastboot operation executors.

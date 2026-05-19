@@ -1,4 +1,4 @@
-#![deny(unsafe_code)]
+#![deny(unsafe_code, missing_docs)]
 
 pub mod permissions;
 pub mod protocol;

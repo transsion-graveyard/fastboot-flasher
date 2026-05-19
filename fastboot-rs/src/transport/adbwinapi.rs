@@ -77,6 +77,9 @@ struct UsbInterfaceDescriptor {
     i_interface: u8,
 }
 
+// SAFETY: These `unsafe extern "C" fn` type aliases model the FFI function signatures exported by
+// AdbWinApi.dll. Each corresponds to a known function exported by that DLL. The ABI must match
+// exactly — any mismatch causes undefined behavior at the call site.
 type AdbEnumInterfaces = unsafe extern "C" fn(Guid, bool, bool, bool) -> AdbHandle;
 type AdbNextInterface = unsafe extern "C" fn(AdbHandle, *mut AdbInterfaceInfo, *mut u32) -> bool;
 type AdbCreateInterfaceByName = unsafe extern "C" fn(*const u16) -> AdbHandle;
@@ -228,16 +231,28 @@ pub struct DataDownload<'a> {
     current: Vec<u8>,
 }
 
+// SAFETY: `AdbWinApiFastboot` wraps Windows handle types (`AdbHandle = *mut c_void`) which are
+// safe to send between threads. The handles are only used from synchronous methods and the
+// `Drop` impl serializes cleanup. No thread-unsafe state is stored.
 unsafe impl Send for AdbWinApiFastboot {}
+// SAFETY: Same rationale as `Send` — the Windows handles support concurrent close/open
+// operations and all mutability is behind `&mut self` at the Rust level, so shared
+// references cannot race.
 unsafe impl Sync for AdbWinApiFastboot {}
 
 impl AdbWinApiFastboot {
     pub fn open_first() -> Result<Self, AdbWinApiFastbootOpenError> {
         let discovery = discover_dlls()?;
+        // SAFETY: `AdbApi::load` resolves function symbols from a dynamically-loaded DLL. The DLL
+        // path comes from `discover_dlls()` which verifies the file exists. `load` returns an error
+        // if the DLL can't be opened or symbols can't be resolved, so UB is contained.
         let api = unsafe { AdbApi::load(&discovery.adb_win_api)? };
         trace!("Loaded AdbWinApi from {}", discovery.adb_win_api.display());
         let mut saw_android = false;
 
+        // SAFETY: `api.enum_interfaces` is a valid function pointer loaded from AdbWinApi.dll.
+        // The function takes a GUID+flags and returns a handle (or null on failure). Null is
+        // handled immediately after the call.
         let enum_handle = unsafe { (api.enum_interfaces)(ANDROID_USB_CLASS_ID, true, true, true) };
         if enum_handle.is_null() {
             return Err(AdbWinApiFastbootOpenError::NoAndroidInterface);
@@ -246,6 +261,9 @@ impl AdbWinApiFastboot {
         let mut entry_buffer = vec![0u8; 4096];
         loop {
             let mut entry_buffer_size = entry_buffer.len() as u32;
+            // SAFETY: `api.next_interface` is a valid function pointer. The buffer is
+            // stack-allocated (4096 bytes) and sized appropriately for `AdbInterfaceInfo`. The
+            // function writes into `entry_buffer` and updates `entry_buffer_size` on success.
             let has_next = unsafe {
                 (api.next_interface)(
                     enum_handle,
@@ -257,6 +275,9 @@ impl AdbWinApiFastboot {
                 break;
             }
 
+            // SAFETY: `entry_buffer` was populated by the preceding `next_interface` call, so
+            // casting it to `AdbInterfaceInfo` yields valid data. `device_name` is a null-terminated
+            // wide string embedded in the interface info struct.
             let name = unsafe {
                 let info = entry_buffer.as_ptr().cast::<AdbInterfaceInfo>();
                 wide_ptr_to_string((*info).device_name.as_ptr())
@@ -264,8 +285,14 @@ impl AdbWinApiFastboot {
             saw_android = true;
             trace!("AdbWinApi candidate interface: {name}");
 
+            // SAFETY: `open_candidate` performs multiple FFI calls to open a USB interface,
+            // create read/write endpoints, and validate the interface descriptor. Callers must
+            // ensure `api` contains valid loaded function pointers and `name` is a valid
+            // interface name from `next_interface`.
             match unsafe { Self::open_candidate(&api, &name) } {
                 Ok((interface, read_pipe, write_pipe)) => {
+                    // SAFETY: `enum_handle` is a valid handle returned by `enum_interfaces`.
+                    // `close_handle` is the matching deallocator from the same DLL.
                     unsafe { (api.close_handle)(enum_handle) };
                     return Ok(Self {
                         api,
@@ -279,12 +306,15 @@ impl AdbWinApiFastboot {
                 Err(AdbWinApiFastbootOpenError::DescriptorReadFailed { .. }) => continue,
                 Err(AdbWinApiFastbootOpenError::OpenInterfaceFailed { .. }) => continue,
                 Err(error) => {
+                    // SAFETY: Same as above — `enum_handle` is still valid, needs cleanup.
                     unsafe { (api.close_handle)(enum_handle) };
                     return Err(error);
                 }
             }
         }
 
+        // SAFETY: After the loop, `enum_handle` is either still open (no match found) or already
+        // closed (matched case above returns early). Here we always close it.
         unsafe { (api.close_handle)(enum_handle) };
 
         if !saw_android {
@@ -294,6 +324,11 @@ impl AdbWinApiFastboot {
         }
     }
 
+    /// # Safety
+    ///
+    /// `api` must contain valid function pointers loaded from AdbWinApi.dll. `name` must be a
+    /// valid USB interface name (obtained from `next_interface`). The caller is responsible for
+    /// closing the returned handles via `api.close_handle`.
     unsafe fn open_candidate(
         api: &AdbApi,
         name: &str,
@@ -384,6 +419,10 @@ impl AdbWinApiFastboot {
         while !data.is_empty() {
             let want = data.len().min(MAX_USBFS_BULK_SIZE) as u32;
             let mut written = 0_u32;
+            // SAFETY: `api.write_endpoint_sync` is a valid function pointer from AdbWinApi.dll.
+            // `self.write_pipe` is a valid handle opened by `open_candidate`. `data.as_ptr()` is
+            // a valid byte slice; the FFI will read `want` bytes from it. `written` receives the
+            // actual count and is checked afterwards.
             let ok = unsafe {
                 (self.api.write_endpoint_sync)(
                     self.write_pipe,
@@ -404,6 +443,10 @@ impl AdbWinApiFastboot {
     fn read_once_sync(&mut self) -> Result<Vec<u8>, AdbWinApiFastbootError> {
         let mut buf = vec![0u8; READ_BUFFER_SIZE];
         let mut read = 0_u32;
+        // SAFETY: `api.read_endpoint_sync` is a valid function pointer from AdbWinApi.dll.
+        // `self.read_pipe` is a valid handle. `buf` is a writable `Vec<u8>` whose pointer and
+        // length are passed; the FFI writes up to `buf.len()` bytes into it. `read` captures
+        // the actual byte count.
         let ok = unsafe {
             (self.api.read_endpoint_sync)(
                 self.read_pipe,
@@ -624,6 +667,10 @@ impl AdbWinApiFastboot {
 
 impl Drop for AdbWinApiFastboot {
     fn drop(&mut self) {
+        // SAFETY: Each handle was previously opened by `open_candidate` or
+        // `AdbApi::load`. The `close_handle` function pointer is loaded from the same
+        // AdbWinApi.dll that opened them. Handles are null-checked and set to null after
+        // close to prevent double-free. Each handle is distinct, so order doesn't matter.
         unsafe {
             if !self.write_pipe.is_null() {
                 (self.api.close_handle)(self.write_pipe);
@@ -713,6 +760,11 @@ impl DataDownload<'_> {
 }
 
 impl AdbApi {
+    /// # Safety
+    ///
+    /// `path` must point to a valid AdbWinApi.dll that exports all the required function
+    /// symbols (`AdbEnumInterfaces`, `AdbNextInterface`, etc.). If the DLL exports
+    /// incompatible signatures, calling any method on the returned `AdbApi` is UB.
     unsafe fn load(path: &Path) -> Result<Self, AdbWinApiFastbootOpenError> {
         let library =
             Library::new(path).map_err(|error| AdbWinApiFastbootOpenError::DllLoadFailed {
@@ -751,6 +803,11 @@ impl AdbApi {
     }
 }
 
+/// # Safety
+///
+/// `library` must be a valid open `Library`. `symbol` must be a null-terminated byte string
+/// naming an exported symbol from that library. The caller is responsible for ensuring the
+/// symbol's actual type matches `T`.
 unsafe fn load_symbol<'a, T>(
     library: &'a Library,
     symbol: &[u8],
@@ -820,6 +877,11 @@ fn candidate_search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// # Safety
+///
+/// `ptr` must point to a valid null-terminated wide-character (`u16`) string. The string
+/// must be properly aligned for `u16` access. Callers must ensure the string is
+/// well-formed UTF-16 (lossy conversion handles malformed surrogates).
 unsafe fn wide_ptr_to_string(ptr: *const u16) -> String {
     let mut len = 0usize;
     while *ptr.add(len) != 0 {

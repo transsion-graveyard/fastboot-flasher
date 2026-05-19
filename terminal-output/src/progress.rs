@@ -53,7 +53,7 @@ pub fn format_byte_pair(bytes: u64, total_bytes: u64) -> String {
 
 pub fn timed_style(template: &str) -> ProgressStyle {
     ProgressStyle::with_template(template)
-        .expect("progress template is valid")
+        .unwrap_or_else(|_| ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {wide_msg}").expect("fallback template is valid"))
         .with_key(
             "elapsed_mmss",
             |state: &ProgressState, out: &mut dyn Write| {

@@ -8,6 +8,20 @@ members = [
 ]
 resolver = "2"
 
+[workspace.lints.rust]
+missing_docs = "warn"
+future_incompatible = "deny"
+nonstandard_style = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = 10 }
+redundant_clone = { level = "deny", priority = 9 }
+clone_on_copy = { level = "deny", priority = 9 }
+large_enum_variant = { level = "warn", priority = 8 }
+manual_ok_or = { level = "deny", priority = 7 }
+needless_collect = { level = "deny", priority = 7 }
+map_unwrap_or = { level = "deny", priority = 6 }
+
 [profile.release]
 lto = "thin"
 strip = true

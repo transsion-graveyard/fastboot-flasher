@@ -1,4 +1,5 @@
 #![cfg_attr(not(windows), deny(unsafe_code))]
+#![deny(missing_docs)]
 
 //! Orchestration helpers for the `fastboot-flasher` CLI and Tauri backend.
 

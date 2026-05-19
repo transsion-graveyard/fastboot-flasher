@@ -8,6 +8,9 @@ license = "MIT OR Apache-2.0"
 description = "Reusable fastboot protocol, transport, and image preparation helpers"
 readme = "README.md"
 
+[lints]
+workspace = true
+
 [lib]
 name = "fastboot_rs"
 path = "src/lib.rs"

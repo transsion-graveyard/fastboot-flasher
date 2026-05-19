@@ -4,7 +4,7 @@ use nusb::transfer::Direction;
 use nusb::transfer::{Buffer, In, Out};
 use nusb::Endpoint;
 pub use nusb::{transfer::TransferError, Device, DeviceInfo, Interface};
-use std::{collections::HashMap, fmt::Display, io::Write};
+use std::{collections::HashMap, fmt::Display};
 use thiserror::Error;
 use tracing::{info, warn};
 use tracing::{instrument, trace};
@@ -180,9 +180,7 @@ impl NusbFastBoot {
         &mut self,
         cmd: FastBootCommand<S>,
     ) -> Result<(), NusbFastBootError> {
-        let mut out = vec![];
-        // Only fails if memory allocation fails
-        out.write_fmt(format_args!("{}", cmd)).unwrap();
+        let out = format!("{}", cmd).into_bytes();
         trace!(
             "Sending command: {}",
             std::str::from_utf8(&out).unwrap_or("Invalid utf-8")

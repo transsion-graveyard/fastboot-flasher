@@ -22,10 +22,12 @@ pub fn is_permission_error(error: &anyhow::Error) -> bool {
         || msg.contains("access denied")
 }
 
-#[allow(unsafe_code)]
+#[cfg_attr(unix, expect(unsafe_code))]
 pub fn is_running_as_root() -> bool {
     #[cfg(unix)]
     {
+        // SAFETY: `geteuid()` takes no arguments, returns a valid uid_t, and is safe to call from
+        // any context per POSIX. It cannot fail or cause undefined behavior.
         unsafe { libc::geteuid() == 0 }
     }
 

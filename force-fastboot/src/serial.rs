@@ -50,7 +50,7 @@ impl SerialIo for RealSerialPort {
         match self.port.read(&mut buf) {
             Ok(1) => Ok(Some(buf[0])),
             Ok(0) => Ok(None),
-            Ok(_) => unreachable!(),
+            Ok(_) => Ok(Some(buf[0])),
             Err(e) => match e.kind() {
                 std::io::ErrorKind::TimedOut => Ok(None),
                 _ => Err(e),
