@@ -2,10 +2,9 @@
 
 use std::collections::HashMap;
 
-use terminal_output::chrome::banner;
-use terminal_output::table::{
-    centered_table, colored_value_cell, compact_table, header_cell, label_cell, value_cell, Color,
-};
+use terminal_output::chrome::simple_banner;
+use terminal_output::table::simple_kv_table_colored;
+use crossterm::style::Color;
 
 const SUMMARY_KEYS: &[(&str, &str)] = &[
     ("serialno", "serial"),
@@ -22,36 +21,38 @@ const SUMMARY_KEYS: &[(&str, &str)] = &[
 
 /// Render a compact, color-coded summary table of fastboot device variables.
 pub fn compact_device_info(vars: &HashMap<String, String>) -> String {
-    let mut table = compact_table();
-    table.set_header(vec![header_cell("Field"), header_cell("Value")]);
+    let mut pairs = Vec::new();
+
     for (key, label) in SUMMARY_KEYS {
         if let Some(value) = vars.get(*key).filter(|value| !value.trim().is_empty()) {
-            table.add_row(vec![
-                label_cell(*label),
-                colored_value_cell(value.trim(), value_color(label, value.trim())),
-            ]);
+            pairs.push((label.to_string(), value.trim().to_string(), Color::Cyan, value_color(label, value.trim())));
         }
     }
+
     for slot in ["a", "b"] {
         let retry = vars.get(&format!("slot-retry-count:{slot}"));
         let successful = vars.get(&format!("slot-successful:{slot}"));
         let unbootable = vars.get(&format!("slot-unbootable:{slot}"));
         if retry.is_some() || successful.is_some() || unbootable.is_some() {
-            table.add_row(vec![
-                label_cell(format!("slot {slot}")),
-                value_cell(format!(
-                    "retry={} successful={} unbootable={}",
-                    retry.map_or("?", String::as_str),
-                    successful.map_or("?", String::as_str),
-                    unbootable.map_or("?", String::as_str)
-                )),
-            ]);
+            let value = format!(
+                "retry={} successful={} unbootable={}",
+                retry.map_or("?", String::as_str),
+                successful.map_or("?", String::as_str),
+                unbootable.map_or("?", String::as_str)
+            );
+            pairs.push((format!("slot {slot}"), value, Color::Cyan, Color::Grey));
         }
     }
+
+    let pairs_refs: Vec<(&str, &str, Color, Color)> = pairs
+        .iter()
+        .map(|(k, v, kc, vc)| (k.as_str(), v.as_str(), *kc, *vc))
+        .collect();
+
     format!(
         "\n{}\n\n{}\n",
-        banner("FASTBOOT DEVICE"),
-        centered_table(&table)
+        simple_banner("FASTBOOT DEVICE"),
+        simple_kv_table_colored(&pairs_refs)
     )
 }
 

@@ -8,8 +8,8 @@ use mtk_scatter_parser::{
     build_flash_plan, parse_scatter, version, FlashPlanOptions, Mode, SlotPolicy, StorageSelect,
 };
 use serde_json::json;
-use terminal_output::chrome::{banner, notice_box, section_header, Tone};
-use terminal_output::table::{centered_table, compact_table, header_cell, label_cell, value_cell};
+use terminal_output::chrome::{simple_banner, simple_notice_box, simple_section_header, Tone};
+use terminal_output::table::simple_kv_table;
 
 #[derive(Debug, Parser)]
 #[command(about = "Parse one MediaTek scatter file and generate a safe flash plan.")]
@@ -138,7 +138,7 @@ fn run() -> anyhow::Result<i32> {
                     .context("serialize fatal JSON")?
                 );
             } else {
-                eprintln!("{}", notice_box(Tone::Error, "fatal", &err.to_string()));
+                eprintln!("{}", simple_notice_box(Tone::Error, "fatal", &err.to_string()));
             }
             return Ok(1);
         }
@@ -202,103 +202,57 @@ fn print_summary(
     } else {
         "ERR"
     };
-    println!("{}", banner("MTK SCATTER SUMMARY"));
+    println!("{}", simple_banner("MTK SCATTER SUMMARY"));
     println!();
-    println!("{}", section_header("Scatter Report"));
+    println!("{}", simple_section_header("Scatter Report"));
     println!();
-    let mut scatter_table = compact_table();
-    scatter_table.set_header(vec![header_cell("Field"), header_cell("Value")]);
-    scatter_table.add_row(vec![label_cell("Status"), value_cell(status)]);
-    scatter_table.add_row(vec![
-        label_cell("Scatter"),
-        value_cell(scatter.path.display()),
-    ]);
-    scatter_table.add_row(vec![label_cell("Format"), value_cell(&scatter.format)]);
-    scatter_table.add_row(vec![
-        label_cell("Platform"),
-        value_cell(scatter.platform.as_deref().unwrap_or("?")),
-    ]);
-    scatter_table.add_row(vec![
-        label_cell("Project"),
-        value_cell(scatter.project.as_deref().unwrap_or("?")),
-    ]);
-    scatter_table.add_row(vec![
-        label_cell("Layouts"),
-        value_cell(if layout_desc.is_empty() {
-            "none"
-        } else {
-            &layout_desc
-        }),
-    ]);
-    scatter_table.add_row(vec![
-        label_cell("Warnings"),
-        value_cell(scatter.warnings.len()),
-    ]);
-    scatter_table.add_row(vec![label_cell("Errors"), value_cell(scatter.errors.len())]);
-    println!("{}", centered_table(&scatter_table));
+    let scatter_pairs = vec![
+        ("Status", status.to_string()),
+        ("Scatter", scatter.path.display().to_string()),
+        ("Format", scatter.format.clone()),
+        ("Platform", scatter.platform.as_deref().unwrap_or("?").to_string()),
+        ("Project", scatter.project.as_deref().unwrap_or("?").to_string()),
+        ("Layouts", if layout_desc.is_empty() { "none".to_string() } else { layout_desc.clone() }),
+        ("Warnings", scatter.warnings.len().to_string()),
+        ("Errors", scatter.errors.len().to_string()),
+    ];
+    println!("{}", simple_kv_table(&scatter_pairs));
     println!();
-    println!("{}", section_header("Plan Report"));
+    println!("{}", simple_section_header("Plan Report"));
     println!();
-    let mut plan_table = compact_table();
-    plan_table.set_header(vec![header_cell("Field"), header_cell("Value")]);
-    plan_table.add_row(vec![label_cell("Mode"), value_cell(&plan.mode)]);
-    plan_table.add_row(vec![
-        label_cell("Storage"),
-        value_cell(&plan.storage_selection),
-    ]);
-    plan_table.add_row(vec![
-        label_cell("Slot"),
-        value_cell(&plan.slot_policy_effective),
-    ]);
-    plan_table.add_row(vec![
-        label_cell("Flash"),
-        value_cell(plan.summary.flash_count),
-    ]);
-    plan_table.add_row(vec![
-        label_cell("Wipe"),
-        value_cell(plan.summary.wipe_count),
-    ]);
-    plan_table.add_row(vec![
-        label_cell("Skipped"),
-        value_cell(plan.summary.skipped_count),
-    ]);
-    plan_table.add_row(vec![
-        label_cell("Missing"),
-        value_cell(plan.summary.missing_image_count),
-    ]);
-    plan_table.add_row(vec![
-        label_cell("Oversized"),
-        value_cell(plan.summary.oversized_image_count),
-    ]);
-    plan_table.add_row(vec![
-        label_cell("Warnings"),
-        value_cell(plan.summary.warning_count + plan.summary.action_warning_count),
-    ]);
-    plan_table.add_row(vec![
-        label_cell("Errors"),
-        value_cell(plan.summary.error_count),
-    ]);
-    println!("{}", centered_table(&plan_table));
+    let plan_pairs = vec![
+        ("Mode", plan.mode.to_string()),
+        ("Storage", plan.storage_selection.to_string()),
+        ("Slot", plan.slot_policy_effective.to_string()),
+        ("Flash", plan.summary.flash_count.to_string()),
+        ("Wipe", plan.summary.wipe_count.to_string()),
+        ("Skipped", plan.summary.skipped_count.to_string()),
+        ("Missing", plan.summary.missing_image_count.to_string()),
+        ("Oversized", plan.summary.oversized_image_count.to_string()),
+        ("Warnings", (plan.summary.warning_count + plan.summary.action_warning_count).to_string()),
+        ("Errors", plan.summary.error_count.to_string()),
+    ];
+    println!("{}", simple_kv_table(&plan_pairs));
     for warning in scatter.warnings.iter().take(20) {
         eprintln!(
             "{}",
-            notice_box(Tone::Warning, "parser warning", warning.as_str())
+            simple_notice_box(Tone::Warning, "parser warning", warning.as_str())
         );
     }
     for error in scatter.errors.iter().take(20) {
         eprintln!(
             "{}",
-            notice_box(Tone::Error, "parser error", error.as_str())
+            simple_notice_box(Tone::Error, "parser error", error.as_str())
         );
     }
     for warning in plan.warnings.iter().take(20) {
         eprintln!(
             "{}",
-            notice_box(Tone::Warning, "plan warning", warning.as_str())
+            simple_notice_box(Tone::Warning, "plan warning", warning.as_str())
         );
     }
     for error in plan.errors.iter().take(20) {
-        eprintln!("{}", notice_box(Tone::Error, "plan error", error.as_str()));
+        eprintln!("{}", simple_notice_box(Tone::Error, "plan error", error.as_str()));
     }
 }
 

@@ -7,6 +7,7 @@ use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL_CONDENSED, Attribute, Cell,
     ContentArrangement, Table,
 };
+use crossterm::style::Color as CrosstermColor;
 
 use crate::chrome::center_block;
 
@@ -48,4 +49,38 @@ pub fn colored_value_cell(value: impl fmt::Display, color: Color) -> Cell {
 /// Render a table as a centered block within the terminal width.
 pub fn centered_table(table: &Table) -> String {
     center_block(&table.to_string())
+}
+
+/// Format a single key-value pair as a simple line.
+pub fn simple_kv_row(key: &str, value: &str) -> String {
+    format!("{key}: {value}")
+}
+
+/// Format a single key-value pair with color styling.
+pub fn simple_kv_row_colored(key: &str, value: &str, key_color: CrosstermColor, value_color: CrosstermColor) -> String {
+    use crossterm::style::Stylize;
+    format!("{}: {}", key.with(key_color), value.with(value_color))
+}
+
+/// Convert table data to simple key-value line format (no table, no borders).
+/// Takes a slice of (key, value) pairs and formats them as "key: value" lines.
+/// Accepts both string references and owned strings.
+pub fn simple_kv_table(pairs: &[(&str, impl AsRef<str>)]) -> String {
+    pairs
+        .iter()
+        .map(|(key, value)| simple_kv_row(key, value.as_ref()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Convert table data to simple key-value line format with color styling.
+/// Takes a slice of (key, value, key_color, value_color) tuples.
+pub fn simple_kv_table_colored(pairs: &[(&str, &str, CrosstermColor, CrosstermColor)]) -> String {
+    pairs
+        .iter()
+        .map(|(key, value, key_color, value_color)| {
+            simple_kv_row_colored(key, value, *key_color, *value_color)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

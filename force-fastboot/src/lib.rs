@@ -14,7 +14,7 @@ pub mod udev;
 
 use std::io;
 
-use terminal_output::chrome::{banner, notice_box, status_line, Tone};
+use terminal_output::chrome::{simple_banner, simple_notice_box, simple_status_line, Tone};
 use thiserror::Error;
 
 use serial::{PortDiscovery, SystemPortDiscovery};
@@ -66,7 +66,7 @@ pub fn run_force_fastboot_with_discovery(
     if permissions::is_running_as_root() && !cfg!(windows) {
         eprintln!(
             "{}",
-            notice_box(
+simple_notice_box(
                 Tone::Warning,
                 "root execution",
                 "Running the whole script as root is unnecessary. Prefer a normal user when possible."
@@ -74,7 +74,7 @@ pub fn run_force_fastboot_with_discovery(
         );
     }
 
-    println!("{}", banner("FORCE FASTBOOT"));
+    println!("{}", simple_banner("FORCE FASTBOOT"));
     let auto_udev = !options.no_auto_udev;
     let candidate = if let Some(port) = &options.port {
         serial::candidate_for_device(port, discovery)
@@ -85,7 +85,7 @@ pub fn run_force_fastboot_with_discovery(
 
     println!(
         "{}",
-        status_line(Tone::Info, "port", &format!("opening {}", candidate.device))
+simple_status_line(Tone::Info, "port", &format!("opening {}", candidate.device))
     );
     let mut port = serial::open_with_permission_recovery(&candidate, discovery, auto_udev)
         .map_err(|e| {
@@ -106,7 +106,7 @@ pub fn run_force_fastboot_with_discovery(
 
     println!(
         "{}",
-        status_line(Tone::Success, "handshake", "FASTBOOT command sent")
+simple_status_line(Tone::Success, "handshake", "FASTBOOT command sent")
     );
     Ok(())
 }

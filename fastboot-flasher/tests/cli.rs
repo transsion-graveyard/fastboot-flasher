@@ -771,7 +771,6 @@ fn compact_device_info_should_include_useful_fields_only() {
     let info = compact_device_info(&vars);
 
     assert!(info.contains("FASTBOOT DEVICE"));
-    assert!(info.contains("Field"));
     assert!(info.contains("product"));
     assert!(info.contains("tb8781p1_64"));
     assert!(info.contains("current slot"));

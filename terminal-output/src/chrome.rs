@@ -102,6 +102,31 @@ pub fn notice_box(tone: Tone, title: &str, body: &str) -> String {
     center_block(&boxed_lines(tone, &lines, inner_width, BoxAlignment::Left))
 }
 
+/// Render a simple plain-text banner (no box, no centering) for mobile/small screens.
+pub fn simple_banner(title: &str) -> String {
+    format!("=== {} ===", title.to_uppercase())
+}
+
+/// Render a simple plain-text section header (no box, no centering).
+pub fn simple_section_header(title: &str) -> String {
+    format!("--- {} ---", title)
+}
+
+/// Render a simple plain-text notice (no box, no centering) with tone tag.
+pub fn simple_notice_box(tone: Tone, title: &str, body: &str) -> String {
+    let tag = tone_tag(tone);
+    let mut out = format!("[{tag}] {title}\n");
+    for line in wrap_text(body, 80) {
+        out.push_str(&format!("  {line}\n"));
+    }
+    out.trim_end().to_string()
+}
+
+/// Render a simple left-aligned status line (no centering).
+pub fn simple_status_line(tone: Tone, label: &str, detail: &str) -> String {
+    format!("{}: {}", label.with(tone_color(tone)).bold(), detail)
+}
+
 /// Center a multi-line block within the current terminal width.
 pub fn center_block(block: &str) -> String {
     center_block_with_width(block, terminal_width())
