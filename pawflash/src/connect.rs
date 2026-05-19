@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use fastboot_rs::{open_fastboot_with_preferred_backend, BackendKind, FastbootDevice};
+use fastboot_rs::{open_fastboot_with_observer, FastbootDevice};
 use tokio::time::sleep;
 
 #[cfg(test)]
@@ -27,7 +27,7 @@ pub fn fastboot_connect_retry_delay() -> Duration {
 /// Poll `open_fastboot` every 250ms until a device is found.
 pub async fn connect_fastboot() -> anyhow::Result<FastbootDevice> {
     loop {
-        match try_connect_fastboot_prefer_backend(None).await {
+        match try_connect_fastboot().await {
             Ok(dev) => return Ok(dev),
             Err(_) => {
                 sleep(fastboot_connect_retry_delay()).await;
@@ -36,11 +36,9 @@ pub async fn connect_fastboot() -> anyhow::Result<FastbootDevice> {
     }
 }
 
-/// Open a fastboot device once, trying the preferred backend first when set.
-pub async fn try_connect_fastboot_prefer_backend(
-    preferred_backend: Option<BackendKind>,
-) -> anyhow::Result<FastbootDevice> {
-    open_fastboot_with_preferred_backend(preferred_backend, |_| {})
+/// Open a fastboot device once using nusb.
+pub async fn try_connect_fastboot() -> anyhow::Result<FastbootDevice> {
+    open_fastboot_with_observer(|_| {})
         .await
         .map_err(anyhow::Error::from)
 }

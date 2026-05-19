@@ -1,51 +1,62 @@
-# force-fastboot
+# pawflash / fastboot-flasher
 
-Cargo workspace (5 crates) + Tauri v2 desktop app for flashing Android/MTK devices.
+Rust workspace + Tauri v2 desktop app for MediaTek fastboot flashing.
 
-## Workspace layout
+## Workspace
 
-| Crate | Dir | Type |
+6 crates in root `Cargo.toml`, resolver = "2":
+
+| Package | Cargo name | Kind |
 |---|---|---|
-| `force-fastboot` | `force-fastboot/` | CLI binary + lib — force MTK preloader into fastboot |
-| `fastboot-rs` | `fastboot-rs/` | lib only — fastboot protocol, USB transport, image helpers |
-| `pawflash` | `pawflash/` | binary + lib — CLI orchestrator (scatter flash, vbmeta, format, wipe) |
-| `mtk-scatter-parser` | `mtk-scatter-parser/` | binary + lib — parse MTK scatter files |
-| `terminal-output` | `terminal-output/` | lib — chrome/table/progress/spinner UI helpers |
-| Tauri UI | `pawflash-gui/` | React + TypeScript + Vite + Tailwind v4 + shadcn/ui + Tauri v2 |
+| `pawflash-cli` | `pawflash` | CLI binary — main entrypoint |
+| `pawflash` (lib) | `pawflash-core` → lib `pawflash` | Core orchestration library |
+| `force-fastboot` | `force-fastboot` | Library (no binary!) for MTK preloader→fastboot handoff |
+| `fastboot-rs` | `fastboot_rs` | Async fastboot protocol, USB transport, sparse images |
+| `mtk-scatter-parser` | `mtk_scatter_parser` | Scatter file parser + flash plan builder |
+| `terminal-output` | `terminal_output` | Shared CLI terminal helpers (indicatif spinners, tables) |
 
-## Commands
+**Gotcha:** `pawflash-cli` is the actual CLI binary, package name `pawflash`. The library crate is `pawflash-core` (path `pawflash/`) but its lib name is also `pawflash`. Depend on it as `pawflash = { package = "pawflash-core", path = "../pawflash" }`.
 
-### Rust
-- Build all: `cargo build`
-- Test specific crate: `cargo test -p <crate>` (e.g., `-p pawflash`)
-- Test all: `cargo test --workspace`
-- No CI-enforced lint/format — run manually if needed
+`force-fastboot` is **lib-only** — no `main.rs`. The README example `cargo run -p force-fastboot --` will fail. Use `cargo run -p pawflash -- --force-fastboot` instead.
 
-### Frontend (pawflash-gui/)
-- `pnpm dev` — Vite dev server (port 1420, HMR 1421)
-- `pnpm build` — `tsc -b && vite build`
-- `pnpm lint` — ESLint
-- `pnpm preview` — Preview production build
+## Tauri GUI
 
-### Tauri dev
-- From `pawflash-gui/`: `cargo tauri dev` (uses Vite dev server via `beforeDevCommand`)
-- Release builds: CI triggers on `v*` tag pushes
+`pawflash-gui/` — separate workspace (`[workspace]` in `pawflash-gui/src-tauri/Cargo.toml`, deliberately excluded from root workspace members).
 
-### Python tests (stale — `fastboot` module not in repo)
-- `python -m unittest tests/test_fastboot.py` from repo root
-- `sys.path` manipulation expects a `fastboot.py` at repo root that does not exist
+- Frontend: React + TypeScript + Vite + Tailwind v4 + shadcn/ui (style `base-nova`)
+- Backend: Tauri v2 Rust, emits `flash-progress` and `force-fastboot-progress` events
+- Dev: `cd pawflash-gui && pnpm install && cargo tauri dev`
+- Frontend-only: `cd pawflash-gui && pnpm dev` (port 1420)
 
-## Key architecture notes
-- `pawflash` depends on all other workspace crates (orchestrator layer).
-- `force-fastboot` CLI (`--port`, `--no-auto-udev`) handles MTK preloader USB negotiation.
-- `fastboot-rs` is async (tokio, nusb); `force-fastboot` is sync (serialport).
-- The Tauri backend re-exports most `pawflash` operations as `#[tauri::command]`.
-- Flash progress goes through Tauri events (`flash-progress`, `force-fastboot-progress`).
-- Test fixtures: `tests/fixtures/` (scatter XML, vbmeta image).
-- Release profile: `lto = "fat"` + `panic = "abort"` + `opt-level = "z"` for Tauri binary.
+## Key commands
 
-## Gotchas
-- No pre-commit hooks, no CI test/check jobs — only Tauri release builds.
-- Python tests `import fastboot` but the module is absent from the repository.
-- `pawflash-gui/src-tauri/Cargo.toml` has its own `[workspace]` — don't add it to root workspace.
-- Bundled Linux formatter binaries at `pawflash/assets/bin/linux/`.
+```bash
+cargo build                    # whole workspace
+cargo test --workspace         # all tests
+cargo test -p pawflash         # single crate
+cargo clippy --all-targets --all-features --locked -- -D warnings  # passes clean
+cargo fmt --all                # rustfmt: reorder_imports=true, imports_granularity=Crate, group_imports=StdExternalCrate
+```
+
+No CI-enforced fmt/lint step — run manually.
+
+## Lint rules (workspace-level, inherited)
+
+- `missing_docs` = warn
+- clippy `all` = deny (priority 10)
+- `redundant_clone`, `clone_on_copy`, `manual_ok_or`, `needless_collect`, `map_unwrap_or` = deny
+- `large_enum_variant` = warn
+
+## Architecture
+
+- `fastboot-rs` is async (tokio + nusb for USB transport)
+- `force-fastboot` is sync (serialport for MTK preloader negotiation)
+- `pawflash` orchestrates both, builds flash plans from scatter files, handles format/wipe/vbmeta
+- Release profile (workspace): `lto = "thin"`, `strip`, `codegen-units = 1`
+- Release profile (tauri): `lto = "fat"`, `opt-level = "z"`, `panic = "abort"`
+
+## Env & setup
+
+- Linux USB access may need udev rules; `force-fastboot` can install one automatically
+- GUI: requires `pnpm` (not npm/yarn)
+- CI builds Tauri bundles on ubuntu-22.04 and windows-latest; publishes releases via `workflow_dispatch` (tag input) or push to `v*` tags

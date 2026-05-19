@@ -16,7 +16,7 @@ use tokio::time::{sleep, timeout, Duration as TokioDuration};
 use tracing::debug;
 
 use crate::{
-    connect::try_connect_fastboot_prefer_backend, flash_one_partition,
+    connect::try_connect_fastboot, flash_one_partition,
     format::{
         detect_userdata, erase_optional_partition, generate_userdata_image, parse_fastboot_u64,
         FormatTools, FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
@@ -25,7 +25,8 @@ use crate::{
     read_all_variables, reboot_device_bootloader, reboot_device_fastboot,
     resolve_max_download_size_from_vars, FastbootDevice,
 };
-use fastboot_rs::alternate_backend_kind;
+#[cfg(windows)]
+use crate::WINDOWS_FASTBOOTD_DRIVER_HINT;
 
 /// Size in bytes of the product_gsi fallback image.
 pub const PRODUCT_GSI_SIZE_BYTES: u64 = 335_872;
@@ -39,10 +40,6 @@ pub const PRODUCT_GSI_LABEL: &str = "product";
 pub const PRODUCT_GSI_UUID: &str = "cdd462dd-8dd0-4006-8a5a-94e5a70c2bc3";
 const MODE_WAIT_DELAY_MS: u64 = 250;
 const MODE_TRANSITION_ATTEMPTS: usize = 2;
-
-#[cfg(windows)]
-const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
-    "On Windows, install the Google USB Driver for the fastbootd interface, then reconnect.";
 
 fn check_cancelled(token: &Option<Arc<AtomicBool>>) -> anyhow::Result<()> {
     if let Some(ref flag) = token {
@@ -483,11 +480,9 @@ async fn resolve_device_partition(
     resolve_target_partition(base, slot, &available).map(|partition| (partition, 0))
 }
 
-async fn wait_for_device_vars(
-    preferred_backend: Option<fastboot_rs::BackendKind>,
-) -> anyhow::Result<(FastbootDevice, HashMap<String, String>)> {
+async fn wait_for_device_vars() -> anyhow::Result<(FastbootDevice, HashMap<String, String>)> {
     loop {
-        let mut dev = match try_connect_fastboot_prefer_backend(preferred_backend).await {
+        let mut dev = match try_connect_fastboot().await {
             Ok(dev) => dev,
             Err(_) => {
                 sleep(Duration::from_millis(MODE_WAIT_DELAY_MS)).await;
@@ -550,7 +545,6 @@ async fn transition_mode(
         return Ok((dev, vars, capabilities));
     }
 
-    let preferred_backend = alternate_backend_kind(dev.backend_kind());
     let fut = async {
         for _ in 0..MODE_TRANSITION_ATTEMPTS {
             match target_mode {
@@ -566,22 +560,9 @@ async fn transition_mode(
             }
             drop(dev);
 
-            let (next_dev, next_vars) = wait_for_device_vars(preferred_backend)
-                .await
-                .with_context(|| {
-                    #[cfg(windows)]
-                    {
-                        format!(
-                            "waiting for {} after reboot failed: {}",
-                            target_mode.as_str(),
-                            WINDOWS_FASTBOOTD_DRIVER_HINT
-                        )
-                    }
-                    #[cfg(not(windows))]
-                    {
-                        format!("waiting for {} after reboot failed", target_mode.as_str())
-                    }
-                })?;
+            let (next_dev, next_vars) = wait_for_device_vars().await.with_context(|| {
+                format!("waiting for {} after reboot failed", target_mode.as_str())
+            })?;
             let next_mode = detect_fastboot_mode(&next_vars);
             if next_mode == target_mode {
                 report(GsiEvent::ModeReady(target_mode));

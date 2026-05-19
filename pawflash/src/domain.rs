@@ -15,9 +15,9 @@ use mtk_scatter_parser::{FlashAction, FlashPlan};
 pub const POWER_OFF_UNSUPPORTED_MESSAGE: &str =
     "Power off is not supported by this device in the current fastboot mode.";
 
-/// Windows-specific driver hint used when device probing fails in fastbootd.
+/// Windows-specific driver hint used when device probing fails.
 pub const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
-    "On Windows, install the Google USB Driver for the fastbootd interface, then reconnect.";
+    "On Windows, install the Google USB Driver, then reconnect.";
 
 /// A device snapshot shown to the UI or CLI.
 #[derive(Clone, Serialize)]

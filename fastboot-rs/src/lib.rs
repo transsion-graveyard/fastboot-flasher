@@ -26,7 +26,6 @@ pub use operation::{
     PlannedOperation, SlotResolutionError, SlotSelection,
 };
 pub use transport::{
-    alternate_backend_kind, backend_attempt_order, open_fastboot, open_fastboot_with_observer,
-    open_fastboot_with_preferred_backend, BackendKind, FastbootDevice, FastbootError,
+    open_fastboot, open_fastboot_with_observer, BackendKind, FastbootDevice, FastbootError,
     FastbootOpenError, ProbeEvent, ProbeLogLevel,
 };

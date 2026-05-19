@@ -111,11 +111,6 @@ macro_rules! delegate_download_handle_backend {
 }
 
 impl FastbootDevice {
-    /// Return the active backend kind.
-    pub fn backend_kind(&self) -> BackendKind {
-        BackendKind::Nusb
-    }
-
     /// Query a fastboot variable by name.
     pub async fn get_var(&mut self, var: &str) -> Result<String, FastbootError> {
         delegate_device_backend!(&mut self.backend, get_var, var)
@@ -259,14 +254,6 @@ pub async fn open_fastboot() -> Result<FastbootDevice, FastbootOpenError> {
 pub async fn open_fastboot_with_observer(
     observer: impl FnMut(ProbeEvent),
 ) -> Result<FastbootDevice, FastbootOpenError> {
-    open_fastboot_with_preferred_backend(None, observer).await
-}
-
-/// Open the first available fastboot device, preferring one backend before the other.
-pub async fn open_fastboot_with_preferred_backend(
-    _preferred_backend: Option<BackendKind>,
-    observer: impl FnMut(ProbeEvent),
-) -> Result<FastbootDevice, FastbootOpenError> {
     let mut observer = observer;
 
     let backend = BackendKind::Nusb;
@@ -299,39 +286,20 @@ pub async fn open_fastboot_with_preferred_backend(
     }
 }
 
-/// Return the order in which backends should be probed.
-pub fn backend_attempt_order(_preferred_backend: Option<BackendKind>) -> Vec<BackendKind> {
-    vec![BackendKind::Nusb]
-}
-
-/// Return the alternate backend when one exists.
-pub fn alternate_backend_kind(_kind: BackendKind) -> Option<BackendKind> {
-    None
-}
-
 impl fmt::Debug for FastbootDevice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FastbootDevice")
-            .field("backend", &self.backend_kind().as_str())
+            .field("backend", &BackendKind::Nusb.as_str())
             .finish()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{alternate_backend_kind, backend_attempt_order, BackendKind};
+    use super::BackendKind;
 
     #[test]
-    fn backend_attempt_order_defaults_to_nusb() {
-        assert_eq!(backend_attempt_order(None), vec![BackendKind::Nusb]);
-        assert_eq!(
-            backend_attempt_order(Some(BackendKind::Nusb)),
-            vec![BackendKind::Nusb]
-        );
-    }
-
-    #[test]
-    fn alternate_backend_kind_is_unavailable() {
-        assert_eq!(alternate_backend_kind(BackendKind::Nusb), None);
+    fn open_fastboot_uses_nusb_backend_label() {
+        assert_eq!(BackendKind::Nusb.as_str(), "nusb");
     }
 }

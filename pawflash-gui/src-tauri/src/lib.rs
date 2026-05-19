@@ -12,6 +12,7 @@ use tracing::{debug, warn};
 
 use pawflash as pawflash;
 use pawflash::{
+    describe_fastboot_probe_failure,
     gsi::detect_fastboot_mode,
     cli::{FlashMode, SlotArg},
     format::{
@@ -22,13 +23,11 @@ use pawflash::{
     progress::dry_run_steps,
     resolve_max_download_size_from_vars, FastbootDevice, FlashPlan,
 };
-use fastboot_rs::{open_fastboot_with_observer, BackendKind, FlashProgress, ProbeLogLevel};
+use fastboot_rs::{open_fastboot_with_observer, FlashProgress, ProbeLogLevel};
 
 const CANCELLED_MESSAGE: &str = "cancelled by user";
 const DEVICE_CHECK_TIMEOUT_MS: u64 = 3_000;
 const DEVICE_RETRY_DELAY_MS: u64 = pawflash::connect::FASTBOOT_RETRY_DELAY_MS;
-const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
-    "On Windows, install the Google USB Driver for the fastbootd interface, then reconnect.";
 const POWER_OFF_UNSUPPORTED_MESSAGE: &str =
     "Power off is not supported by this device in the current fastboot mode.";
 
@@ -178,20 +177,6 @@ fn session_policy_for_read_only_command() -> DeviceSessionPolicy {
 
 fn session_policy_for_mutating_command() -> DeviceSessionPolicy {
     DeviceSessionPolicy::Fresh
-}
-
-fn describe_fastboot_probe_failure(failure: &FastbootProbeFailure) -> String {
-    match failure {
-        FastbootProbeFailure::NoFastbootInterface => format!(
-            "No fastboot device detected. {WINDOWS_FASTBOOTD_DRIVER_HINT}"
-        ),
-        FastbootProbeFailure::OpenFailed(error) => format!(
-            "Fastboot device detected but could not be opened: {error}. {WINDOWS_FASTBOOTD_DRIVER_HINT}"
-        ),
-        FastbootProbeFailure::ReadVariablesFailed(error) => format!(
-            "Fastboot device opened but did not respond to fastboot variables: {error}. {WINDOWS_FASTBOOTD_DRIVER_HINT}"
-        ),
-    }
 }
 
 fn build_device_check_diagnostic(
@@ -488,14 +473,15 @@ async fn connect_fastboot_for_device_check(
                 ProbeLogLevel::Warning => "warning",
                 ProbeLogLevel::Error => "error",
             };
-            let backend = match event.backend {
-                BackendKind::Nusb => "nusb",
-            };
             let _ = emit_device_check_diagnostic(
                 app,
                 event.stage,
                 level,
-                format!("Attempt {attempt}: backend={backend} {}", event.message),
+                format!(
+                    "Attempt {attempt}: backend={} {}",
+                    event.backend.as_str(),
+                    event.message
+                ),
             );
         })
         .await;
@@ -2468,6 +2454,7 @@ mod tests {
 
         assert!(no_interface.contains("No fastboot device detected"));
         assert!(no_interface.contains("Windows"));
+        assert!(no_interface.contains("Google USB Driver"));
         assert!(open_failed.contains("could not be opened"));
         assert!(open_failed.contains("access denied"));
         assert!(read_failed.contains("did not respond to fastboot variables"));
