@@ -353,17 +353,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastboot-flasher"
+name = "fastboot-flasher-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "crossterm",
  "fastboot-rs",
  "force-fastboot",
  "indicatif",
  "inquire",
  "mtk-scatter-parser",
+ "serde",
  "serde_json",
  "tempfile",
  "terminal-output",

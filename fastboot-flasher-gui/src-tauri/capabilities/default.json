@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicolas-chaulet/tauri-v2-schemas/main/capability-schema.json",
+  "identifier": "default",
+  "description": "Default capability for fastboot-flasher-gui",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "notification:default",
+    "fs:default",
+    "fs:allow-read",
+    "fs:allow-exists",
+    "shell:default"
+  ]
+}

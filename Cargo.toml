@@ -3,7 +3,7 @@ members = [
     "force-fastboot",
     "mtk-scatter-parser",
     "fastboot-rs",
-    "fastboot-flasher",
+    "fastboot-flasher-core",
     "terminal-output",
 ]
 resolver = "2"

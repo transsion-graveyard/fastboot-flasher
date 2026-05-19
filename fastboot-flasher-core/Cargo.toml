@@ -1,0 +1,25 @@
+[package]
+name = "fastboot-flasher-core"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "fastboot_flasher_core"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+fastboot-rs = { path = "../fastboot-rs" }
+force-fastboot = { path = "../force-fastboot" }
+indicatif = "0.17"
+inquire = "0.9"
+mtk-scatter-parser = { path = "../mtk-scatter-parser" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+terminal-output = { path = "../terminal-output" }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread", "time", "sync"] }

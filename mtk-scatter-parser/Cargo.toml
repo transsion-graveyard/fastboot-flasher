@@ -10,10 +10,6 @@ workspace = true
 name = "mtk_scatter_parser"
 path = "src/lib.rs"
 
-[[bin]]
-name = "mtk-scatter-parser"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
