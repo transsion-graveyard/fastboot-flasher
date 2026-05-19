@@ -48,10 +48,7 @@ pub enum FastBootCommand<S> {
     /// Erase a partition
     Erase(S),
     /// Resize a logical partition to the given byte size.
-    ResizeLogicalPartition {
-        partition: S,
-        size: u64,
-    },
+    ResizeLogicalPartition { partition: S, size: u64 },
     /// Set the active A/B slot
     SetActive(S),
     /// Boot the downloaded data

@@ -176,10 +176,15 @@ pub(crate) fn run_gsi_worker_stdio() -> Result<(), String> {
     let request: GsiWorkerRequest =
         serde_json::from_str(&input).map_err(|e| format!("parse worker request: {e}"))?;
 
-    let runtime = tokio::runtime::Runtime::new().map_err(|e| format!("start tokio runtime: {e}"))?;
+    let runtime =
+        tokio::runtime::Runtime::new().map_err(|e| format!("start tokio runtime: {e}"))?;
     runtime.block_on(async move {
         let mut sink = std::io::stdout().lock();
-        match execute_gsi_worker_request(request, |message| write_worker_message(&mut sink, message)).await {
+        match execute_gsi_worker_request(request, |message| {
+            write_worker_message(&mut sink, message)
+        })
+        .await
+        {
             Ok(summary) => write_worker_message(
                 &mut sink,
                 GsiWorkerMessage::Result(GsiWorkerResult::Complete { summary }),
@@ -380,28 +385,19 @@ async fn execute_gsi_worker_request(
     }))?;
 
     let mut mapper = GsiWorkerProgressMapper::new(execution_plan.summary.total_bytes);
-    let outcome = execute_gsi_flash_with_vars(
-        dev,
-        vars,
-        &image_path,
-        &tools,
-        &gsi_options,
-        |event| {
+    let outcome =
+        execute_gsi_flash_with_vars(dev, vars, &image_path, &tools, &gsi_options, |event| {
             for mapped in mapper.map_event(event) {
                 let _ = emit(GsiWorkerMessage::Event(mapped));
             }
-        },
-    )
-    .await
-    .map_err(|e| format!("{e:#}"))?;
+        })
+        .await
+        .map_err(|e| format!("{e:#}"))?;
     drop(outcome.device);
     Ok(flash_summary_from_gsi(outcome.summary))
 }
 
-fn write_worker_message(
-    sink: &mut impl Write,
-    message: GsiWorkerMessage,
-) -> Result<(), String> {
+fn write_worker_message(sink: &mut impl Write, message: GsiWorkerMessage) -> Result<(), String> {
     serde_json::to_writer(&mut *sink, &message)
         .map_err(|e| format!("encode GSI worker message: {e}"))?;
     sink.write_all(b"\n")
@@ -509,7 +505,10 @@ mod tests {
                 FlashEvent::PreparingImage {
                     partition: "system_a".to_string()
                 },
-                FlashEvent::Overall { bytes: 0, total: 1000 },
+                FlashEvent::Overall {
+                    bytes: 0,
+                    total: 1000
+                },
                 FlashEvent::Flashing {
                     partition: "system_a".to_string(),
                     bytes: 0,

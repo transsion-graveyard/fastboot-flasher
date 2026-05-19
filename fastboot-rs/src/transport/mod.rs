@@ -106,87 +106,141 @@ impl FastbootDevice {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => dev.get_var(var).await.map_err(FastbootError::from),
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.get_var(var).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.get_var(var).await.map_err(FastbootError::from)
+            }
         }
     }
 
-    pub async fn get_all_vars(&mut self) -> Result<std::collections::HashMap<String, String>, FastbootError> {
+    pub async fn get_all_vars(
+        &mut self,
+    ) -> Result<std::collections::HashMap<String, String>, FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.get_all_vars().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.get_all_vars().await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.get_all_vars().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.get_all_vars().await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn max_download_size(&mut self) -> Result<u32, FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.max_download_size().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.max_download_size().await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.max_download_size().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.max_download_size().await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn current_slot(&mut self) -> Result<String, FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.current_slot().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.current_slot().await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.current_slot().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.current_slot().await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn download(&mut self, size: u32) -> Result<DataDownload<'_>, FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.download(size).await.map(DataDownload::Nusb).map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => dev
+                .download(size)
+                .await
+                .map(DataDownload::Nusb)
+                .map_err(FastbootError::from),
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.download(size).await.map(DataDownload::AdbWinApi).map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => dev
+                .download(size)
+                .await
+                .map(DataDownload::AdbWinApi)
+                .map_err(FastbootError::from),
         }
     }
 
     pub async fn flash(&mut self, target: &str) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.flash(target).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.flash(target).await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.flash(target).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.flash(target).await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool, FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.is_logical(partition).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.is_logical(partition).await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.is_logical(partition).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.is_logical(partition).await.map_err(FastbootError::from)
+            }
         }
     }
 
-    pub async fn resize_logical_partition(&mut self, partition: &str, size: u64) -> Result<(), FastbootError> {
+    pub async fn resize_logical_partition(
+        &mut self,
+        partition: &str,
+        size: u64,
+    ) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.resize_logical_partition(partition, size).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => dev
+                .resize_logical_partition(partition, size)
+                .await
+                .map_err(FastbootError::from),
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.resize_logical_partition(partition, size).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => dev
+                .resize_logical_partition(partition, size)
+                .await
+                .map_err(FastbootError::from),
         }
     }
 
     pub async fn continue_boot(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.continue_boot().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.continue_boot().await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.continue_boot().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.continue_boot().await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn set_active(&mut self, slot: &str) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.set_active(slot).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.set_active(slot).await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.set_active(slot).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.set_active(slot).await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn erase(&mut self, target: &str) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.erase(target).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.erase(target).await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.erase(target).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.erase(target).await.map_err(FastbootError::from)
+            }
         }
     }
 
@@ -194,15 +248,21 @@ impl FastbootDevice {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => dev.reboot().await.map_err(FastbootError::from),
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.reboot().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.reboot().await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn reboot_bootloader(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.reboot_bootloader().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.reboot_bootloader().await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.reboot_bootloader().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.reboot_bootloader().await.map_err(FastbootError::from)
+            }
         }
     }
 
@@ -210,39 +270,57 @@ impl FastbootDevice {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => dev.power_down().await.map_err(FastbootError::from),
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.power_down().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.power_down().await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn reboot_to(&mut self, mode: &str) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.reboot_to(mode).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.reboot_to(mode).await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.reboot_to(mode).await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.reboot_to(mode).await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn reboot_fastboot(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.reboot_fastboot().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.reboot_fastboot().await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.reboot_fastboot().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.reboot_fastboot().await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn unlock_bootloader(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.unlock_bootloader().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.unlock_bootloader().await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.unlock_bootloader().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.unlock_bootloader().await.map_err(FastbootError::from)
+            }
         }
     }
 
     pub async fn lock_bootloader(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
-            FastbootDeviceBackend::Nusb(dev) => dev.lock_bootloader().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::Nusb(dev) => {
+                dev.lock_bootloader().await.map_err(FastbootError::from)
+            }
             #[cfg(windows)]
-            FastbootDeviceBackend::AdbWinApi(dev) => dev.lock_bootloader().await.map_err(FastbootError::from),
+            FastbootDeviceBackend::AdbWinApi(dev) => {
+                dev.lock_bootloader().await.map_err(FastbootError::from)
+            }
         }
     }
 }
@@ -271,7 +349,10 @@ impl<'a> DataDownload<'a> {
                 .await
                 .map_err(|error| FastbootError::Download(error.to_string())),
             #[cfg(windows)]
-            Self::AdbWinApi(download) => download.extend_from_slice(data).await.map_err(FastbootError::from),
+            Self::AdbWinApi(download) => download
+                .extend_from_slice(data)
+                .await
+                .map_err(FastbootError::from),
         }
     }
 
@@ -282,7 +363,10 @@ impl<'a> DataDownload<'a> {
                 .await
                 .map_err(|error| FastbootError::Download(error.to_string())),
             #[cfg(windows)]
-            Self::AdbWinApi(download) => download.get_mut_data(max).await.map_err(FastbootError::from),
+            Self::AdbWinApi(download) => download
+                .get_mut_data(max)
+                .await
+                .map_err(FastbootError::from),
         }
     }
 
@@ -303,8 +387,9 @@ pub async fn open_fastboot() -> Result<FastbootDevice, FastbootOpenError> {
 }
 
 pub async fn open_fastboot_with_observer(
-    mut observer: impl FnMut(ProbeEvent),
+    observer: impl FnMut(ProbeEvent),
 ) -> Result<FastbootDevice, FastbootOpenError> {
+    let mut observer = observer;
     observer(ProbeEvent {
         backend: BackendKind::Nusb,
         level: ProbeLogLevel::Info,
@@ -377,12 +462,24 @@ fn log_adbwinapi_probe_detail(
         let (level, stage) = match detail {
             AdbWinApiProbeDetail::DllMissing { .. } => (ProbeLogLevel::Warning, "dll_missing"),
             AdbWinApiProbeDetail::DllLoadFailed { .. } => (ProbeLogLevel::Error, "dll_load_failed"),
-            AdbWinApiProbeDetail::EnumeratingInterfaces { .. } => (ProbeLogLevel::Info, "enumerating_interfaces"),
-            AdbWinApiProbeDetail::AndroidInterfaceFound { .. } => (ProbeLogLevel::Info, "android_interface_found"),
-            AdbWinApiProbeDetail::FastbootInterfaceFound { .. } => (ProbeLogLevel::Info, "fastboot_interface_found"),
-            AdbWinApiProbeDetail::OpenInterfaceFailed { .. } => (ProbeLogLevel::Warning, "open_interface_failed"),
-            AdbWinApiProbeDetail::NoAndroidInterface => (ProbeLogLevel::Warning, "no_android_interface"),
-            AdbWinApiProbeDetail::NoFastbootInterface => (ProbeLogLevel::Warning, "no_fastboot_interface"),
+            AdbWinApiProbeDetail::EnumeratingInterfaces { .. } => {
+                (ProbeLogLevel::Info, "enumerating_interfaces")
+            }
+            AdbWinApiProbeDetail::AndroidInterfaceFound { .. } => {
+                (ProbeLogLevel::Info, "android_interface_found")
+            }
+            AdbWinApiProbeDetail::FastbootInterfaceFound { .. } => {
+                (ProbeLogLevel::Info, "fastboot_interface_found")
+            }
+            AdbWinApiProbeDetail::OpenInterfaceFailed { .. } => {
+                (ProbeLogLevel::Warning, "open_interface_failed")
+            }
+            AdbWinApiProbeDetail::NoAndroidInterface => {
+                (ProbeLogLevel::Warning, "no_android_interface")
+            }
+            AdbWinApiProbeDetail::NoFastbootInterface => {
+                (ProbeLogLevel::Warning, "no_fastboot_interface")
+            }
         };
         observer(ProbeEvent {
             backend: BackendKind::AdbWinApi,

@@ -24,4 +24,7 @@ pub use operation::{
     resolve_slot_suffix, OperationKind, OperationSequence, OperationStep, PartitionTarget,
     PlannedOperation, SlotResolutionError, SlotSelection,
 };
-pub use transport::{open_fastboot, open_fastboot_with_observer, BackendKind, FastbootDevice, FastbootError, FastbootOpenError, ProbeEvent, ProbeLogLevel};
+pub use transport::{
+    open_fastboot, open_fastboot_with_observer, BackendKind, FastbootDevice, FastbootError,
+    FastbootOpenError, ProbeEvent, ProbeLogLevel,
+};

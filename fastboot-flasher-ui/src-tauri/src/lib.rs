@@ -239,7 +239,9 @@ pub enum ForceFastbootEvent {
     Error { session_id: u64, message: String },
 }
 
-fn lock_device(state: &AppState) -> Result<std::sync::MutexGuard<'_, Option<FastbootDevice>>, String> {
+fn lock_device(
+    state: &AppState,
+) -> Result<std::sync::MutexGuard<'_, Option<FastbootDevice>>, String> {
     match state.device.lock() {
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
@@ -263,7 +265,9 @@ fn lock_flash_plans(state: &AppState) -> Result<std::sync::MutexGuard<'_, Stored
     }
 }
 
-fn lock_force_fastboot(state: &AppState) -> Result<std::sync::MutexGuard<'_, ForceFastbootState>, String> {
+fn lock_force_fastboot(
+    state: &AppState,
+) -> Result<std::sync::MutexGuard<'_, ForceFastbootState>, String> {
     match state.force_fastboot.lock() {
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
@@ -446,10 +450,7 @@ fn store_flash_plan(state: &AppState, plan: FlashPlan) -> Result<u64, String> {
 }
 
 fn load_flash_plan(state: &AppState, plan_id: u64) -> Result<Option<FlashPlan>, String> {
-    Ok(lock_flash_plans(state)?
-        .plans
-        .get(&plan_id)
-        .cloned())
+    Ok(lock_flash_plans(state)?.plans.get(&plan_id).cloned())
 }
 
 fn filter_actions<'a>(
@@ -614,9 +615,7 @@ async fn connect_device_for_run(
     app.emit("flash-progress", FlashEvent::WaitingForDevice)
         .map_err(|e| format!("emit: {e}"))?;
     tokio::select! {
-        device = fastboot_flasher::connect_fastboot() => {
-            device.map_err(|e| format!("connect: {e}"))
-        }
+        device = fastboot_flasher::connect_fastboot() => device.map_err(|e| format!("connect: {e}")),
         cancelled = wait_for_cancel(control) => Err(cancelled),
     }
 }
@@ -685,7 +684,6 @@ async fn connect_fastboot_for_device_check(
         );
         sleep(Duration::from_millis(DEVICE_RETRY_DELAY_MS)).await;
     }
-
 }
 
 async fn connect_or_reconnect_device_for_check(
@@ -769,9 +767,11 @@ async fn check_device_with_diagnostics(
             let info = read_device_info_with_diagnostics(&mut fresh, app)
                 .await
                 .map_err(|error| {
-                    let message =
-                        describe_fastboot_probe_failure(&FastbootProbeFailure::ReadVariablesFailed(error));
-                    let _ = emit_device_check_diagnostic(app, "read_vars_failed", "error", &message);
+                    let message = describe_fastboot_probe_failure(
+                        &FastbootProbeFailure::ReadVariablesFailed(error),
+                    );
+                    let _ =
+                        emit_device_check_diagnostic(app, "read_vars_failed", "error", &message);
                     message
                 })?;
             put_device(state, fresh)?;
@@ -959,8 +959,12 @@ async fn check_device(
 }
 
 #[tauri::command]
-async fn get_variable(state: tauri::State<'_, AppState>, var: String) -> Result<String, String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_read_only_command()).await?;
+async fn get_variable(
+    state: tauri::State<'_, AppState>,
+    var: String,
+) -> Result<String, String> {
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_read_only_command()).await?;
     let result = fastboot_flasher::read_variable(&mut dev, &var)
         .await
         .map_err(|e| format!("getvar: {e}"));
@@ -972,7 +976,8 @@ async fn get_variable(state: tauri::State<'_, AppState>, var: String) -> Result<
 async fn get_all_variables(
     state: tauri::State<'_, AppState>,
 ) -> Result<HashMap<String, String>, String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_read_only_command()).await?;
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_read_only_command()).await?;
     let result = fastboot_flasher::read_all_variables(&mut dev)
         .await
         .map_err(|e| format!("getvars: {e}"));
@@ -1161,18 +1166,13 @@ async fn start_flash_inner(
         return Ok(summary);
     }
 
-    let mut dev = ensure_device_with_policy(
-        &state,
-        &app,
-        &control,
-        session_policy_for_flash_run(),
-    )
-    .await?;
+    let mut dev =
+        ensure_device_with_policy(&state, &app, &control, session_policy_for_flash_run()).await?;
     let vars = fastboot_flasher::read_all_variables(&mut dev)
         .await
         .map_err(|e| format!("read vars: {e}"))?;
-    let max_download_size =
-        resolve_max_download_size_from_vars(&vars).map_err(|e| format!("max-download-size: {e}"))?;
+    let max_download_size = resolve_max_download_size_from_vars(&vars)
+        .map_err(|e| format!("max-download-size: {e}"))?;
 
     execute_plan_actions(
         &filtered,
@@ -1467,13 +1467,8 @@ async fn format_userdata_inner(
 ) -> Result<FlashSummaryDto, String> {
     let _guard = FlashGuard::new(&state)?;
     let control = begin_flash_run(&state);
-    let mut dev = ensure_device_with_policy(
-        &state,
-        &app,
-        &control,
-        session_policy_for_flash_run(),
-    )
-    .await?;
+    let mut dev =
+        ensure_device_with_policy(&state, &app, &control, session_policy_for_flash_run()).await?;
     let tools = resolve_format_tools(&app)?;
     let info = detect_userdata(&mut dev)
         .await
@@ -1482,8 +1477,9 @@ async fn format_userdata_inner(
         .max_download_size
         .ok_or_else(|| "detect userdata: missing max-download-size".to_string())
         .and_then(|value| {
-            u32::try_from(value)
-                .map_err(|_| "detect userdata: max-download-size exceeds supported range".to_string())
+            u32::try_from(value).map_err(|_| {
+                "detect userdata: max-download-size exceeds supported range".to_string()
+            })
         })?;
 
     app.emit(
@@ -1570,13 +1566,8 @@ async fn wipe_data_inner(
 ) -> Result<FlashSummaryDto, String> {
     let _guard = FlashGuard::new(&state)?;
     let control = begin_flash_run(&state);
-    let mut dev = ensure_device_with_policy(
-        &state,
-        &app,
-        &control,
-        session_policy_for_flash_run(),
-    )
-    .await?;
+    let mut dev =
+        ensure_device_with_policy(&state, &app, &control, session_policy_for_flash_run()).await?;
     let tools = resolve_format_tools(&app)?;
     let info = detect_userdata(&mut dev)
         .await
@@ -1585,8 +1576,9 @@ async fn wipe_data_inner(
         .max_download_size
         .ok_or_else(|| "detect userdata: missing max-download-size".to_string())
         .and_then(|value| {
-            u32::try_from(value)
-                .map_err(|_| "detect userdata: max-download-size exceeds supported range".to_string())
+            u32::try_from(value).map_err(|_| {
+                "detect userdata: max-download-size exceeds supported range".to_string()
+            })
         })?;
 
     app.emit(
@@ -1718,18 +1710,13 @@ async fn execute_manual_actions(
     .map_err(|e| format!("emit: {e}"))?;
     emit_overall_progress(&app, 0, 0, total_bytes)?;
 
-    let mut dev = ensure_device_with_policy(
-        &state,
-        &app,
-        &control,
-        session_policy_for_flash_run(),
-    )
-    .await?;
+    let mut dev =
+        ensure_device_with_policy(&state, &app, &control, session_policy_for_flash_run()).await?;
     let vars = fastboot_flasher::read_all_variables(&mut dev)
         .await
         .map_err(|e| format!("read vars: {e}"))?;
-    let max_download_size =
-        resolve_max_download_size_from_vars(&vars).map_err(|e| format!("max-download-size: {e}"))?;
+    let max_download_size = resolve_max_download_size_from_vars(&vars)
+        .map_err(|e| format!("max-download-size: {e}"))?;
 
     let mut summary = FlashSummaryDto {
         flash_count: 0,
@@ -1849,8 +1836,12 @@ async fn flash_one_partition_evented(
 }
 
 #[tauri::command]
-async fn set_active_slot(state: tauri::State<'_, AppState>, slot: String) -> Result<(), String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn set_active_slot(
+    state: tauri::State<'_, AppState>,
+    slot: String,
+) -> Result<(), String> {
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::set_fastboot_active_slot(&mut dev, &slot)
         .await
         .map_err(|e| format!("set active: {e}"));
@@ -1859,8 +1850,11 @@ async fn set_active_slot(state: tauri::State<'_, AppState>, slot: String) -> Res
 }
 
 #[tauri::command]
-async fn reboot_device(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn reboot_device(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::reboot_device(&mut dev)
         .await
         .map_err(|e| format!("reboot: {e}"));
@@ -1870,8 +1864,11 @@ async fn reboot_device(state: tauri::State<'_, AppState>) -> Result<(), String> 
 }
 
 #[tauri::command]
-async fn reboot_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn reboot_bootloader(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::reboot_device_bootloader(&mut dev)
         .await
         .map_err(|e| format!("reboot bootloader: {e}"));
@@ -1880,8 +1877,11 @@ async fn reboot_bootloader(state: tauri::State<'_, AppState>) -> Result<(), Stri
 }
 
 #[tauri::command]
-async fn reboot_fastboot(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn reboot_fastboot(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::reboot_device_fastboot(&mut dev)
         .await
         .map_err(|e| format!("reboot fastboot: {e}"));
@@ -1890,8 +1890,11 @@ async fn reboot_fastboot(state: tauri::State<'_, AppState>) -> Result<(), String
 }
 
 #[tauri::command]
-async fn reboot_recovery(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn reboot_recovery(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = dev
         .reboot_to("recovery")
         .await
@@ -1901,8 +1904,11 @@ async fn reboot_recovery(state: tauri::State<'_, AppState>) -> Result<(), String
 }
 
 #[tauri::command]
-async fn power_off_device(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn power_off_device(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::power_off_device(&mut dev)
         .await
         .map_err(|e| normalize_power_off_error(&format!("power off: {e}")));
@@ -1911,8 +1917,11 @@ async fn power_off_device(state: tauri::State<'_, AppState>) -> Result<(), Strin
 }
 
 #[tauri::command]
-async fn unlock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn unlock_bootloader(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::send_flashing_unlock(&mut dev)
         .await
         .map_err(|e| format!("unlock: {e}"));
@@ -1921,8 +1930,11 @@ async fn unlock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), Stri
 }
 
 #[tauri::command]
-async fn lock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn lock_bootloader(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut dev =
+        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::send_flashing_lock(&mut dev)
         .await
         .map_err(|e| format!("lock: {e}"));
@@ -2161,18 +2173,17 @@ mod tests {
     use super::{
         build_device_check_diagnostic, cancel_force_fastboot_session,
         describe_fastboot_probe_failure, describe_probe_stage, display_safety_class,
-        filter_actions, load_flash_plan, new_device_cache, normalize_power_off_error, normalize_slot,
-        normalize_storage_label, parse_flash_mode, parse_plan_request,
+        filter_actions, load_flash_plan, new_device_cache, normalize_power_off_error,
+        normalize_slot, normalize_storage_label, parse_flash_mode, parse_plan_request,
         plan_requires_connected_device, plan_to_dto, prepare_for_gsi_worker_launch,
         resolve_image_path_for_action, session_policy_for_flash_run,
         session_policy_for_mutating_command, session_policy_for_read_only_command,
         start_force_fastboot_session, store_flash_plan, update_overall_progress, AppState,
-        DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashRunControl,
-        ForceFastbootState, StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
+        DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashRunControl, ForceFastbootState,
+        StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
     };
     use fastboot_flasher::gsi::{
-        detect_fastboot_mode as shared_detect_fastboot_mode,
-        FastbootMode as SharedFastbootMode,
+        detect_fastboot_mode as shared_detect_fastboot_mode, FastbootMode as SharedFastbootMode,
     };
     use fastboot_flasher::plan::slot_to_scatter;
     use mtk_scatter_parser::{FlashAction, FlashPlan, FlashPlanSummary};
@@ -2320,7 +2331,10 @@ mod tests {
 
     #[test]
     fn mutating_commands_always_use_fresh_device_sessions() {
-        assert_eq!(session_policy_for_mutating_command(), DeviceSessionPolicy::Fresh);
+        assert_eq!(
+            session_policy_for_mutating_command(),
+            DeviceSessionPolicy::Fresh
+        );
     }
 
     #[test]
@@ -2330,24 +2344,28 @@ mod tests {
         } else {
             DeviceSessionPolicy::ReuseCached
         };
-        assert_eq!(
-            session_policy_for_read_only_command(),
-            expected
-        );
+        assert_eq!(session_policy_for_read_only_command(), expected);
     }
 
     #[test]
     fn stored_plan_ids_resolve_exact_plans() {
         let state = test_state();
 
-        let dry_run_id = store_flash_plan(&state, flash_plan(vec![flash_action("boot", "flash")])).unwrap();
+        let dry_run_id =
+            store_flash_plan(&state, flash_plan(vec![flash_action("boot", "flash")])).unwrap();
         let mut clean_flash = flash_plan(vec![flash_action("boot", "flash")]);
         clean_flash.mode = "clean_flash".to_string();
         let clean_flash_id = store_flash_plan(&state, clean_flash).unwrap();
 
-        assert_eq!(load_flash_plan(&state, dry_run_id).unwrap().unwrap().mode, "dry-run");
         assert_eq!(
-            load_flash_plan(&state, clean_flash_id).unwrap().unwrap().mode,
+            load_flash_plan(&state, dry_run_id).unwrap().unwrap().mode,
+            "dry-run"
+        );
+        assert_eq!(
+            load_flash_plan(&state, clean_flash_id)
+                .unwrap()
+                .unwrap()
+                .mode,
             "clean_flash"
         );
     }
@@ -2456,7 +2474,10 @@ mod tests {
     fn detect_fastboot_mode_treats_is_userspace_yes_as_fastbootd() {
         let vars = HashMap::from([("is-userspace".to_string(), "yes".to_string())]);
 
-        assert_eq!(shared_detect_fastboot_mode(&vars), SharedFastbootMode::Fastbootd);
+        assert_eq!(
+            shared_detect_fastboot_mode(&vars),
+            SharedFastbootMode::Fastbootd
+        );
     }
 
     #[test]
@@ -2465,9 +2486,18 @@ mod tests {
         let no = HashMap::from([("is-userspace".to_string(), "no".to_string())]);
         let upper = HashMap::from([("is-userspace".to_string(), "YES".to_string())]);
 
-        assert_eq!(shared_detect_fastboot_mode(&missing), SharedFastbootMode::Bootloader);
-        assert_eq!(shared_detect_fastboot_mode(&no), SharedFastbootMode::Bootloader);
-        assert_eq!(shared_detect_fastboot_mode(&upper), SharedFastbootMode::Bootloader);
+        assert_eq!(
+            shared_detect_fastboot_mode(&missing),
+            SharedFastbootMode::Bootloader
+        );
+        assert_eq!(
+            shared_detect_fastboot_mode(&no),
+            SharedFastbootMode::Bootloader
+        );
+        assert_eq!(
+            shared_detect_fastboot_mode(&upper),
+            SharedFastbootMode::Bootloader
+        );
     }
 
     #[test]
@@ -2506,12 +2536,13 @@ mod tests {
 
     #[test]
     fn fastboot_probe_failure_messages_include_windows_driver_hint() {
-        let no_interface = describe_fastboot_probe_failure(&FastbootProbeFailure::NoFastbootInterface);
+        let no_interface =
+            describe_fastboot_probe_failure(&FastbootProbeFailure::NoFastbootInterface);
         let open_failed =
             describe_fastboot_probe_failure(&FastbootProbeFailure::OpenFailed("access denied".to_string()));
-        let read_failed = describe_fastboot_probe_failure(&FastbootProbeFailure::ReadVariablesFailed(
-            "read vars: transport stalled".to_string(),
-        ));
+        let read_failed = describe_fastboot_probe_failure(
+            &FastbootProbeFailure::ReadVariablesFailed("read vars: transport stalled".to_string()),
+        );
 
         assert!(no_interface.contains("No fastboot device detected"));
         assert!(no_interface.contains("Windows"));
@@ -2537,9 +2568,18 @@ mod tests {
 
     #[test]
     fn probe_stage_labels_are_human_readable() {
-        assert_eq!(describe_probe_stage("enumerating"), "Enumerating fastboot devices");
-        assert_eq!(describe_probe_stage("read_vars_failed"), "Reading fastboot variables failed");
-        assert_eq!(describe_probe_stage("mode_detected"), "Detected fastboot mode");
+        assert_eq!(
+            describe_probe_stage("enumerating"),
+            "Enumerating fastboot devices"
+        );
+        assert_eq!(
+            describe_probe_stage("read_vars_failed"),
+            "Reading fastboot variables failed"
+        );
+        assert_eq!(
+            describe_probe_stage("mode_detected"),
+            "Detected fastboot mode"
+        );
         assert_eq!(describe_probe_stage("something_else"), "something_else");
     }
 

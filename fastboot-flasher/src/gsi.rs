@@ -18,8 +18,7 @@ use crate::{
     },
     manual::resolved_disable_vbmeta_image_path,
     read_all_variables, read_variable, reboot_device_bootloader, reboot_device_fastboot,
-    resolve_max_download_size_from_vars,
-    FastbootDevice,
+    resolve_max_download_size_from_vars, FastbootDevice,
 };
 
 pub const PRODUCT_GSI_SIZE_BYTES: u64 = 335_872;
@@ -381,8 +380,7 @@ async fn resolve_device_partition(
 
     let available = available_partitions(vars);
     let slot = current_slot.unwrap_or("unknown");
-    resolve_target_partition(base, slot, &available)
-        .map(|partition| (partition, 0))
+    resolve_target_partition(base, slot, &available).map(|partition| (partition, 0))
 }
 
 async fn wait_for_device_vars() -> anyhow::Result<(FastbootDevice, HashMap<String, String>)> {
@@ -409,7 +407,9 @@ async fn wait_for_device_vars() -> anyhow::Result<(FastbootDevice, HashMap<Strin
     Err(last_error.unwrap_or_else(|| anyhow::anyhow!("timed out waiting for fastboot variables")))
 }
 
-fn resolve_fastboot_capabilities(vars: &HashMap<String, String>) -> anyhow::Result<FastbootCapabilities> {
+fn resolve_fastboot_capabilities(
+    vars: &HashMap<String, String>,
+) -> anyhow::Result<FastbootCapabilities> {
     let max_download_size = resolve_max_download_size_from_vars(vars)?;
     eprintln!("[gsi-shared] resolved max-download-size=0x{max_download_size:x}");
     Ok(FastbootCapabilities { max_download_size })
@@ -438,7 +438,11 @@ async fn transition_mode(
     vars: HashMap<String, String>,
     target_mode: FastbootMode,
     report: &mut impl FnMut(GsiEvent),
-) -> anyhow::Result<(FastbootDevice, HashMap<String, String>, FastbootCapabilities)> {
+) -> anyhow::Result<(
+    FastbootDevice,
+    HashMap<String, String>,
+    FastbootCapabilities,
+)> {
     if detect_fastboot_mode(&vars) == target_mode {
         report(GsiEvent::ModeReady(target_mode));
         let capabilities = resolve_fastboot_capabilities(&vars)?;
@@ -447,27 +451,27 @@ async fn transition_mode(
 
     let fut = async {
         for _ in 0..MODE_TRANSITION_ATTEMPTS {
-        match target_mode {
-            FastbootMode::Bootloader => {
-                report(GsiEvent::Step(GsiStep::RebootingToBootloader));
-                reboot_device_bootloader(&mut dev).await?;
+            match target_mode {
+                FastbootMode::Bootloader => {
+                    report(GsiEvent::Step(GsiStep::RebootingToBootloader));
+                    reboot_device_bootloader(&mut dev).await?;
+                }
+                FastbootMode::Fastbootd => {
+                    report(GsiEvent::Step(GsiStep::RebootingToFastbootd));
+                    reboot_device_fastboot(&mut dev).await?;
+                }
             }
-            FastbootMode::Fastbootd => {
-                report(GsiEvent::Step(GsiStep::RebootingToFastbootd));
-                reboot_device_fastboot(&mut dev).await?;
-            }
-        }
-        drop(dev);
+            drop(dev);
 
-        let (next_dev, next_vars) = wait_for_device_vars().await?;
-        let next_mode = detect_fastboot_mode(&next_vars);
-        if next_mode == target_mode {
-            report(GsiEvent::ModeReady(target_mode));
-            let capabilities = resolve_fastboot_capabilities(&next_vars)?;
-            return Ok((next_dev, next_vars, capabilities));
+            let (next_dev, next_vars) = wait_for_device_vars().await?;
+            let next_mode = detect_fastboot_mode(&next_vars);
+            if next_mode == target_mode {
+                report(GsiEvent::ModeReady(target_mode));
+                let capabilities = resolve_fastboot_capabilities(&next_vars)?;
+                return Ok((next_dev, next_vars, capabilities));
+            }
+            dev = next_dev;
         }
-        dev = next_dev;
-    }
 
         anyhow::bail!(
             "GSI flow required {}, but the device did not switch modes after retry",
@@ -477,7 +481,9 @@ async fn transition_mode(
 
     timeout(TokioDuration::from_secs(MODE_TRANSITION_TIMEOUT_SECS), fut)
         .await
-        .map_err(|_| anyhow::anyhow!("mode transition timed out after {MODE_TRANSITION_TIMEOUT_SECS}s"))?
+        .map_err(|_| {
+            anyhow::anyhow!("mode transition timed out after {MODE_TRANSITION_TIMEOUT_SECS}s")
+        })?
 }
 
 async fn flash_vbmeta_logged(
@@ -565,7 +571,10 @@ async fn flash_fastbootd_gsi_logged(
             report,
             options,
         );
-        eprintln!("[gsi-shared] after create flash_partition_logged future partition={} size_bytes={}", product_partition, product_size);
+        eprintln!(
+            "[gsi-shared] after create flash_partition_logged future partition={} size_bytes={}",
+            product_partition, product_size
+        );
         flash_future.await?;
     } else {
         report(GsiEvent::Step(GsiStep::ProductGsiFallbackNotNeeded));
@@ -610,8 +619,7 @@ async fn flash_partition_logged(
     });
     eprintln!(
         "[gsi-shared] after report Flashing partition={} size_bytes={}",
-        partition,
-        size_bytes
+        partition, size_bytes
     );
     let partition_name = partition.to_string();
     let mut bytes_flashed = 0_u64;
@@ -701,10 +709,7 @@ async fn wipe_userdata_logged(
             .await?;
             summary.wipe_count += 1;
         }
-        Err(_error)
-            if wipe_data.erase_fallback
-                || info.fs_type.eq_ignore_ascii_case("raw") =>
-        {
+        Err(_error) if wipe_data.erase_fallback || info.fs_type.eq_ignore_ascii_case("raw") => {
             check_cancelled(&options.cancel_token)?;
             report(GsiEvent::UserdataEraseFallback {
                 fs_type: info.fs_type.clone(),
@@ -756,10 +761,14 @@ pub async fn execute_gsi_flash_with_vars(
 ) -> anyhow::Result<GsiFlashOutcome> {
     let metadata = std::fs::metadata(image)
         .with_context(|| format!("read GSI image metadata for {}", image.display()))?;
-    anyhow::ensure!(metadata.is_file(), "{} is not a regular file", image.display());
+    anyhow::ensure!(
+        metadata.is_file(),
+        "{} is not a regular file",
+        image.display()
+    );
 
-    let inspected =
-        inspect_gsi_image(image).with_context(|| format!("inspect GSI image {}", image.display()))?;
+    let inspected = inspect_gsi_image(image)
+        .with_context(|| format!("inspect GSI image {}", image.display()))?;
     let start_mode = detect_fastboot_mode(&vars);
     let mut capabilities = resolve_fastboot_capabilities(&vars)?;
     report(GsiEvent::ModeDetected(start_mode));
@@ -880,7 +889,10 @@ pub async fn execute_gsi_flash_with_vars(
 
     report(GsiEvent::Step(GsiStep::GsiFlowComplete));
     report(GsiEvent::ModeReady(FastbootMode::Fastbootd));
-    Ok(GsiFlashOutcome { device: dev, summary })
+    Ok(GsiFlashOutcome {
+        device: dev,
+        summary,
+    })
 }
 
 #[cfg(test)]
@@ -907,8 +919,11 @@ mod tests {
 
     #[test]
     fn resolve_target_partition_prefers_active_slot_partition() {
-        let available =
-            HashSet::from(["system_a".to_string(), "system_b".to_string(), "system".to_string()]);
+        let available = HashSet::from([
+            "system_a".to_string(),
+            "system_b".to_string(),
+            "system".to_string(),
+        ]);
 
         let resolved = resolve_target_partition("system", "a", &available).unwrap();
 

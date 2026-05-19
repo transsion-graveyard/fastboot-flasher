@@ -24,9 +24,7 @@ pub enum Command {
     /// Flash the bundled empty vbmeta image to vbmeta_a and vbmeta_b.
     DisableVbmeta,
     /// Flash a GSI system image using the app's GSI flow.
-    Gsi {
-        image: PathBuf,
-    },
+    Gsi { image: PathBuf },
     /// Format userdata like recovery's "Format Data".
     Format {
         partition: String,

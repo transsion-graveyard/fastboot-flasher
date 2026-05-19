@@ -5,9 +5,7 @@ use std::{
 
 use anyhow::{bail, Context};
 use clap::{CommandFactory, Parser};
-use fastboot_rs::{
-    flash_prepared_image, prepare_image, FastbootDevice, FlashProgress,
-};
+use fastboot_rs::{flash_prepared_image, prepare_image, FastbootDevice, FlashProgress};
 
 use fastboot_flasher::{
     build_flash_plan,
@@ -454,12 +452,13 @@ async fn gsi_flow(dry_run: bool, yes: bool, image: &Path) -> anyhow::Result<()> 
         bail!("aborted by user");
     }
 
-    let inspected =
-        inspect_gsi_image(image).with_context(|| format!("inspect GSI image {}", image.display()))?;
+    let inspected = inspect_gsi_image(image)
+        .with_context(|| format!("inspect GSI image {}", image.display()))?;
     let userdata = detect_userdata(&mut fastboot).await?;
-    let vbmeta_size = std::fs::metadata(fastboot_flasher::manual::resolved_disable_vbmeta_image_path()?)
-        .context("read bundled vbmeta metadata")?
-        .len();
+    let vbmeta_size =
+        std::fs::metadata(fastboot_flasher::manual::resolved_disable_vbmeta_image_path()?)
+            .context("read bundled vbmeta metadata")?
+            .len();
     let needs_product_gsi =
         maybe_needs_product_gsi(&mut fastboot, &vars, inspected.expanded_size).await?;
     let execution_plan = build_gsi_execution_plan(
@@ -494,7 +493,10 @@ async fn gsi_flow(dry_run: bool, yes: bool, image: &Path) -> anyhow::Result<()> 
                 progress.println_info("mode", &format!("device ready in {}", mode.as_str()));
             }
             GsiEvent::UserdataEraseFallback { fs_type } => {
-                progress.println_info("wipe", &format!("userdata type `{fs_type}` uses erase fallback"));
+                progress.println_info(
+                    "wipe",
+                    &format!("userdata type `{fs_type}` uses erase fallback"),
+                );
             }
             GsiEvent::ResolvedPartition {
                 base,
@@ -668,7 +670,10 @@ impl GsiCliProgress {
             );
         }
         if let Some(pb) = self.current_bar.take() {
-            let remaining = pb.length().unwrap_or(size_bytes.max(1)).saturating_sub(pb.position());
+            let remaining = pb
+                .length()
+                .unwrap_or(size_bytes.max(1))
+                .saturating_sub(pb.position());
             if remaining > 0 {
                 pb.inc(remaining);
                 self.overall.inc(remaining);

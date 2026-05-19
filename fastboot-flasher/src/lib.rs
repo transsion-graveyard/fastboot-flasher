@@ -17,9 +17,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Context;
-use fastboot_rs::{
-    flash_prepared_image, open_fastboot, parse_max_download_size, prepare_image,
-};
+use fastboot_rs::{flash_prepared_image, open_fastboot, parse_max_download_size, prepare_image};
 use inquire::Confirm;
 use mtk_scatter_parser::FlashPlan;
 use terminal_output::chrome::{notice_box, Tone};
@@ -58,7 +56,11 @@ pub fn handle_failed_partition(
         .prompt()?)
 }
 
-pub fn handle_failed_erase(yes: bool, partition: &str, err: &FastbootError) -> anyhow::Result<bool> {
+pub fn handle_failed_erase(
+    yes: bool,
+    partition: &str,
+    err: &FastbootError,
+) -> anyhow::Result<bool> {
     if !is_fastboot_failed(err) {
         return Ok(false);
     }
@@ -82,14 +84,18 @@ pub async fn connect_fastboot() -> anyhow::Result<FastbootDevice> {
     loop {
         match open_fastboot().await {
             Ok(dev) => return Ok(dev),
-            Err(_) => sleep(Duration::from_millis(250)).await,
+            Err(_) => {
+                sleep(Duration::from_millis(250)).await;
+            }
         }
     }
 }
 
 fn is_fastboot_failed(err: &FastbootError) -> bool {
     match err {
-        FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => true,
+        FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => {
+            true
+        }
         #[cfg(windows)]
         FastbootError::AdbWinApi(
             fastboot_rs::transport::adbwinapi::AdbWinApiFastbootError::FastbootFailed(_),
@@ -105,7 +111,9 @@ pub async fn read_variable(dev: &mut FastbootDevice, var: &str) -> anyhow::Resul
         .with_context(|| format!("get variable {var}"))
 }
 
-pub async fn read_all_variables(dev: &mut FastbootDevice) -> anyhow::Result<HashMap<String, String>> {
+pub async fn read_all_variables(
+    dev: &mut FastbootDevice,
+) -> anyhow::Result<HashMap<String, String>> {
     dev.get_all_vars()
         .await
         .map_err(anyhow::Error::from)
@@ -207,8 +215,7 @@ pub async fn flash_one_partition(
     {
         eprintln!(
             "[flash-lib] resizing logical partition={} expanded_size={}",
-            partition,
-            prepared.expanded_size
+            partition, prepared.expanded_size
         );
         dev.resize_logical_partition(partition, prepared.expanded_size)
             .await

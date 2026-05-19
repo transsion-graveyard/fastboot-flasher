@@ -21,7 +21,9 @@ pub async fn devices() -> Result<impl Iterator<Item = DeviceInfo>, nusb::Error> 
 /// Open the first fastboot device visible to nusb.
 pub async fn open_first_fastboot() -> Result<NusbFastBoot, NusbFastBootOpenError> {
     let mut infos = devices().await.map_err(NusbFastBootOpenError::Device)?;
-    let info = infos.next().ok_or(NusbFastBootOpenError::MissingInterface)?;
+    let info = infos
+        .next()
+        .ok_or(NusbFastBootOpenError::MissingInterface)?;
     NusbFastBoot::from_info(&info).await
 }
 
@@ -323,20 +325,20 @@ impl NusbFastBoot {
                     "[nusb-fastboot] is_logical missing-var partition={} default=false",
                     partition
                 );
-                return Ok(false)
+                return Ok(false);
             }
             Err(error) => return Err(error),
         };
-        let parsed =
-            Self::parse_is_logical_value(&value).map_err(|reason| NusbFastBootError::InvalidVariable {
+        let parsed = Self::parse_is_logical_value(&value).map_err(|reason| {
+            NusbFastBootError::InvalidVariable {
                 name: "is-logical",
                 value,
                 reason,
-            })?;
+            }
+        })?;
         eprintln!(
             "[nusb-fastboot] is_logical ok partition={} value={}",
-            partition,
-            parsed
+            partition, parsed
         );
         Ok(parsed)
     }
@@ -349,15 +351,13 @@ impl NusbFastBoot {
     ) -> Result<(), NusbFastBootError> {
         eprintln!(
             "[nusb-fastboot] resize_logical_partition start partition={} size={}",
-            partition,
-            size
+            partition, size
         );
         let cmd = FastBootCommand::ResizeLogicalPartition { partition, size };
         self.execute(cmd).await.map(|v| {
             eprintln!(
                 "[nusb-fastboot] resize_logical_partition ok partition={} value={}",
-                partition,
-                v
+                partition, v
             );
             trace!("Resize logical partition ok: {v}");
         })

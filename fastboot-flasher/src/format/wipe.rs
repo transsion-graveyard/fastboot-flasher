@@ -274,16 +274,18 @@ pub async fn erase_optional_partition(
 ) -> anyhow::Result<OptionalEraseOutcome> {
     match dev.erase(partition).await {
         Ok(()) => Ok(OptionalEraseOutcome::Erased),
-        Err(error) if is_skippable_fastboot_error(&error) => {
-            Ok(OptionalEraseOutcome::Skipped { reason: error.to_string() })
-        }
+        Err(error) if is_skippable_fastboot_error(&error) => Ok(OptionalEraseOutcome::Skipped {
+            reason: error.to_string(),
+        }),
         Err(error) => Err(anyhow::Error::from(error)).with_context(|| format!("erase {partition}")),
     }
 }
 
 fn is_skippable_fastboot_error(error: &FastbootError) -> bool {
     match error {
-        FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => true,
+        FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => {
+            true
+        }
         #[cfg(windows)]
         FastbootError::AdbWinApi(
             fastboot_rs::transport::adbwinapi::AdbWinApiFastbootError::FastbootFailed(_),

@@ -514,15 +514,8 @@ fn dry_run_planning_should_resolve_parent_relative_images_within_package() {
     )
     .unwrap();
 
-    let plan = build_plan_checked(
-        &scatter,
-        FlashMode::DryRun,
-        None,
-        false,
-        Vec::new(),
-        false,
-    )
-    .unwrap();
+    let plan =
+        build_plan_checked(&scatter, FlashMode::DryRun, None, false, Vec::new(), false).unwrap();
 
     let vbmeta_system = plan
         .actions

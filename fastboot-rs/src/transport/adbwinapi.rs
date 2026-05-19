@@ -2,8 +2,7 @@ use std::{
     collections::HashMap,
     env,
     ffi::c_void,
-    fmt,
-    io,
+    fmt, io,
     mem::MaybeUninit,
     path::{Path, PathBuf},
     ptr,
@@ -81,16 +80,12 @@ struct UsbInterfaceDescriptor {
 type AdbEnumInterfaces = unsafe extern "C" fn(Guid, bool, bool, bool) -> AdbHandle;
 type AdbNextInterface = unsafe extern "C" fn(AdbHandle, *mut AdbInterfaceInfo, *mut u32) -> bool;
 type AdbCreateInterfaceByName = unsafe extern "C" fn(*const u16) -> AdbHandle;
-type AdbGetUsbDeviceDescriptor =
-    unsafe extern "C" fn(AdbHandle, *mut UsbDeviceDescriptor) -> bool;
+type AdbGetUsbDeviceDescriptor = unsafe extern "C" fn(AdbHandle, *mut UsbDeviceDescriptor) -> bool;
 type AdbGetUsbInterfaceDescriptor =
     unsafe extern "C" fn(AdbHandle, *mut UsbInterfaceDescriptor) -> bool;
-type AdbOpenDefaultBulkReadEndpoint =
-    unsafe extern "C" fn(AdbHandle, i32, i32) -> AdbHandle;
-type AdbOpenDefaultBulkWriteEndpoint =
-    unsafe extern "C" fn(AdbHandle, i32, i32) -> AdbHandle;
-type AdbReadEndpointSync =
-    unsafe extern "C" fn(AdbHandle, *mut c_void, u32, *mut u32, u32) -> bool;
+type AdbOpenDefaultBulkReadEndpoint = unsafe extern "C" fn(AdbHandle, i32, i32) -> AdbHandle;
+type AdbOpenDefaultBulkWriteEndpoint = unsafe extern "C" fn(AdbHandle, i32, i32) -> AdbHandle;
+type AdbReadEndpointSync = unsafe extern "C" fn(AdbHandle, *mut c_void, u32, *mut u32, u32) -> bool;
 type AdbWriteEndpointSync =
     unsafe extern "C" fn(AdbHandle, *mut c_void, u32, *mut u32, u32) -> bool;
 type AdbCloseHandle = unsafe extern "C" fn(AdbHandle) -> bool;
@@ -111,15 +106,34 @@ impl fmt::Display for AdbWinApiProbeDetail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DllMissing { searched } => {
-                write!(f, "AdbWinApi.dll not found; searched {}", searched.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", "))
+                write!(
+                    f,
+                    "AdbWinApi.dll not found; searched {}",
+                    searched
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
-            Self::DllLoadFailed { path, error } => write!(f, "failed to load {}: {error}", path.display()),
-            Self::EnumeratingInterfaces { source } => write!(f, "enumerating Android USB interfaces via {}", source.display()),
+            Self::DllLoadFailed { path, error } => {
+                write!(f, "failed to load {}: {error}", path.display())
+            }
+            Self::EnumeratingInterfaces { source } => write!(
+                f,
+                "enumerating Android USB interfaces via {}",
+                source.display()
+            ),
             Self::AndroidInterfaceFound { name } => write!(f, "found Android USB interface {name}"),
             Self::FastbootInterfaceFound { name } => write!(f, "found fastboot interface {name}"),
-            Self::OpenInterfaceFailed { name, error } => write!(f, "failed to open Android USB interface {name}: {error}"),
+            Self::OpenInterfaceFailed { name, error } => {
+                write!(f, "failed to open Android USB interface {name}: {error}")
+            }
             Self::NoAndroidInterface => write!(f, "AdbWinApi enumerated no Android USB interfaces"),
-            Self::NoFastbootInterface => write!(f, "AdbWinApi found Android USB interfaces but none matched fastboot"),
+            Self::NoFastbootInterface => write!(
+                f,
+                "AdbWinApi found Android USB interfaces but none matched fastboot"
+            ),
         }
     }
 }
@@ -174,10 +188,12 @@ impl AdbWinApiFastbootOpenError {
             },
             Self::NoAndroidInterface => AdbWinApiProbeDetail::NoAndroidInterface,
             Self::NoFastbootInterface => AdbWinApiProbeDetail::NoFastbootInterface,
-            Self::OpenInterfaceFailed { name, error } => AdbWinApiProbeDetail::OpenInterfaceFailed {
-                name: name.clone(),
-                error: error.clone(),
-            },
+            Self::OpenInterfaceFailed { name, error } => {
+                AdbWinApiProbeDetail::OpenInterfaceFailed {
+                    name: name.clone(),
+                    error: error.clone(),
+                }
+            }
             Self::DescriptorReadFailed { .. } | Self::EndpointOpenFailed { .. } => return None,
         })
     }
@@ -470,7 +486,10 @@ impl AdbWinApiFastboot {
         }
     }
 
-    pub async fn download(&mut self, size: u32) -> Result<DataDownload<'_>, AdbWinApiFastbootError> {
+    pub async fn download(
+        &mut self,
+        size: u32,
+    ) -> Result<DataDownload<'_>, AdbWinApiFastbootError> {
         self.send_command_sync(FastBootCommand::<&str>::Download(size))?;
         loop {
             match self.read_response_sync()? {
@@ -495,7 +514,8 @@ impl AdbWinApiFastboot {
     }
 
     pub async fn flash(&mut self, target: &str) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::Flash(target)).map(|_| ())
+        self.execute_sync(FastBootCommand::Flash(target))
+            .map(|_| ())
     }
 
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool, AdbWinApiFastbootError> {
@@ -527,31 +547,38 @@ impl AdbWinApiFastboot {
     }
 
     pub async fn continue_boot(&mut self) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::<&str>::Continue).map(|_| ())
+        self.execute_sync(FastBootCommand::<&str>::Continue)
+            .map(|_| ())
     }
 
     pub async fn set_active(&mut self, slot: &str) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::SetActive(slot)).map(|_| ())
+        self.execute_sync(FastBootCommand::SetActive(slot))
+            .map(|_| ())
     }
 
     pub async fn erase(&mut self, target: &str) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::Erase(target)).map(|_| ())
+        self.execute_sync(FastBootCommand::Erase(target))
+            .map(|_| ())
     }
 
     pub async fn reboot(&mut self) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::<&str>::Reboot).map(|_| ())
+        self.execute_sync(FastBootCommand::<&str>::Reboot)
+            .map(|_| ())
     }
 
     pub async fn reboot_bootloader(&mut self) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::<&str>::RebootBootloader).map(|_| ())
+        self.execute_sync(FastBootCommand::<&str>::RebootBootloader)
+            .map(|_| ())
     }
 
     pub async fn power_down(&mut self) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::<&str>::Powerdown).map(|_| ())
+        self.execute_sync(FastBootCommand::<&str>::Powerdown)
+            .map(|_| ())
     }
 
     pub async fn reboot_to(&mut self, mode: &str) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::<&str>::RebootTo(mode)).map(|_| ())
+        self.execute_sync(FastBootCommand::<&str>::RebootTo(mode))
+            .map(|_| ())
     }
 
     pub async fn reboot_fastboot(&mut self) -> Result<(), AdbWinApiFastbootError> {
@@ -559,14 +586,18 @@ impl AdbWinApiFastboot {
     }
 
     pub async fn unlock_bootloader(&mut self) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::<&str>::FlashingUnlock).map(|_| ())
+        self.execute_sync(FastBootCommand::<&str>::FlashingUnlock)
+            .map(|_| ())
     }
 
     pub async fn lock_bootloader(&mut self) -> Result<(), AdbWinApiFastbootError> {
-        self.execute_sync(FastBootCommand::<&str>::FlashingLock).map(|_| ())
+        self.execute_sync(FastBootCommand::<&str>::FlashingLock)
+            .map(|_| ())
     }
 
-    pub async fn get_all_vars(&mut self) -> Result<HashMap<String, String>, AdbWinApiFastbootError> {
+    pub async fn get_all_vars(
+        &mut self,
+    ) -> Result<HashMap<String, String>, AdbWinApiFastbootError> {
         self.send_command_sync(FastBootCommand::GetVar("all"))?;
         let mut vars = HashMap::new();
         loop {
@@ -619,7 +650,10 @@ impl DataDownload<'_> {
         self.left
     }
 
-    pub async fn extend_from_slice(&mut self, mut data: &[u8]) -> Result<(), AdbWinApiFastbootError> {
+    pub async fn extend_from_slice(
+        &mut self,
+        mut data: &[u8],
+    ) -> Result<(), AdbWinApiFastbootError> {
         self.update_size(data.len() as u32)?;
         loop {
             let left = MAX_USBFS_BULK_SIZE.saturating_sub(self.current.len());
@@ -680,18 +714,35 @@ impl DataDownload<'_> {
 
 impl AdbApi {
     unsafe fn load(path: &Path) -> Result<Self, AdbWinApiFastbootOpenError> {
-        let library = Library::new(path).map_err(|error| AdbWinApiFastbootOpenError::DllLoadFailed {
-            path: path.to_path_buf(),
-            error: error.to_string(),
-        })?;
+        let library =
+            Library::new(path).map_err(|error| AdbWinApiFastbootOpenError::DllLoadFailed {
+                path: path.to_path_buf(),
+                error: error.to_string(),
+            })?;
         Ok(Self {
             enum_interfaces: *load_symbol(&library, b"AdbEnumInterfaces\0", path)?,
             next_interface: *load_symbol(&library, b"AdbNextInterface\0", path)?,
             create_interface_by_name: *load_symbol(&library, b"AdbCreateInterfaceByName\0", path)?,
-            get_usb_device_descriptor: *load_symbol(&library, b"AdbGetUsbDeviceDescriptor\0", path)?,
-            get_usb_interface_descriptor: *load_symbol(&library, b"AdbGetUsbInterfaceDescriptor\0", path)?,
-            open_default_bulk_read_endpoint: *load_symbol(&library, b"AdbOpenDefaultBulkReadEndpoint\0", path)?,
-            open_default_bulk_write_endpoint: *load_symbol(&library, b"AdbOpenDefaultBulkWriteEndpoint\0", path)?,
+            get_usb_device_descriptor: *load_symbol(
+                &library,
+                b"AdbGetUsbDeviceDescriptor\0",
+                path,
+            )?,
+            get_usb_interface_descriptor: *load_symbol(
+                &library,
+                b"AdbGetUsbInterfaceDescriptor\0",
+                path,
+            )?,
+            open_default_bulk_read_endpoint: *load_symbol(
+                &library,
+                b"AdbOpenDefaultBulkReadEndpoint\0",
+                path,
+            )?,
+            open_default_bulk_write_endpoint: *load_symbol(
+                &library,
+                b"AdbOpenDefaultBulkWriteEndpoint\0",
+                path,
+            )?,
             read_endpoint_sync: *load_symbol(&library, b"AdbReadEndpointSync\0", path)?,
             write_endpoint_sync: *load_symbol(&library, b"AdbWriteEndpointSync\0", path)?,
             close_handle: *load_symbol(&library, b"AdbCloseHandle\0", path)?,
@@ -705,10 +756,12 @@ unsafe fn load_symbol<'a, T>(
     symbol: &[u8],
     path: &Path,
 ) -> Result<Symbol<'a, T>, AdbWinApiFastbootOpenError> {
-    library.get(symbol).map_err(|error| AdbWinApiFastbootOpenError::DllLoadFailed {
-        path: path.to_path_buf(),
-        error: error.to_string(),
-    })
+    library
+        .get(symbol)
+        .map_err(|error| AdbWinApiFastbootOpenError::DllLoadFailed {
+            path: path.to_path_buf(),
+            error: error.to_string(),
+        })
 }
 
 fn is_fastboot_interface(desc: &UsbInterfaceDescriptor) -> bool {
@@ -777,4 +830,19 @@ unsafe fn wide_ptr_to_string(ptr: *const u16) -> String {
 
 fn to_wide(input: &str) -> Vec<u16> {
     input.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::candidate_search_dirs;
+
+    #[test]
+    fn candidate_search_dirs_include_current_exe_directory() {
+        let current_exe = std::env::current_exe().unwrap();
+        let current_dir = current_exe.parent().unwrap().to_path_buf();
+
+        let dirs = candidate_search_dirs();
+
+        assert!(dirs.contains(&current_dir));
+    }
 }
