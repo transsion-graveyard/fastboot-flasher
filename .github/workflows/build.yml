@@ -69,8 +69,6 @@ jobs:
         run: pnpm install
 
       - uses: tauri-apps/tauri-action@v0.6.2
-        env:
-          GITHUB_TOKEN: ""
         with:
           projectPath: fastboot-flasher-ui
 
@@ -91,20 +89,59 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           pattern: "*"
           path: artifacts
           merge-multiple: true
 
+      - name: Classify release
+        id: classify
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
+          elif echo "$TAG" | grep -q -- '-'; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          BODY="## What's Changed"
+          if [ -z "$PREV" ]; then
+            BODY="$BODY\n\nInitial release."
+          else
+            BODY="$BODY\n\n$(git log "$PREV..HEAD" --oneline --no-merges --pretty=format:'- %s')"
+          fi
+          {
+            echo 'body<<EOF'
+            printf "%b" "$BODY"
+            echo
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+          tag_name: ${{ steps.classify.outputs.tag }}
+          body: ${{ steps.notes.outputs.body }}
           files: |
             artifacts/**/*.deb
             artifacts/**/*.rpm
             artifacts/**/*.msi
             artifacts/**/*.exe
-          draft: true
-          generate_release_notes: true
+          draft: false
+          prerelease: ${{ steps.classify.outputs.prerelease }}
+          make_latest: ${{ steps.classify.outputs.make_latest }}
           fail_on_unmatched_files: true
