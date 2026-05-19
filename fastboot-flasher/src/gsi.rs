@@ -237,16 +237,14 @@ pub fn build_gsi_execution_plan(
     start_mode: FastbootMode,
     image_size: u64,
     vbmeta_size: u64,
-    userdata: &UserdataInfo,
+    _userdata: &UserdataInfo,
     options: &GsiFlashOptions,
     needs_product_gsi: Option<bool>,
 ) -> GsiExecutionPlan {
-    let userdata_bytes =
-        if userdata.fs_type.eq_ignore_ascii_case("raw") || options.wipe_data.erase_fallback {
-            1
-        } else {
-            userdata.size.max(1)
-        };
+    // The execution plan is built before userdata.img is generated.
+    // Using the full partition size here inflates UI totals for sparse/empty images,
+    // especially on large userdata partitions.
+    let userdata_bytes = 1;
 
     let mut summary = GsiFlashSummary {
         flash_count: 2,
@@ -983,5 +981,31 @@ mod tests {
             plan.summary.total_bytes,
             1_000 + 4 + 1 + PRODUCT_GSI_SIZE_BYTES + 1 + 1
         );
+    }
+
+    #[test]
+    fn build_gsi_execution_plan_does_not_use_full_userdata_partition_size_for_non_raw_wipe() {
+        let plan = build_gsi_execution_plan(
+            FastbootMode::Fastbootd,
+            2_048,
+            8,
+            &UserdataInfo {
+                fs_type: "ext4".to_string(),
+                size: 256 * 1024 * 1024 * 1024,
+                max_download_size: None,
+                erase_block_size: None,
+                logical_block_size: None,
+            },
+            &GsiFlashOptions {
+                wipe_data: WipeDataOptions::default(),
+                cancel_token: None,
+            },
+            Some(false),
+        );
+
+        assert_eq!(plan.summary.flash_count, 2);
+        assert_eq!(plan.summary.wipe_count, 3);
+        assert_eq!(plan.summary.skipped_count, 0);
+        assert_eq!(plan.summary.total_bytes, 2_048 + 8 + 1 + 1 + 1);
     }
 }
