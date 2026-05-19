@@ -35,7 +35,7 @@ pub fn build_plan(
     mode: FlashMode,
     slot: Option<SlotArg>,
     include_preloader: bool,
-    parts: Vec<String>,
+    parts: &[String],
 ) -> anyhow::Result<FlashPlan> {
     build_plan_checked(scatter_path, mode, slot, include_preloader, parts, true)
 }
@@ -47,7 +47,7 @@ pub fn build_plan_checked(
     mode: FlashMode,
     slot: Option<SlotArg>,
     include_preloader: bool,
-    parts: Vec<String>,
+    parts: &[String],
     check_images: bool,
 ) -> anyhow::Result<FlashPlan> {
     let scatter = mtk_scatter_parser::parse_scatter(scatter_path)?;
@@ -63,7 +63,7 @@ pub fn build_plan_checked(
             mode: mode_to_scatter(mode),
             storage: StorageSelect::Auto,
             slot_policy: slot_to_scatter(slot),
-            parts,
+            parts: parts.to_vec(),
             groups: Vec::new(),
             firmware_dir,
             package_root,

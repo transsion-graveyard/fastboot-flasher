@@ -1028,7 +1028,7 @@ async fn parse_scatter(
         request.mode,
         request.slot,
         include_preloader,
-        Vec::new(),
+        &[],
         false,
     )
     .map_err(|e| format!("parse scatter: {e}"))?;

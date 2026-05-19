@@ -268,7 +268,7 @@ pub fn build_flash_plan(
     mode: FlashMode,
     slot: Option<SlotArg>,
     include_preloader: bool,
-    parts: Vec<String>,
+    parts: &[String],
     check_images: bool,
 ) -> anyhow::Result<FlashPlan> {
     crate::plan::build_plan_checked(

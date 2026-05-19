@@ -306,7 +306,7 @@ async fn scatter_flow(
     } else {
         Vec::new()
     };
-    let plan = build_flash_plan(scatter, mode, slot, include_preloader, parts, !dry_run)?;
+    let plan = build_flash_plan(scatter, mode, slot, include_preloader, &parts, !dry_run)?;
     print_plan(&plan);
 
     if !dry_run && !plan.errors.is_empty() {
@@ -979,7 +979,7 @@ fn select_partitions(
         FlashMode::DryRun,
         slot,
         include_preloader,
-        Vec::new(),
+        &[],
         false,
     )?;
     let options = plan

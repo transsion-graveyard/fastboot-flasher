@@ -468,7 +468,7 @@ fn dry_run_planning_does_not_require_image_files() {
         FlashMode::DryRun,
         Some(SlotArg::All),
         false,
-        Vec::new(),
+        &[],
         false,
     )
     .unwrap();
@@ -517,7 +517,7 @@ fn dry_run_planning_should_resolve_parent_relative_images_within_package() {
     .unwrap();
 
     let plan =
-        build_plan_checked(&scatter, FlashMode::DryRun, None, false, Vec::new(), false).unwrap();
+        build_plan_checked(&scatter, FlashMode::DryRun, None, false, &[], false).unwrap();
 
     let vbmeta_system = plan
         .actions
