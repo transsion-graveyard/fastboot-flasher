@@ -52,6 +52,15 @@ pub enum NusbFastBootOpenError {
     FastbootParseError(#[from] FastBootResponseParseError),
 }
 
+impl NusbFastBootOpenError {
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::Device(_) | Self::Interface(_) | Self::MissingInterface | Self::MissingEndpoints
+        )
+    }
+}
+
 /// Nusb fastboot client
 pub struct NusbFastBoot {
     ep_out: Endpoint<Bulk, Out>,
@@ -61,6 +70,14 @@ pub struct NusbFastBoot {
 }
 
 impl NusbFastBoot {
+    fn parse_is_logical_value(value: &str) -> Result<bool, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "yes" => Ok(true),
+            "no" => Ok(false),
+            other => Err(format!("unsupported logical partition value: {other}")),
+        }
+    }
+
     /// Find fastboot interface within a USB device
     pub fn find_fastboot_interface(info: &DeviceInfo) -> Option<u8> {
         info.interfaces().find_map(|i| {
@@ -215,8 +232,14 @@ impl NusbFastBoot {
     ///
     /// The "all" variable is special; For that [Self::get_all_vars] should be used instead
     pub async fn get_var(&mut self, var: &str) -> Result<String, NusbFastBootError> {
+        eprintln!("[nusb-fastboot] get_var start var={var}");
         let cmd = FastBootCommand::GetVar(var);
-        self.execute(cmd).await
+        let result = self.execute(cmd).await;
+        match &result {
+            Ok(value) => eprintln!("[nusb-fastboot] get_var ok var={} value={}", var, value),
+            Err(error) => eprintln!("[nusb-fastboot] get_var err var={} error={}", var, error),
+        }
+        result
     }
 
     /// Return the device `max-download-size` as a parsed byte count.
@@ -249,6 +272,7 @@ impl NusbFastBoot {
     ///
     /// When successful the [DataDownload] helper should be used to actually send the data
     pub async fn download(&'_ mut self, size: u32) -> Result<DataDownload<'_>, NusbFastBootError> {
+        eprintln!("[nusb-fastboot] download start size=0x{size:08x}");
         let cmd = FastBootCommand::<&str>::Download(size);
         self.send_command(cmd).await?;
         loop {
@@ -257,6 +281,7 @@ impl NusbFastBoot {
                 FastBootResponse::Info(i) => info!("info: {i}"),
                 FastBootResponse::Text(t) => info!("Text: {}", t),
                 FastBootResponse::Data(size) => {
+                    eprintln!("[nusb-fastboot] download ready size=0x{size:08x}");
                     return Ok(DataDownload::new(self, size));
                 }
                 FastBootResponse::Okay(_) => {
@@ -271,9 +296,63 @@ impl NusbFastBoot {
 
     /// Flash downloaded data to a given target partition
     pub async fn flash(&mut self, target: &str) -> Result<(), NusbFastBootError> {
+        eprintln!("[nusb-fastboot] flash start target={target}");
         let cmd = FastBootCommand::Flash(target);
         self.execute(cmd).await.map(|v| {
+            eprintln!("[nusb-fastboot] flash ok target={} value={}", target, v);
             trace!("Flash ok: {v}");
+        })
+    }
+
+    /// Return whether the given partition is logical.
+    pub async fn is_logical(&mut self, partition: &str) -> Result<bool, NusbFastBootError> {
+        eprintln!("[nusb-fastboot] is_logical start partition={partition}");
+        let value = match self.get_var(&format!("is-logical:{partition}")).await {
+            Ok(value) => value,
+            Err(NusbFastBootError::FastbootFailed(message))
+                if message.to_ascii_lowercase().contains("variable not found") =>
+            {
+                eprintln!(
+                    "[nusb-fastboot] is_logical missing-var partition={} default=false",
+                    partition
+                );
+                return Ok(false)
+            }
+            Err(error) => return Err(error),
+        };
+        let parsed =
+            Self::parse_is_logical_value(&value).map_err(|reason| NusbFastBootError::InvalidVariable {
+                name: "is-logical",
+                value,
+                reason,
+            })?;
+        eprintln!(
+            "[nusb-fastboot] is_logical ok partition={} value={}",
+            partition,
+            parsed
+        );
+        Ok(parsed)
+    }
+
+    /// Resize a logical partition to the given byte size.
+    pub async fn resize_logical_partition(
+        &mut self,
+        partition: &str,
+        size: u64,
+    ) -> Result<(), NusbFastBootError> {
+        eprintln!(
+            "[nusb-fastboot] resize_logical_partition start partition={} size={}",
+            partition,
+            size
+        );
+        let cmd = FastBootCommand::ResizeLogicalPartition { partition, size };
+        self.execute(cmd).await.map(|v| {
+            eprintln!(
+                "[nusb-fastboot] resize_logical_partition ok partition={} value={}",
+                partition,
+                v
+            );
+            trace!("Resize logical partition ok: {v}");
         })
     }
 
@@ -333,6 +412,11 @@ impl NusbFastBoot {
         })
     }
 
+    /// Reboot the device directly into fastboot mode.
+    pub async fn reboot_fastboot(&mut self) -> Result<(), NusbFastBootError> {
+        self.reboot_to("fastboot").await
+    }
+
     /// Unlock the bootloader via `flashing unlock`.
     pub async fn unlock_bootloader(&mut self) -> Result<(), NusbFastBootError> {
         let cmd = FastBootCommand::<&str>::FlashingUnlock;
@@ -377,6 +461,24 @@ impl NusbFastBoot {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NusbFastBoot;
+
+    #[test]
+    fn parse_is_logical_value_accepts_yes_and_no() {
+        assert_eq!(NusbFastBoot::parse_is_logical_value("yes").unwrap(), true);
+        assert_eq!(NusbFastBoot::parse_is_logical_value("no").unwrap(), false);
+        assert_eq!(NusbFastBoot::parse_is_logical_value(" YES ").unwrap(), true);
+    }
+
+    #[test]
+    fn parse_is_logical_value_rejects_unknown_values() {
+        let error = NusbFastBoot::parse_is_logical_value("maybe").unwrap_err();
+        assert!(error.contains("unsupported logical partition value"));
     }
 }
 

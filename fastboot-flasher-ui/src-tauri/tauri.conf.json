@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "fastboot flasher",
+        "title": "Fastboot Flasher",
         "width": 1024,
         "height": 720,
         "resizable": true,

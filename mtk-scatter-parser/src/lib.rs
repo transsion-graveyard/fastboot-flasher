@@ -1732,6 +1732,16 @@ fn xml_children_dict(node: &XmlNode) -> Map<String, Value> {
 }
 
 fn xml_value(node: &XmlNode) -> Value {
+    if !node.children.is_empty() {
+        let mut map = xml_children_dict(node);
+        let text = node.text.trim();
+        if !text.is_empty() {
+            map.entry("#text".to_string())
+                .or_insert_with(|| scalar_json(text));
+        }
+        return Value::Object(map);
+    }
+
     for key in ["value", "name"] {
         if let Some(value) = node.attrs.get(key) {
             return value.clone();
@@ -2948,6 +2958,44 @@ mod tests {
         };
 
         assert_eq!(scatter.chipset().as_deref(), Some("MT6789"));
+    }
+
+    #[test]
+    fn parse_xml_scatter_should_preserve_nested_platform_metadata() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <general name="MTK_PLATFORM_CFG">
+    <config_version name="V2.2.0">
+      <platform>MT6833</platform>
+      <project>p661n_h334</project>
+    </config_version>
+  </general>
+  <storage_type name="EMMC">
+    <partition_index name="SYS0">
+      <partition_name>preloader</partition_name>
+      <file_name>preloader.bin</file_name>
+      <is_download>true</is_download>
+      <type>SV5_BL_BIN</type>
+      <linear_start_addr>0x0</linear_start_addr>
+      <physical_start_addr>0x0</physical_start_addr>
+      <partition_size>0x100000</partition_size>
+      <region>EMMC_BOOT1_BOOT2</region>
+      <storage>HW_STORAGE_EMMC</storage>
+      <boundary_check>true</boundary_check>
+      <is_reserved>false</is_reserved>
+      <operation_type>BOOTLOADERS</operation_type>
+      <is_upgradable>true</is_upgradable>
+      <empty_boot_needed>false</empty_boot_needed>
+      <combo_partsize_check>false</combo_partsize_check>
+      <reserve>0x00</reserve>
+    </partition_index>
+  </storage_type>
+</root>"#;
+
+        let parsed = parse_xml_scatter(xml).unwrap();
+
+        assert_eq!(parsed.platform.as_deref(), Some("MT6833"));
+        assert_eq!(parsed.project.as_deref(), Some("p661n_h334"));
     }
 
     #[test]

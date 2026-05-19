@@ -10,6 +10,10 @@ export function useDevice() {
     () => invoke<void>("reboot_bootloader"),
     [],
   );
+  const rebootFastboot = useCallback(
+    () => invoke<void>("reboot_fastboot"),
+    [],
+  );
   const rebootRecovery = useCallback(
     () => invoke<void>("reboot_recovery"),
     [],
@@ -37,6 +41,7 @@ export function useDevice() {
     connect,
     reboot,
     rebootBootloader,
+    rebootFastboot,
     rebootRecovery,
     powerOff,
     forceFastboot,

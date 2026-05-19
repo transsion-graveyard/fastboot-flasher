@@ -168,6 +168,17 @@ fn prepare_sparse(
     header: FileHeader,
     max_download_size: u32,
 ) -> Result<PreparedImage, ImagePreparationError> {
+    let max_chunks = file_size / CHUNK_HEADER_BYTES_LEN as u64;
+    if (header.chunks as u64) > max_chunks {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "sparse image claims {} chunks but file size {} only supports at most {}",
+                header.chunks, file_size, max_chunks,
+            ),
+        )
+        .into());
+    }
     let mut chunks = Vec::with_capacity(header.chunks as usize);
     for _ in 0..header.chunks {
         let mut chunk_bytes = [0; CHUNK_HEADER_BYTES_LEN];

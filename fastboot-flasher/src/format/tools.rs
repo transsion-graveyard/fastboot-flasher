@@ -80,10 +80,13 @@ impl FormatTools {
 
         #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
+
             let old_path = std::env::var_os("PATH").unwrap_or_default();
             let mut paths = vec![self.dir.clone()];
             paths.extend(std::env::split_paths(&old_path));
             cmd.env("PATH", std::env::join_paths(paths)?);
+            cmd.creation_flags(0x0800_0000);
         }
 
         Ok(())

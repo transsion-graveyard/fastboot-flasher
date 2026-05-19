@@ -10,6 +10,7 @@ import { ScatterPicker } from "@/components/main-tab/ScatterPicker";
 import { FlashOptions } from "@/components/main-tab/FlashOptions";
 import { PartitionTable } from "@/components/main-tab/PartitionTable";
 import { FlashFab } from "@/components/main-tab/FlashFab";
+import { GsiFlasher } from "@/components/extra-tab/GsiFlasher";
 import { FlashDialog } from "@/components/flash/FlashDialog";
 import { ForceFastbootDialog } from "@/components/flash/ForceFastbootDialog";
 import { DeviceSection } from "@/components/menu-tab/DeviceSection";
@@ -21,9 +22,11 @@ import { SlotSection } from "@/components/menu-tab/SlotSection";
 import { useDevice } from "@/hooks/useDevice";
 import { useFlashLog, useFlashProgress } from "@/hooks/useFlashProgress";
 import { useForceFastboot } from "@/hooks/useForceFastboot";
+import { defaultFlashMode, type FlashMode } from "@/lib/flash-mode";
 import type { FlashPlanDto, ParseScatterResponseDto, PartitionDto } from "@/types/api";
 
 const SCATTER_STORAGE_KEY = "last-scatter-path";
+const GSI_STORAGE_KEY = "last-gsi-image-path";
 type AppTheme = "light" | "dark";
 
 function resolveInitialTheme(): AppTheme {
@@ -43,6 +46,14 @@ function resolveInitialTheme(): AppTheme {
   return resolvedSystemTheme;
 }
 
+function partitionSortRank(partition: PartitionDto): number {
+  if (partition.action !== "flash") {
+    return 2;
+  }
+
+  return partition.image_path ? 0 : 1;
+}
+
 export default function App() {
   const [scatterPath, setScatterPath] = useState(() => {
     if (typeof window === "undefined") {
@@ -50,7 +61,8 @@ export default function App() {
     }
     return window.localStorage.getItem(SCATTER_STORAGE_KEY) ?? "";
   });
-  const [mode, setMode] = useState("dry_run");
+  const [scatterReloadToken, setScatterReloadToken] = useState(0);
+  const [mode, setMode] = useState<FlashMode>(defaultFlashMode);
   const [theme, setTheme] = useState<AppTheme>(resolveInitialTheme);
   const [rebootAfter, setRebootAfter] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -67,10 +79,18 @@ export default function App() {
   const [isCancellingFlash, setIsCancellingFlash] = useState(false);
   const [isCancellingForceFastboot, setIsCancellingForceFastboot] = useState(false);
   const [isStartingFlash, setIsStartingFlash] = useState(false);
+  const [isStartingGsiFlash, setIsStartingGsiFlash] = useState(false);
   const [isFormattingData, setIsFormattingData] = useState(false);
   const [isParsingPlan, setIsParsingPlan] = useState(false);
   const [isCheckingDevice, setIsCheckingDevice] = useState(false);
+  const [gsiImagePath, setGsiImagePath] = useState(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+    return window.localStorage.getItem(GSI_STORAGE_KEY) ?? "";
+  });
   const planRequestRef = useRef(0);
+  const lastParsedScatterPathRef = useRef("");
 
   const device = useDevice();
   const flash = useFlashProgress();
@@ -80,7 +100,7 @@ export default function App() {
   const handleModeChange = useCallback(
     (newMode: string) => {
       appendLog(`ModeChanged ${newMode}`);
-      setMode(newMode);
+      setMode(newMode as FlashMode);
     },
     [appendLog],
   );
@@ -154,9 +174,16 @@ export default function App() {
         setPlanId(response.plan_id);
         setPlan(dto);
         setPartitions((prev) => {
-          const selection = new Map(prev.map((p) => [p.partition, p.selected]));
-          return dto.partitions.map((p) => ({ ...p, selected: selection.get(p.partition) ?? true }));
+          const preserveSelection = lastParsedScatterPathRef.current === path;
+          const selection = preserveSelection
+            ? new Map(prev.map((p) => [p.partition, p.selected]))
+            : new Map<string, boolean>();
+          return dto.partitions.map((p) => ({
+            ...p,
+            selected: selection.get(p.partition) ?? p.selected,
+          }));
         });
+        lastParsedScatterPathRef.current = path;
       } catch (error) {
         if (planRequestRef.current !== requestId) {
           return;
@@ -169,6 +196,7 @@ export default function App() {
         setPlanId(null);
         setPartitions([]);
         setImageOverrides({});
+        lastParsedScatterPathRef.current = "";
         window.localStorage.removeItem(SCATTER_STORAGE_KEY);
         toast.error(String(error));
       } finally {
@@ -192,7 +220,19 @@ export default function App() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [advanced, includePreloader, mode, refreshPlan, scatterPath, slot]);
+  }, [advanced, includePreloader, mode, refreshPlan, scatterPath, scatterReloadToken, slot]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (gsiImagePath) {
+      window.localStorage.setItem(GSI_STORAGE_KEY, gsiImagePath);
+    } else {
+      window.localStorage.removeItem(GSI_STORAGE_KEY);
+    }
+  }, [gsiImagePath]);
 
   useEffect(() => {
     if (flash.phase === "complete" || flash.phase === "cancelled" || flash.phase === "error") {
@@ -223,7 +263,12 @@ export default function App() {
   const loadScatter = useCallback(
     (path: string) => {
       appendLog("ScatterLoad");
+      setPlan(null);
+      setPlanId(null);
+      setPartitions([]);
+      setImageOverrides({});
       setScatterPath(path);
+      setScatterReloadToken((token) => token + 1);
       window.localStorage.setItem(SCATTER_STORAGE_KEY, path);
     },
     [appendLog],
@@ -311,7 +356,52 @@ export default function App() {
   const activeFlashSession = flash.phase === "waiting" || flash.phase === "flashing";
   const activeForceSession = forceFastboot.phase === "waiting";
   const menuActionDisabled =
-    isStartingFlash || isFormattingData || isCheckingDevice || activeFlashSession || activeForceSession;
+    isStartingFlash ||
+    isStartingGsiFlash ||
+    isFormattingData ||
+    isCheckingDevice ||
+    activeFlashSession ||
+    activeForceSession;
+
+  const startGsiFlash = useCallback(async () => {
+    if (
+      !gsiImagePath ||
+      isStartingGsiFlash ||
+      isStartingFlash ||
+      isFormattingData ||
+      isCheckingDevice ||
+      activeFlashSession ||
+      activeForceSession
+    ) {
+      return;
+    }
+
+    flash.reset();
+    setFlashOpen(true);
+    setFlashMinimized(false);
+    setIsStartingGsiFlash(true);
+    appendLog(`GsiFlashStarted ${gsiImagePath.split(/[/\\]/).pop() || gsiImagePath}`);
+
+    try {
+      await invoke("start_gsi_flash", {
+        image: gsiImagePath,
+      });
+    } catch (error) {
+      flash.fail(String(error));
+    } finally {
+      setIsStartingGsiFlash(false);
+    }
+  }, [
+    activeFlashSession,
+    activeForceSession,
+    appendLog,
+    flash,
+    gsiImagePath,
+    isCheckingDevice,
+    isFormattingData,
+    isStartingFlash,
+    isStartingGsiFlash,
+  ]);
 
   const startWipeData = useCallback(async () => {
     if (menuActionDisabled) {
@@ -434,7 +524,8 @@ export default function App() {
 
   const displayPartitions = useMemo(
     () =>
-      partitions.map((partition) => {
+      partitions
+        .map((partition) => {
         const overridePath = imageOverrides[partition.partition];
         const overrideName = overridePath?.split(/[/\\]/).pop() ?? null;
         return {
@@ -443,7 +534,14 @@ export default function App() {
           image_name: overrideName ?? partition.image_name,
           image_overridden: Boolean(overridePath),
         };
-      }),
+        })
+        .sort((left, right) => {
+          const rankDiff = partitionSortRank(left) - partitionSortRank(right);
+          if (rankDiff !== 0) {
+            return rankDiff;
+          }
+          return left.index - right.index;
+        }),
     [imageOverrides, partitions],
   );
 
@@ -468,6 +566,7 @@ export default function App() {
     planId === null ||
     isParsingPlan ||
     isStartingFlash ||
+    isStartingGsiFlash ||
     activeFlashSession ||
     activeForceSession ||
     selectedPartitions.length === 0;
@@ -595,6 +694,16 @@ export default function App() {
                   <FlashFab onClick={startFlash} disabled={flashDisabled} />
                 </div>
               </div>
+            </div>
+          ) : tab === "extra" ? (
+            <div className="flex h-full min-h-0 flex-col gap-5">
+              <GsiFlasher
+                imagePath={gsiImagePath}
+                onImagePathChange={setGsiImagePath}
+                onFlash={startGsiFlash}
+                disabled={menuActionDisabled}
+                flashing={isStartingGsiFlash}
+              />
             </div>
           ) : (
             <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">

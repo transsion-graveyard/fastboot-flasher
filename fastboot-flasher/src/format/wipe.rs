@@ -199,7 +199,13 @@ pub async fn format_userdata_with_info(
         Err(error) => return Err(error).context("generate userdata image"),
     };
 
-    flash_one_partition(dev, "userdata", generated.path(), on_progress)
+    let max_download = info
+        .max_download_size
+        .context("missing userdata max-download-size")?;
+    let max_download = u32::try_from(max_download)
+        .context("userdata max-download-size exceeds supported range")?;
+
+    flash_one_partition(dev, "userdata", generated.path(), max_download, on_progress)
         .await
         .context("flash generated userdata image")?;
 

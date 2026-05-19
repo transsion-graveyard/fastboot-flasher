@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { flashModeLabel, visibleFlashModeOptions } from "@/lib/flash-mode";
 import {
   Dialog,
   DialogContent,
@@ -45,18 +46,22 @@ export const FlashOptions = memo(function FlashOptions({
 }: FlashOptionsProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const advancedEnabled = includePreloader || slot !== "";
+  const modeOptions = visibleFlashModeOptions();
+  const slotLabel = slot === "a" ? "_a" : slot === "b" ? "_b" : slot === "all" ? "all slots" : "";
 
   return (
     <div className="panel-shell grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_auto]">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
         <Select value={mode} onValueChange={(v) => v !== null && onModeChange(v)}>
           <SelectTrigger aria-label="Flash mode">
-            <SelectValue />
+            <SelectValue>{flashModeLabel(mode)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="dry_run">Dry run</SelectItem>
-            <SelectItem value="firmware_upgrade">Firmware upgrade</SelectItem>
-            <SelectItem value="clean_flash">Clean flash</SelectItem>
+            {modeOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -111,7 +116,9 @@ export const FlashOptions = memo(function FlashOptions({
                   }}
                 >
                   <SelectTrigger aria-label="Slot override">
-                    <SelectValue placeholder="Use plan default" />
+                    <SelectValue placeholder="Use plan default">
+                      {slotLabel || undefined}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="a">_a</SelectItem>

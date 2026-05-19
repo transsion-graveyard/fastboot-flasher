@@ -22,6 +22,10 @@ use fastboot_flasher::{
         detect_userdata, format_userdata_with_info, wipe_data_with_info, FormatTools,
         FormatUserdataOptions, WipeDataOptions,
     },
+    gsi::{
+        build_gsi_execution_plan, detect_fastboot_mode, execute_gsi_flash_with_vars,
+        inspect_gsi_image, maybe_needs_product_gsi, GsiEvent, GsiFlashOptions,
+    },
     handle_failed_erase, handle_failed_partition,
     manual::{
         disable_vbmeta_actions, manual_flash_actions, standalone_disable_vbmeta_path,
@@ -62,6 +66,9 @@ enum Action {
         include_preloader: bool,
     },
     DisableVbmeta,
+    Gsi {
+        image: PathBuf,
+    },
     FormatUserdata {
         erase_fallback: bool,
     },
@@ -160,6 +167,9 @@ async fn run() -> anyhow::Result<()> {
                 let actions = disable_vbmeta_actions(&empty_vbmeta)?;
                 manual_flash_flow(args.dry_run, args.yes, "Disable vbmeta plan", actions).await?;
             }
+            Action::Gsi { image } => {
+                gsi_flow(args.dry_run, args.yes, &image).await?;
+            }
             Action::FormatUserdata { erase_fallback } => {
                 format_userdata_flow(args.yes, erase_fallback).await?;
             }
@@ -236,6 +246,9 @@ fn collect_actions(args: &Args) -> anyhow::Result<Vec<Action>> {
 fn command_action(args: &Args, command: &Command) -> anyhow::Result<Action> {
     Ok(match command {
         Command::DisableVbmeta => Action::DisableVbmeta,
+        Command::Gsi { image } => Action::Gsi {
+            image: image.clone(),
+        },
         Command::Format {
             partition: _,
             erase_fallback,
@@ -394,6 +407,291 @@ async fn manual_flash_flow(
     }
 
     Ok(())
+}
+
+async fn gsi_flow(dry_run: bool, yes: bool, image: &Path) -> anyhow::Result<()> {
+    if dry_run {
+        bail!("--dry-run is not supported for the gsi subcommand");
+    }
+
+    let metadata = std::fs::metadata(image)
+        .with_context(|| format!("read GSI image metadata for {}", image.display()))?;
+    if !metadata.is_file() {
+        bail!("{} is not a regular file", image.display());
+    }
+
+    let tools = FormatTools::from_cli_assets()?;
+    let mut fastboot = wait_for_fastboot().await?;
+    let vars = fastboot.get_all_vars().await?;
+    let start_mode = detect_fastboot_mode(&vars);
+    println!("{}", compact_device_info(&vars));
+
+    print_destruction_warning(
+        "flash gsi",
+        "This will flash a GSI, wipe userdata, and reboot between bootloader and fastbootd as needed.",
+    );
+    println!(
+        "{}",
+        status_line(
+            Tone::Info,
+            "gsi",
+            &format!("system image {}", image.display())
+        )
+    );
+    println!(
+        "{}",
+        status_line(
+            Tone::Info,
+            "gsi",
+            &format!("using bundled formatter root {}", tools.root.display())
+        )
+    );
+
+    if !yes
+        && !Confirm::new("Run the GSI flashing flow on this device?")
+            .with_default(false)
+            .prompt()?
+    {
+        bail!("aborted by user");
+    }
+
+    let inspected =
+        inspect_gsi_image(image).with_context(|| format!("inspect GSI image {}", image.display()))?;
+    let userdata = detect_userdata(&mut fastboot).await?;
+    let vbmeta_size = std::fs::metadata(fastboot_flasher::manual::resolved_disable_vbmeta_image_path()?)
+        .context("read bundled vbmeta metadata")?
+        .len();
+    let needs_product_gsi =
+        maybe_needs_product_gsi(&mut fastboot, &vars, inspected.expanded_size).await?;
+    let execution_plan = build_gsi_execution_plan(
+        start_mode,
+        metadata.len(),
+        vbmeta_size,
+        &userdata,
+        &GsiFlashOptions::default(),
+        needs_product_gsi,
+    );
+
+    let mut progress = GsiCliProgress::new(ActionSummary {
+        flash_count: execution_plan.summary.flash_count,
+        wipe_count: execution_plan.summary.wipe_count,
+        skipped_count: execution_plan.summary.skipped_count,
+        total_bytes: execution_plan.summary.total_bytes,
+    });
+    let outcome = execute_gsi_flash_with_vars(
+        fastboot,
+        vars,
+        image,
+        &tools,
+        &GsiFlashOptions::default(),
+        |event| match event {
+            GsiEvent::Step(step) => {
+                progress.println_info("gsi", step.as_str());
+            }
+            GsiEvent::ModeDetected(mode) => {
+                progress.println_info("mode", &format!("device detected in {}", mode.as_str()));
+            }
+            GsiEvent::ModeReady(mode) => {
+                progress.println_info("mode", &format!("device ready in {}", mode.as_str()));
+            }
+            GsiEvent::UserdataEraseFallback { fs_type } => {
+                progress.println_info("wipe", &format!("userdata type `{fs_type}` uses erase fallback"));
+            }
+            GsiEvent::ResolvedPartition {
+                base,
+                partition,
+                size_bytes,
+            } => {
+                let detail = if size_bytes > 0 {
+                    format!("{base} -> {partition} (0x{size_bytes:x})")
+                } else {
+                    format!("{base} -> {partition}")
+                };
+                progress.println_info("partition", &detail);
+            }
+            GsiEvent::Flashing {
+                partition,
+                image,
+                size_bytes,
+            } => {
+                progress.start_flash(
+                    &partition,
+                    &format!(
+                        "flash {} <- {} ({})",
+                        partition,
+                        image.display(),
+                        HumanBytes(size_bytes)
+                    ),
+                    size_bytes,
+                );
+            }
+            GsiEvent::FlashProgress {
+                partition,
+                bytes,
+                total_bytes,
+                speed_bps,
+            } => {
+                progress.update_flash(&partition, bytes, total_bytes, speed_bps);
+            }
+            GsiEvent::FlashFinished {
+                partition,
+                size_bytes,
+            } => {
+                progress.finish_flash(&partition, size_bytes);
+            }
+            GsiEvent::Erasing { partition } => {
+                progress.increment_overall(1);
+                progress.println_info("erase", &format!("best-effort erase {partition}"));
+            }
+            GsiEvent::EraseFinished { .. } => {}
+            GsiEvent::PartitionSkipped { partition, reason } => {
+                progress.increment_overall(1);
+                progress.println_warn("skip", &format!("{partition}: {reason}"));
+            }
+        },
+    )
+    .await?;
+
+    print_completion(
+        "GSI flash complete",
+        ActionSummary {
+            flash_count: outcome.summary.flash_count,
+            wipe_count: outcome.summary.wipe_count,
+            skipped_count: outcome.summary.skipped_count,
+            total_bytes: outcome.summary.total_bytes,
+        },
+    );
+
+    drop(outcome.device);
+    Ok(())
+}
+
+struct GsiCliProgress {
+    multi: MultiProgress,
+    overall: ProgressBar,
+    layout: ProgressLayout,
+    message_width: usize,
+    overall_total: u64,
+    current_partition: Option<String>,
+    current_bar: Option<ProgressBar>,
+}
+
+impl GsiCliProgress {
+    fn new(summary: ActionSummary) -> Self {
+        let layout = ProgressLayout::from_terminal();
+        let message_width = 80;
+        let multi = MultiProgress::new();
+        let overall = multi.add(ProgressBar::new(summary.total_bytes.max(1)));
+        let (overall_prefix, overall_bar_width) = total_row_prefix_and_bar(
+            &layout,
+            TOTAL_LABEL,
+            &format_byte_pair(0, summary.total_bytes.max(1)),
+            false,
+        );
+        overall.set_style(active_total_style(overall_bar_width));
+        overall.set_prefix(overall_prefix);
+        overall.enable_steady_tick(Duration::from_millis(80));
+        let _ = multi.println(progress_header(summary, false));
+        Self {
+            multi,
+            overall,
+            layout,
+            message_width,
+            overall_total: summary.total_bytes.max(1),
+            current_partition: None,
+            current_bar: None,
+        }
+    }
+
+    fn println_info(&self, label: &str, detail: &str) {
+        let _ = self.multi.println(format!("{label:<10} {detail}"));
+    }
+
+    fn println_warn(&self, label: &str, detail: &str) {
+        let _ = self.multi.println(format!("{label:<10} {detail}"));
+    }
+
+    fn start_flash(&mut self, partition: &str, message: &str, total_bytes: u64) {
+        self.finish_open_bar_if_mismatched(partition, total_bytes);
+        if self.current_partition.as_deref() == Some(partition) {
+            return;
+        }
+
+        self.overall_total = self.overall_total.saturating_add(total_bytes.max(1));
+        self.overall.set_length(self.overall_total.max(1));
+
+        let byte_pair = format_byte_pair(0, total_bytes.max(1));
+        let (prefix, bar_width) = flash_row_prefix_and_bar(
+            &self.layout,
+            "FLASH",
+            "FLASH",
+            self.message_width,
+            &byte_pair,
+        );
+        let pb = self
+            .multi
+            .insert_before(&self.overall, ProgressBar::new(total_bytes.max(1)));
+        pb.set_style(active_flash_style(bar_width, self.message_width));
+        pb.set_prefix(prefix);
+        pb.set_message(message.to_string());
+
+        self.current_partition = Some(partition.to_string());
+        self.current_bar = Some(pb);
+    }
+
+    fn update_flash(&mut self, partition: &str, bytes: u64, total_bytes: u64, speed_bps: u64) {
+        if self.current_partition.as_deref() != Some(partition) {
+            self.start_flash(
+                partition,
+                &format!("flash {partition} ({})", HumanBytes(total_bytes)),
+                total_bytes,
+            );
+        }
+        if let Some(pb) = &self.current_bar {
+            let current = pb.position();
+            if bytes > current {
+                let delta = bytes - current;
+                pb.inc(delta);
+                self.overall.inc(delta);
+            }
+            if speed_bps > 0 {
+                pb.set_message(format!("flash {partition} @ {}/s", HumanBytes(speed_bps)));
+            }
+        }
+    }
+
+    fn finish_flash(&mut self, partition: &str, size_bytes: u64) {
+        if self.current_partition.as_deref() != Some(partition) {
+            self.start_flash(
+                partition,
+                &format!("flash {partition} ({})", HumanBytes(size_bytes)),
+                size_bytes,
+            );
+        }
+        if let Some(pb) = self.current_bar.take() {
+            let remaining = pb.length().unwrap_or(size_bytes.max(1)).saturating_sub(pb.position());
+            if remaining > 0 {
+                pb.inc(remaining);
+                self.overall.inc(remaining);
+            }
+            pb.set_style(history_row_style(self.message_width));
+            pb.set_prefix(String::new());
+            pb.finish_with_message(format!("flash {partition} {}", HumanBytes(size_bytes)));
+        }
+        self.current_partition = None;
+    }
+
+    fn increment_overall(&self, bytes: u64) {
+        self.overall.inc(bytes);
+    }
+
+    fn finish_open_bar_if_mismatched(&mut self, partition: &str, size_bytes: u64) {
+        if self.current_partition.as_deref() != Some(partition) {
+            if let Some(current) = self.current_partition.clone() {
+                self.finish_flash(&current, size_bytes);
+            }
+        }
+    }
 }
 
 async fn unlock_bootloader_flow(dry_run: bool, yes: bool) -> anyhow::Result<()> {
@@ -1194,10 +1492,20 @@ async fn wait_for_fastboot() -> anyhow::Result<NusbFastBoot> {
     loop {
         let mut infos = devices().await?;
         if let Some(info) = infos.next() {
-            spinner.finish_and_clear();
-            return NusbFastBoot::from_info(&info)
-                .await
-                .map_err(anyhow::Error::from);
+            match NusbFastBoot::from_info(&info).await {
+                Ok(dev) => {
+                    spinner.finish_and_clear();
+                    return Ok(dev);
+                }
+                Err(error) if error.is_retryable() => {
+                    sleep(Duration::from_millis(250)).await;
+                    continue;
+                }
+                Err(error) => {
+                    spinner.finish_and_clear();
+                    return Err(anyhow::Error::from(error));
+                }
+            }
         }
         sleep(Duration::from_millis(500)).await;
     }
@@ -1348,8 +1656,13 @@ fn total_row_prefix_and_bar(
 }
 
 fn timed_style(template: &str) -> ProgressStyle {
+    let fallback_template = "{spinner:.green} [{bar:10.cyan/blue}] {bytes}/{total}";
     ProgressStyle::with_template(template)
-        .expect("progress template is valid")
+        .unwrap_or_else(|_| {
+            eprintln!("[progress] invalid template, using fallback");
+            ProgressStyle::with_template(fallback_template)
+                .expect("static fallback template is always valid")
+        })
         .with_key(
             "elapsed_mmss",
             |state: &ProgressState, out: &mut dyn std::fmt::Write| {

@@ -26,6 +26,7 @@ export interface FlashProgress {
   overallTotal: number;
   summary: FlashSummaryDto | null;
   errorMessage: string;
+  statusText: string;
   reset: () => void;
   fail: (message: string) => void;
   setIsMinimized: (v: boolean) => void;
@@ -55,6 +56,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
     overallTotal: 0,
     summary: null,
     errorMessage: "",
+    statusText: "",
   });
   const [logEntries, setLogEntries] = useState<string[]>([]);
 
@@ -68,130 +70,139 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
 
     listen<FlashEvent>("flash-progress", (evt) => {
       if (cancelled) return;
-      const ev = evt.payload;
-      const logEntry = formatFlashEventForLog(ev);
-      if (logEntry) {
-        appendLogEntry(logEntry);
-      }
+      try {
+        const ev = evt.payload;
+        const logEntry = formatFlashEventForLog(ev);
+        if (logEntry) {
+          appendLogEntry(logEntry);
+        }
 
-      switch (ev.event) {
-        case "WaitingForDevice":
-          runModeRef.current = "live";
-          setState((p) => ({
-            ...p,
-            phase: "waiting",
-            runMode: "live",
-            operation: "",
-            errorMessage: "",
-          }));
-          toast.info("Waiting for device...");
-          tryNotify("Waiting for device", "Connect your device via USB");
-          break;
-        case "PlanBuilt":
-          setState((p) => ({
-            ...p,
-            overallBytes: 0,
-            overallTotal: ev.data.total_bytes,
-            summary: null,
-          }));
-          toast.info(`${ev.data.actions} actions, ${(ev.data.total_bytes / 1e9).toFixed(2)} GiB`);
-          break;
-        case "PreparingImage":
-          runModeRef.current = "live";
-          setState((p) => ({
-            ...p,
-            runMode: "live",
-            operation: "flash",
-            partition: ev.data.partition,
-          }));
-          break;
-        case "Flashing":
-          runModeRef.current = "live";
-          setState((p) => ({
-            ...p,
-            phase: "flashing",
-            runMode: "live",
-            operation: "flash",
-            partition: ev.data.partition,
-            bytes: ev.data.bytes,
-            total: ev.data.total,
-            speedBps: ev.data.speed_bps,
-            errorMessage: "",
-          }));
-          break;
-        case "Simulating":
-          runModeRef.current = "dry_run";
-          setState((p) => ({
-            ...p,
-            phase: "flashing",
-            runMode: "dry_run",
-            operation: ev.data.action === "wipe" ? "erase" : "flash",
-            partition: ev.data.partition,
-            bytes: ev.data.bytes,
-            total: ev.data.total,
-            speedBps: ev.data.speed_bps,
-            errorMessage: "",
-          }));
-          break;
-        case "Overall":
-          setState((p) => ({
-            ...p,
-            overallBytes: ev.data.bytes,
-            overallTotal: ev.data.total,
-          }));
-          break;
-        case "PartitionFailed":
-          toast.error(`${ev.data.partition}: ${ev.data.error}`);
-          break;
-        case "Erasing":
-          runModeRef.current = "live";
-          setState((p) => ({
-            ...p,
-            phase: "flashing",
-            runMode: "live",
-            operation: "erase",
-            partition: ev.data.partition,
-            bytes: 0,
-            total: 1,
-          }));
-          break;
-        case "Complete":
-          setState((p) => ({
-            ...p,
-            phase: "complete",
-            summary: ev.data.summary,
-            errorMessage: "",
-            bytes: p.total > 0 ? p.total : p.bytes,
-            total: p.total > 0 ? p.total : p.bytes,
-            overallBytes: ev.data.summary.total_bytes,
-            overallTotal: ev.data.summary.total_bytes,
-          }));
-          toast.success(preserveCompletionMessage(runModeRef.current));
-          if (isMinimizedRef.current) {
-            const summary = ev.data.summary;
-            const body = `${summary.flash_count} flashed, ${summary.wipe_count} wiped, ${(summary.total_bytes / 1e9).toFixed(2)} GiB`;
-            tryNotify(preserveCompletionMessage(runModeRef.current), body);
-          }
-          break;
-        case "Cancelled":
-          setState((p) => ({
-            ...p,
-            phase: "cancelled",
-            operation: "",
-            errorMessage: ev.data.message,
-          }));
-          toast.message("Flash cancelled");
-          tryNotify("Flash cancelled");
-          break;
-        case "Error":
-          setState((p) => ({
-            ...p,
-            phase: "error",
-            errorMessage: ev.data.message,
-          }));
-          toast.error(ev.data.message);
-          tryNotify("Flash failed", ev.data.message);
-          break;
+        switch (ev.event) {
+          case "WaitingForDevice":
+            runModeRef.current = "live";
+            setState((p) => ({
+              ...p,
+              phase: "waiting",
+              runMode: "live",
+              operation: "",
+              errorMessage: "",
+            }));
+            toast.info("Waiting for device...");
+            break;
+          case "GsiStatus":
+            setState((p) => ({
+              ...p,
+              statusText: gsiStatusMessage(ev.data.status),
+            }));
+            break;
+          case "PlanBuilt":
+            setState((p) => ({
+              ...p,
+              overallBytes: 0,
+              overallTotal: ev.data.total_bytes,
+              summary: null,
+            }));
+            toast.info(`${ev.data.actions} actions, ${(ev.data.total_bytes / 1e9).toFixed(2)} GiB`);
+            break;
+          case "PreparingImage":
+            runModeRef.current = "live";
+            setState((p) => ({
+              ...p,
+              runMode: "live",
+              operation: "flash",
+              partition: ev.data.partition,
+            }));
+            break;
+          case "Flashing":
+            runModeRef.current = "live";
+            setState((p) => ({
+              ...p,
+              phase: "flashing",
+              runMode: "live",
+              operation: "flash",
+              partition: ev.data.partition,
+              bytes: ev.data.bytes,
+              total: ev.data.total,
+              speedBps: ev.data.speed_bps,
+              errorMessage: "",
+            }));
+            break;
+          case "Simulating":
+            runModeRef.current = "dry_run";
+            setState((p) => ({
+              ...p,
+              phase: "flashing",
+              runMode: "dry_run",
+              operation: ev.data.action === "wipe" ? "erase" : "flash",
+              partition: ev.data.partition,
+              bytes: ev.data.bytes,
+              total: ev.data.total,
+              speedBps: ev.data.speed_bps,
+              errorMessage: "",
+            }));
+            break;
+          case "Overall":
+            setState((p) => ({
+              ...p,
+              overallBytes: ev.data.bytes,
+              overallTotal: ev.data.total,
+            }));
+            break;
+          case "PartitionFailed":
+            toast.error(`${ev.data.partition}: ${ev.data.error}`);
+            break;
+          case "Erasing":
+            runModeRef.current = "live";
+            setState((p) => ({
+              ...p,
+              phase: "flashing",
+              runMode: "live",
+              operation: "erase",
+              partition: ev.data.partition,
+              bytes: 0,
+              total: 1,
+            }));
+            break;
+          case "Complete":
+            setState((p) => ({
+              ...p,
+              phase: "complete",
+              summary: ev.data.summary,
+              errorMessage: "",
+              bytes: p.total > 0 ? p.total : p.bytes,
+              total: p.total > 0 ? p.total : p.bytes,
+              overallBytes: ev.data.summary.total_bytes,
+              overallTotal: ev.data.summary.total_bytes,
+            }));
+            toast.success(preserveCompletionMessage(runModeRef.current));
+            if (isMinimizedRef.current) {
+              const summary = ev.data.summary;
+              const body = `${summary.flash_count} flashed, ${summary.wipe_count} wiped, ${(summary.total_bytes / 1e9).toFixed(2)} GiB`;
+              tryNotify(preserveCompletionMessage(runModeRef.current), body);
+            }
+            break;
+          case "Cancelled":
+            setState((p) => ({
+              ...p,
+              phase: "cancelled",
+              operation: "",
+              errorMessage: ev.data.message,
+            }));
+            toast.message("Flash cancelled");
+            tryNotify("Flash cancelled");
+            break;
+          case "Error":
+            setState((p) => ({
+              ...p,
+              phase: "error",
+              errorMessage: ev.data.message,
+            }));
+            toast.error(ev.data.message);
+            tryNotify("Flash failed", ev.data.message);
+            break;
+        }
+      } catch (error) {
+        console.error("flash-progress listener crashed", error, evt.payload);
       }
     }).then((fn) => {
       if (cancelled) {
@@ -260,6 +271,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
       overallTotal: 0,
       summary: null,
       errorMessage: "",
+      statusText: "",
     });
   }, []);
 
@@ -332,6 +344,8 @@ function formatFlashEventForLog(event: FlashEvent): string | null {
   switch (event.event) {
     case "WaitingForDevice":
       return "WaitingForDevice";
+    case "GsiStatus":
+      return `GsiStatus ${JSON.stringify(event.data)}`;
     case "PlanBuilt":
       return `PlanBuilt ${JSON.stringify(event.data)}`;
     case "PreparingImage":
@@ -356,5 +370,50 @@ function formatFlashEventForLog(event: FlashEvent): string | null {
     case "Overall":
     case "Simulating":
       return null;
+  }
+}
+
+function gsiStatusMessage(status: string) {
+  switch (status) {
+    case "bootloader_detected":
+      return "Bootloader detected";
+    case "fastbootd_detected":
+      return "Fastbootd detected";
+    case "bootloader_ready":
+      return "Bootloader ready";
+    case "fastbootd_ready":
+      return "Fastbootd ready";
+    case "rebooting_to_fastbootd":
+      return "Rebooting to fastbootd";
+    case "rebooting_to_bootloader":
+      return "Rebooting to bootloader";
+    case "starting_bootloader_phase":
+      return "Starting bootloader phase";
+    case "starting_fastbootd_phase":
+      return "Starting fastbootd phase";
+    case "preparing_vbmeta_flash":
+      return "Preparing vbmeta flash";
+    case "flashing_vbmeta":
+      return "Flashing vbmeta";
+    case "checking_system_partition":
+      return "Checking system partition";
+    case "checking_product_gsi_fallback":
+      return "Checking product fallback";
+    case "generating_product_gsi_image":
+      return "Generating product_gsi image";
+    case "flashing_product_gsi":
+      return "Flashing product_gsi";
+    case "wiping_userdata":
+      return "Wiping data";
+    case "flashing_system_gsi":
+      return "Flashing system GSI";
+    case "product_gsi_fallback_not_needed":
+      return "Product fallback not needed";
+    case "userdata_erase_fallback":
+      return "Using userdata erase fallback";
+    case "gsi_flow_complete":
+      return "GSI flow complete";
+    default:
+      return `Running GSI action: ${status}`;
   }
 }

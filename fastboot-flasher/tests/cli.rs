@@ -129,6 +129,16 @@ fn disable_vbmeta_subcommand_should_parse() {
 }
 
 #[test]
+fn gsi_subcommand_should_parse_image_path() {
+    let args = Args::parse_from(["fastboot-flasher", "gsi", "system.img"]);
+
+    assert!(matches!(
+        args.command,
+        Some(Command::Gsi { ref image }) if image == &PathBuf::from("system.img")
+    ));
+}
+
+#[test]
 fn scatter_subcommand_should_parse_clean_flash() {
     let args = Args::parse_from([
         "fastboot-flasher",
@@ -397,8 +407,62 @@ fn mode_flags_are_mutually_exclusive() {
 
 #[test]
 fn dry_run_planning_does_not_require_image_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let scatter = temp.path().join("minimal-scatter.xml");
+    std::fs::write(
+        &scatter,
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <general name="MTK_PLATFORM_CFG">
+    <config_version name="V2.2.0">
+      <platform>MT6789</platform>
+      <project>demo_device</project>
+    </config_version>
+  </general>
+  <storage_type name="EMMC">
+    <partition_index name="SYS0">
+      <partition_name>boot_a</partition_name>
+      <file_name>boot.img</file_name>
+      <is_download>true</is_download>
+      <type>NORMAL_ROM</type>
+      <linear_start_addr>0x0</linear_start_addr>
+      <physical_start_addr>0x0</physical_start_addr>
+      <partition_size>0x1000</partition_size>
+      <region>EMMC_USER</region>
+      <storage>HW_STORAGE_EMMC</storage>
+      <boundary_check>true</boundary_check>
+      <is_reserved>false</is_reserved>
+      <operation_type>UPDATE</operation_type>
+      <is_upgradable>true</is_upgradable>
+      <empty_boot_needed>false</empty_boot_needed>
+      <combo_partsize_check>false</combo_partsize_check>
+      <reserve>0x00</reserve>
+    </partition_index>
+    <partition_index name="SYS1">
+      <partition_name>boot_b</partition_name>
+      <file_name>boot.img</file_name>
+      <is_download>true</is_download>
+      <type>NORMAL_ROM</type>
+      <linear_start_addr>0x1000</linear_start_addr>
+      <physical_start_addr>0x1000</physical_start_addr>
+      <partition_size>0x1000</partition_size>
+      <region>EMMC_USER</region>
+      <storage>HW_STORAGE_EMMC</storage>
+      <boundary_check>true</boundary_check>
+      <is_reserved>false</is_reserved>
+      <operation_type>UPDATE</operation_type>
+      <is_upgradable>true</is_upgradable>
+      <empty_boot_needed>false</empty_boot_needed>
+      <combo_partsize_check>false</combo_partsize_check>
+      <reserve>0x00</reserve>
+    </partition_index>
+  </storage_type>
+</root>"#,
+    )
+    .unwrap();
+
     let plan = build_plan_checked(
-        &PathBuf::from("../tests/fixtures/minimal-scatter.xml"),
+        &scatter,
         FlashMode::DryRun,
         Some(SlotArg::All),
         false,
@@ -411,6 +475,65 @@ fn dry_run_planning_does_not_require_image_files() {
         .errors
         .iter()
         .all(|error| !error.contains("missing images")));
+}
+
+#[test]
+fn dry_run_planning_should_resolve_parent_relative_images_within_package() {
+    let temp = tempfile::tempdir().unwrap();
+    let scatter_dir = temp.path().join("Global");
+    std::fs::create_dir_all(&scatter_dir).unwrap();
+    let scatter = scatter_dir.join("Global_scatter.txt");
+    let image = temp.path().join("vbmeta_system.img");
+    std::fs::write(&image, [0u8; 16]).unwrap();
+    std::fs::write(
+        &scatter,
+        r#"
+- general: MTK_PLATFORM_CFG
+  config_version: V2.0.0
+  platform: MT6833
+  project: demo
+- storage_type: UFS
+  partition_index: SYS11
+  partition_name: vbmeta_system_a
+  file_name: ..\vbmeta_system.img
+  is_download: true
+  type: NORMAL_ROM
+  linear_start_addr: 0xaf08000
+  physical_start_addr: 0xaf08000
+  partition_size: 0x800000
+  region: UFS_LU2
+  storage: HW_STORAGE_UFS
+  boundary_check: true
+  is_reserved: false
+  operation_type: UPDATE
+  is_upgradable: true
+  empty_boot_needed: false
+  combo_partsize_check: false
+  reserve: 0x00
+"#,
+    )
+    .unwrap();
+
+    let plan = build_plan_checked(
+        &scatter,
+        FlashMode::DryRun,
+        None,
+        false,
+        Vec::new(),
+        false,
+    )
+    .unwrap();
+
+    let vbmeta_system = plan
+        .actions
+        .iter()
+        .find(|action| action.partition == "vbmeta_system_a")
+        .unwrap();
+
+    assert_eq!(
+        vbmeta_system.image_resolved_path(),
+        Some(image.to_string_lossy().as_ref())
+    );
 }
 
 #[test]

@@ -44,6 +44,11 @@ pub fn build_plan_checked(
 ) -> anyhow::Result<FlashPlan> {
     let scatter = mtk_scatter_parser::parse_scatter(scatter_path)?;
     let firmware_dir = scatter_path.parent().map(Path::to_path_buf);
+    let package_root = scatter_path
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .or_else(|| firmware_dir.clone());
     Ok(mtk_scatter_parser::build_flash_plan(
         &scatter,
         FlashPlanOptions {
@@ -53,7 +58,7 @@ pub fn build_plan_checked(
             parts,
             groups: Vec::new(),
             firmware_dir,
-            package_root: scatter_path.parent().map(Path::to_path_buf),
+            package_root,
             check_images,
             image_search: false,
             include_preloader,

@@ -36,6 +36,7 @@ export function FlashDialog({
     overallTotal,
     summary,
     errorMessage,
+    statusText,
     setIsMinimized,
   } = useFlashProgress();
 
@@ -111,6 +112,12 @@ export function FlashDialog({
             {errorMessage && (phase === "error" || phase === "cancelled") && (
               <p className={cn("rounded-sm border px-3 py-2 text-sm break-words leading-6", phase === "cancelled" ? "border-warning/20 bg-warning/8 text-warning" : "border-error/20 bg-error/8 text-error")}>
                 {errorMessage}
+              </p>
+            )}
+
+            {statusText && !errorMessage && (
+              <p className="text-center text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                {statusText}
               </p>
             )}
 

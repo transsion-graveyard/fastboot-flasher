@@ -5,6 +5,7 @@
 pub mod cli;
 pub mod device;
 pub mod format;
+pub mod gsi;
 pub mod manual;
 pub mod plan;
 pub mod progress;
@@ -17,7 +18,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use fastboot_rs::{
-    flash_prepared_image, prepare_image,
+    flash_prepared_image, parse_max_download_size, prepare_image,
     transport::nusb::{devices, NusbFastBootError},
 };
 use inquire::Confirm;
@@ -86,9 +87,14 @@ pub async fn connect_fastboot() -> anyhow::Result<NusbFastBoot> {
     loop {
         let mut infos = devices().await?;
         if let Some(info) = infos.next() {
-            return NusbFastBoot::from_info(&info)
-                .await
-                .map_err(anyhow::Error::from);
+            match NusbFastBoot::from_info(&info).await {
+                Ok(dev) => return Ok(dev),
+                Err(error) if error.is_retryable() => {
+                    sleep(Duration::from_millis(250)).await;
+                    continue;
+                }
+                Err(error) => return Err(anyhow::Error::from(error)),
+            }
         }
         sleep(Duration::from_millis(500)).await;
     }
@@ -106,6 +112,18 @@ pub async fn read_all_variables(dev: &mut NusbFastBoot) -> anyhow::Result<HashMa
         .await
         .map_err(anyhow::Error::from)
         .context("get all variables")
+}
+
+pub fn resolve_max_download_size_from_vars(vars: &HashMap<String, String>) -> anyhow::Result<u32> {
+    let raw = vars
+        .get("max-download-size")
+        .context("missing fastboot variable max-download-size")?;
+    let max_download =
+        parse_max_download_size(raw).with_context(|| format!("parse max-download-size `{raw}`"))?;
+    if max_download == 0 {
+        anyhow::bail!("device reported max-download-size=0");
+    }
+    Ok(max_download)
 }
 
 pub async fn set_fastboot_active_slot(dev: &mut NusbFastBoot, slot: &str) -> anyhow::Result<()> {
@@ -127,6 +145,13 @@ pub async fn reboot_device_bootloader(dev: &mut NusbFastBoot) -> anyhow::Result<
         .await
         .map_err(anyhow::Error::from)
         .context("reboot to bootloader")
+}
+
+pub async fn reboot_device_fastboot(dev: &mut NusbFastBoot) -> anyhow::Result<()> {
+    dev.reboot_fastboot()
+        .await
+        .map_err(anyhow::Error::from)
+        .context("reboot to fastboot")
 }
 
 pub async fn power_off_device(dev: &mut NusbFastBoot) -> anyhow::Result<()> {
@@ -154,15 +179,50 @@ pub async fn flash_one_partition(
     dev: &mut NusbFastBoot,
     partition: &str,
     image: &Path,
+    max_download: u32,
     on_progress: impl FnMut(FlashProgress),
 ) -> anyhow::Result<()> {
-    let max_download = dev
-        .max_download_size()
-        .await
-        .map_err(anyhow::Error::from)
-        .with_context(|| format!("get max download size for {partition}"))?;
+    eprintln!(
+        "[flash-lib] flash_one_partition start partition={} image={} max_download=0x{:x}",
+        partition,
+        image.display(),
+        max_download
+    );
+    if max_download == 0 {
+        anyhow::bail!("device reported max-download-size=0, cannot flash {partition}");
+    }
     let prepared = prepare_image(image, max_download)
         .with_context(|| format!("prepare image for {partition}"))?;
+    eprintln!(
+        "[flash-lib] prepared partition={} transfers={} expanded_size={} file_size={}",
+        partition,
+        prepared.transfer_count(),
+        prepared.expanded_size,
+        prepared.file_size
+    );
+    eprintln!("[flash-lib] querying is-logical for partition={partition}");
+    if dev
+        .is_logical(partition)
+        .await
+        .map_err(anyhow::Error::from)
+        .with_context(|| format!("query logical partition state for {partition}"))?
+    {
+        eprintln!(
+            "[flash-lib] resizing logical partition={} expanded_size={}",
+            partition,
+            prepared.expanded_size
+        );
+        dev.resize_logical_partition(partition, prepared.expanded_size)
+            .await
+            .map_err(anyhow::Error::from)
+            .with_context(|| {
+                format!(
+                    "resize logical partition {partition} to {} bytes",
+                    prepared.expanded_size
+                )
+            })?;
+    }
+    eprintln!("[flash-lib] starting flash_prepared_image partition={partition}");
     flash_prepared_image(dev, partition, &prepared, on_progress)
         .await
         .with_context(|| format!("flash {partition}"))
@@ -199,8 +259,40 @@ pub fn force_fastboot() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     #[test]
     fn power_off_helper_is_exported() {
         let _ = super::power_off_device;
+    }
+
+    #[test]
+    fn reboot_fastboot_helper_is_exported() {
+        let _ = super::reboot_device_fastboot;
+    }
+
+    #[test]
+    fn resolve_max_download_size_from_vars_accepts_hex_values() {
+        let vars = HashMap::from([("max-download-size".to_string(), "0x4000000".to_string())]);
+
+        let max_download = super::resolve_max_download_size_from_vars(&vars).unwrap();
+
+        assert_eq!(max_download, 0x4000000);
+    }
+
+    #[test]
+    fn resolve_max_download_size_from_vars_rejects_zero() {
+        let vars = HashMap::from([("max-download-size".to_string(), "0".to_string())]);
+
+        let error = super::resolve_max_download_size_from_vars(&vars).unwrap_err();
+
+        assert!(error.to_string().contains("max-download-size=0"));
+    }
+
+    #[test]
+    fn resolve_max_download_size_from_vars_requires_variable() {
+        let error = super::resolve_max_download_size_from_vars(&HashMap::new()).unwrap_err();
+
+        assert!(error.to_string().contains("max-download-size"));
     }
 }

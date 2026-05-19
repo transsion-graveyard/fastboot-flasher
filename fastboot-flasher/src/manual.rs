@@ -84,6 +84,16 @@ pub fn standalone_disable_vbmeta_path() -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+pub fn resolved_disable_vbmeta_image_path() -> anyhow::Result<PathBuf> {
+    let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join("empty_vbmeta.img");
+    if bundled.is_file() {
+        return Ok(bundled);
+    }
+    standalone_disable_vbmeta_path()
+}
+
 pub fn disable_vbmeta_actions(empty_image: &Path) -> anyhow::Result<Vec<ManualFlashAction>> {
     let metadata = std::fs::metadata(empty_image)
         .with_context(|| format!("read image metadata for {}", empty_image.display()))?;

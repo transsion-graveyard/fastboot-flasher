@@ -13,11 +13,12 @@ import { useDevice } from "@/hooks/useDevice";
 import { SectionCard } from "@/components/menu-tab/SectionCard";
 import { useFlashLog } from "@/hooks/useFlashProgress";
 
-type RebootTarget = "system" | "bootloader" | "recovery" | "poweroff";
+type RebootTarget = "system" | "bootloader" | "fastboot" | "recovery" | "poweroff";
 
 const targetLabels: Record<RebootTarget, string> = {
   system: "System",
   bootloader: "Bootloader",
+  fastboot: "Fastbootd",
   recovery: "Recovery",
   poweroff: "Power off",
 };
@@ -25,6 +26,7 @@ const targetLabels: Record<RebootTarget, string> = {
 const successLabels: Record<RebootTarget, string> = {
   system: "Rebooted to system",
   bootloader: "Rebooted to bootloader",
+  fastboot: "Rebooted to fastbootd",
   recovery: "Rebooted to recovery",
   poweroff: "Powered off device",
 };
@@ -34,7 +36,7 @@ interface RebootSectionProps {
 }
 
 export function RebootSection({ disabled = false }: RebootSectionProps) {
-  const { reboot, rebootBootloader, rebootRecovery, powerOff } = useDevice();
+  const { reboot, rebootBootloader, rebootFastboot, rebootRecovery, powerOff } = useDevice();
   const [target, setTarget] = useState<RebootTarget>("system");
   const [busy, setBusy] = useState(false);
   const { append } = useFlashLog();
@@ -43,6 +45,8 @@ export function RebootSection({ disabled = false }: RebootSectionProps) {
     switch (target) {
       case "bootloader":
         return rebootBootloader;
+      case "fastboot":
+        return rebootFastboot;
       case "recovery":
         return rebootRecovery;
       case "poweroff":
@@ -50,7 +54,7 @@ export function RebootSection({ disabled = false }: RebootSectionProps) {
       default:
         return reboot;
     }
-  }, [powerOff, reboot, rebootBootloader, rebootRecovery, target]);
+  }, [powerOff, reboot, rebootBootloader, rebootFastboot, rebootRecovery, target]);
 
   const handleReboot = async () => {
     setBusy(true);
@@ -74,11 +78,12 @@ export function RebootSection({ disabled = false }: RebootSectionProps) {
     >
         <Select value={target} onValueChange={(value) => setTarget(value as RebootTarget)}>
           <SelectTrigger className="w-full" aria-label="Reboot target" disabled={disabled || busy}>
-            <SelectValue />
+            <SelectValue>{targetLabels[target]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="system">System</SelectItem>
             <SelectItem value="bootloader">Bootloader</SelectItem>
+            <SelectItem value="fastboot">Fastbootd</SelectItem>
             <SelectItem value="recovery">Recovery</SelectItem>
             <SelectItem value="poweroff">Power off</SelectItem>
           </SelectContent>

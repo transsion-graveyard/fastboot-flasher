@@ -1,4 +1,8 @@
-use std::{fs::File, io::Write, path::PathBuf};
+use std::{
+    fs::{self, File},
+    io::Write,
+    path::PathBuf,
+};
 
 use mtk_scatter_parser::{
     build_flash_plan, canonical_name, human_size, parse_int, parse_scatter, safety_class,
@@ -40,7 +44,8 @@ fn human_size_should_match_python_formatting() {
 
 #[test]
 fn parse_scatter_should_select_ufs_layout_by_default() {
-    let scatter = parse_scatter(PathBuf::from("../tests/fixtures/global-scatter.txt")).unwrap();
+    let temp = write_global_yaml_fixture(false);
+    let scatter = parse_scatter(temp.path().join("global-scatter.txt")).unwrap();
 
     assert_eq!(scatter.format, "yaml");
     assert_eq!(
@@ -54,14 +59,15 @@ fn parse_scatter_should_select_ufs_layout_by_default() {
 
 #[test]
 fn build_flash_plan_should_error_when_both_slots_are_incomplete() {
-    let scatter = parse_scatter(PathBuf::from("../tests/fixtures/global-scatter.txt")).unwrap();
+    let temp = write_global_yaml_fixture(false);
+    let scatter = parse_scatter(temp.path().join("global-scatter.txt")).unwrap();
     let plan = build_flash_plan(
         &scatter,
         FlashPlanOptions {
             mode: Mode::Selective,
             slot_policy: SlotPolicy::Both,
             parts: vec!["boot".to_string()],
-            firmware_dir: Some(PathBuf::from("tests/fixtures")),
+            firmware_dir: Some(temp.path().to_path_buf()),
             ..FlashPlanOptions::default()
         },
     );
@@ -73,13 +79,14 @@ fn build_flash_plan_should_error_when_both_slots_are_incomplete() {
 
 #[test]
 fn build_flash_plan_should_synthesize_non_download_b_slots_for_slot_all_modes() {
-    let scatter = parse_scatter(PathBuf::from("../tests/fixtures/minimal-scatter.xml")).unwrap();
+    let temp = write_minimal_xml_fixture(true);
+    let scatter = parse_scatter(temp.path().join("minimal-scatter.xml")).unwrap();
     let plan = build_flash_plan(
         &scatter,
         FlashPlanOptions {
             mode: Mode::DryRun,
             slot_policy: SlotPolicy::Both,
-            firmware_dir: Some(PathBuf::from("tests/fixtures")),
+            firmware_dir: Some(temp.path().to_path_buf()),
             ..FlashPlanOptions::default()
         },
     );
@@ -99,13 +106,14 @@ fn build_flash_plan_should_synthesize_non_download_b_slots_for_slot_all_modes() 
 
 #[test]
 fn build_flash_plan_should_inherit_slot_a_image_for_slot_b_mode() {
-    let scatter = parse_scatter(PathBuf::from("../tests/fixtures/minimal-scatter.xml")).unwrap();
+    let temp = write_minimal_xml_fixture(true);
+    let scatter = parse_scatter(temp.path().join("minimal-scatter.xml")).unwrap();
     let plan = build_flash_plan(
         &scatter,
         FlashPlanOptions {
             mode: Mode::DryRun,
             slot_policy: SlotPolicy::B,
-            firmware_dir: Some(PathBuf::from("tests/fixtures")),
+            firmware_dir: Some(temp.path().to_path_buf()),
             ..FlashPlanOptions::default()
         },
     );
@@ -120,7 +128,7 @@ fn build_flash_plan_should_inherit_slot_a_image_for_slot_b_mode() {
     assert!(boot_b.reason.contains("inherited from slot a image"));
     assert!(boot_b
         .image_resolved_path()
-        .is_some_and(|path| path.ends_with("tests/fixtures/boot.img")));
+        .is_some_and(|path| path.ends_with("boot.img")));
 }
 
 #[test]
@@ -163,14 +171,15 @@ fn synthesized_slot_action_should_recheck_image_against_target_partition_size() 
 
 #[test]
 fn flash_action_should_expose_typed_image_path_fields() {
-    let scatter = parse_scatter(PathBuf::from("../tests/fixtures/global-scatter.txt")).unwrap();
+    let temp = write_global_yaml_fixture(true);
+    let scatter = parse_scatter(temp.path().join("global-scatter.txt")).unwrap();
     let plan = build_flash_plan(
         &scatter,
         FlashPlanOptions {
             mode: Mode::Selective,
             slot_policy: SlotPolicy::A,
             parts: vec!["boot".to_string()],
-            firmware_dir: Some(PathBuf::from("../tmp")),
+            firmware_dir: Some(temp.path().to_path_buf()),
             ..FlashPlanOptions::default()
         },
     );
@@ -182,6 +191,194 @@ fn flash_action_should_expose_typed_image_path_fields() {
         .unwrap();
     assert!(action.image_resolved_path().is_some());
     assert!(action.image_exists().is_some());
+}
+
+fn write_global_yaml_fixture(write_boot_image: bool) -> tempfile::TempDir {
+    let temp = tempfile::tempdir().unwrap();
+    if write_boot_image {
+        fs::write(temp.path().join("boot.img"), [0x42; 16]).unwrap();
+    }
+    fs::write(
+        temp.path().join("global-scatter.txt"),
+        r#"
+- general: MTK_PLATFORM_CFG
+  config_version: V2.0.0
+  platform: MT6789
+  project: demo
+- storage_type: UFS
+  partition_index: SYS0
+  partition_name: boot_a
+  file_name: boot.img
+  is_download: true
+  type: NORMAL_ROM
+  linear_start_addr: 0x0
+  physical_start_addr: 0x0
+  partition_size: 0x1000
+  region: UFS_LU2
+  storage: HW_STORAGE_UFS
+  boundary_check: true
+  is_reserved: false
+  operation_type: UPDATE
+  is_upgradable: true
+  empty_boot_needed: false
+  combo_partsize_check: false
+  reserve: 0x00
+- storage_type: UFS
+  partition_index: SYS1
+  partition_name: boot_b
+  file_name: NONE
+  is_download: false
+  type: NORMAL_ROM
+  linear_start_addr: 0x1000
+  physical_start_addr: 0x1000
+  partition_size: 0x1000
+  region: UFS_LU2
+  storage: HW_STORAGE_UFS
+  boundary_check: true
+  is_reserved: false
+  operation_type: UPDATE
+  is_upgradable: true
+  empty_boot_needed: false
+  combo_partsize_check: false
+  reserve: 0x00
+"#,
+    )
+    .unwrap();
+    temp
+}
+
+fn write_minimal_xml_fixture(write_boot_image: bool) -> tempfile::TempDir {
+    let temp = tempfile::tempdir().unwrap();
+    if write_boot_image {
+        fs::write(temp.path().join("boot.img"), [0x42; 16]).unwrap();
+        fs::write(temp.path().join("recovery.img"), [0x24; 16]).unwrap();
+        fs::write(temp.path().join("dtbo.img"), [0x18; 16]).unwrap();
+        fs::write(temp.path().join("vbmeta.img"), [0x36; 16]).unwrap();
+    }
+    fs::write(
+        temp.path().join("minimal-scatter.xml"),
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <general name="MTK_PLATFORM_CFG">
+    <config_version name="V2.2.0">
+      <platform>MT6789</platform>
+      <project>demo_device</project>
+    </config_version>
+  </general>
+  <storage_type name="UFS">
+    <partition_index name="SYS0">
+      <partition_name>boot_a</partition_name>
+      <file_name>boot.img</file_name>
+      <is_download>true</is_download>
+      <type>NORMAL_ROM</type>
+      <linear_start_addr>0x0</linear_start_addr>
+      <physical_start_addr>0x0</physical_start_addr>
+      <partition_size>0x1000</partition_size>
+      <region>UFS_LU2</region>
+      <storage>HW_STORAGE_UFS</storage>
+      <boundary_check>true</boundary_check>
+      <is_reserved>false</is_reserved>
+      <operation_type>UPDATE</operation_type>
+      <is_upgradable>true</is_upgradable>
+      <empty_boot_needed>false</empty_boot_needed>
+      <combo_partsize_check>false</combo_partsize_check>
+      <reserve>0x00</reserve>
+    </partition_index>
+    <partition_index name="SYS1">
+      <partition_name>boot_b</partition_name>
+      <file_name>NONE</file_name>
+      <is_download>false</is_download>
+      <type>NORMAL_ROM</type>
+      <linear_start_addr>0x1000</linear_start_addr>
+      <physical_start_addr>0x1000</physical_start_addr>
+      <partition_size>0x1000</partition_size>
+      <region>UFS_LU2</region>
+      <storage>HW_STORAGE_UFS</storage>
+      <boundary_check>true</boundary_check>
+      <is_reserved>false</is_reserved>
+      <operation_type>UPDATE</operation_type>
+      <is_upgradable>true</is_upgradable>
+      <empty_boot_needed>false</empty_boot_needed>
+      <combo_partsize_check>false</combo_partsize_check>
+      <reserve>0x00</reserve>
+    </partition_index>
+    <partition_index name="SYS2">
+      <partition_name>vbmeta_a</partition_name>
+      <file_name>vbmeta.img</file_name>
+      <is_download>true</is_download>
+      <type>NORMAL_ROM</type>
+      <linear_start_addr>0x2000</linear_start_addr>
+      <physical_start_addr>0x2000</physical_start_addr>
+      <partition_size>0x1000</partition_size>
+      <region>UFS_LU2</region>
+      <storage>HW_STORAGE_UFS</storage>
+      <boundary_check>true</boundary_check>
+      <is_reserved>false</is_reserved>
+      <operation_type>UPDATE</operation_type>
+      <is_upgradable>true</is_upgradable>
+      <empty_boot_needed>false</empty_boot_needed>
+      <combo_partsize_check>false</combo_partsize_check>
+      <reserve>0x00</reserve>
+    </partition_index>
+    <partition_index name="SYS3">
+      <partition_name>vbmeta_b</partition_name>
+      <file_name>NONE</file_name>
+      <is_download>false</is_download>
+      <type>NORMAL_ROM</type>
+      <linear_start_addr>0x3000</linear_start_addr>
+      <physical_start_addr>0x3000</physical_start_addr>
+      <partition_size>0x1000</partition_size>
+      <region>UFS_LU2</region>
+      <storage>HW_STORAGE_UFS</storage>
+      <boundary_check>true</boundary_check>
+      <is_reserved>false</is_reserved>
+      <operation_type>UPDATE</operation_type>
+      <is_upgradable>true</is_upgradable>
+      <empty_boot_needed>false</empty_boot_needed>
+      <combo_partsize_check>false</combo_partsize_check>
+      <reserve>0x00</reserve>
+    </partition_index>
+    <partition_index name="SYS4">
+      <partition_name>recovery</partition_name>
+      <file_name>recovery.img</file_name>
+      <is_download>true</is_download>
+      <type>NORMAL_ROM</type>
+      <linear_start_addr>0x4000</linear_start_addr>
+      <physical_start_addr>0x4000</physical_start_addr>
+      <partition_size>0x1000</partition_size>
+      <region>UFS_LU2</region>
+      <storage>HW_STORAGE_UFS</storage>
+      <boundary_check>true</boundary_check>
+      <is_reserved>false</is_reserved>
+      <operation_type>UPDATE</operation_type>
+      <is_upgradable>true</is_upgradable>
+      <empty_boot_needed>false</empty_boot_needed>
+      <combo_partsize_check>false</combo_partsize_check>
+      <reserve>0x00</reserve>
+    </partition_index>
+    <partition_index name="SYS5">
+      <partition_name>dtbo</partition_name>
+      <file_name>dtbo.img</file_name>
+      <is_download>true</is_download>
+      <type>NORMAL_ROM</type>
+      <linear_start_addr>0x5000</linear_start_addr>
+      <physical_start_addr>0x5000</physical_start_addr>
+      <partition_size>0x1000</partition_size>
+      <region>UFS_LU2</region>
+      <storage>HW_STORAGE_UFS</storage>
+      <boundary_check>true</boundary_check>
+      <is_reserved>false</is_reserved>
+      <operation_type>UPDATE</operation_type>
+      <is_upgradable>true</is_upgradable>
+      <empty_boot_needed>false</empty_boot_needed>
+      <combo_partsize_check>false</combo_partsize_check>
+      <reserve>0x00</reserve>
+    </partition_index>
+  </storage_type>
+</root>"#,
+    )
+    .unwrap();
+    temp
 }
 
 fn synthetic_ab_scatter(path: PathBuf) -> ScatterFile {

@@ -53,6 +53,8 @@ export const PartitionTable = memo(function PartitionTable({
   onPickImage,
   className,
 }: PartitionTableProps) {
+  const columnWidths = ["w-12", "w-36", "w-28", "w-40", "w-56"];
+
   if (partitions.length === 0) {
     return (
       <div
@@ -77,11 +79,16 @@ export const PartitionTable = memo(function PartitionTable({
 
   return (
     <div className={cn("panel-shell flex min-h-0 flex-1 flex-col", className)}>
-      <ScrollArea className="min-h-0 flex-1">
+      <div className="border-b border-border/80 bg-card/96">
         <Table className="table-fixed">
-          <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:border-b [&_th]:border-border/80 [&_th]:bg-card/96 [&_th]:text-muted-foreground">
+          <colgroup>
+            {columnWidths.map((width) => (
+              <col key={width} className={width} />
+            ))}
+          </colgroup>
+          <TableHeader className="[&_th]:text-muted-foreground">
             <TableRow>
-              <TableHead className="w-12">
+              <TableHead className={columnWidths[0]}>
                 <Checkbox
                   checked={allSelected}
                   indeterminate={someSelected}
@@ -89,12 +96,21 @@ export const PartitionTable = memo(function PartitionTable({
                   aria-label={allSelected ? "Clear all partitions" : "Select all partitions"}
                 />
               </TableHead>
-              <TableHead className="w-36">Partition</TableHead>
-              <TableHead className="w-28">Size</TableHead>
-              <TableHead className="w-40">Type</TableHead>
-              <TableHead className="w-56">Image</TableHead>
+              <TableHead className={columnWidths[1]}>Partition</TableHead>
+              <TableHead className={columnWidths[2]}>Size</TableHead>
+              <TableHead className={columnWidths[3]}>Type</TableHead>
+              <TableHead className={columnWidths[4]}>Image</TableHead>
             </TableRow>
           </TableHeader>
+        </Table>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <Table className="table-fixed">
+          <colgroup>
+            {columnWidths.map((width) => (
+              <col key={width} className={width} />
+            ))}
+          </colgroup>
           <TableBody>
             {partitions.map((partition) => (
               <TableRow key={partition.index}>

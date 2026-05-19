@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { Moon, PanelLeftClose, PanelLeftOpen, Settings2, Sun, Zap } from "lucide-react";
+import { Layers3, Moon, PanelLeftClose, PanelLeftOpen, Settings2, Sun, Zap } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,7 @@ import { useFlashLog } from "@/hooks/useFlashProgress";
 type AppTheme = "light" | "dark";
 
 interface AppLayoutProps {
-  children: (props: { tab: "main" | "menu" }) => ReactNode;
+  children: (props: { tab: "main" | "extra" | "menu" }) => ReactNode;
   sidebarStatus?: ReactNode;
   sidebarActions?: ReactNode;
   theme: AppTheme;
@@ -31,12 +31,12 @@ export function AppLayout({
   theme,
   onThemeChange,
 }: AppLayoutProps) {
-  const [tab, setTab] = useState<"main" | "menu">("main");
+  const [tab, setTab] = useState<"main" | "extra" | "menu">("main");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { append } = useFlashLog();
 
   const handleTabChange = useCallback(
-    (newTab: "main" | "menu") => {
+    (newTab: "main" | "extra" | "menu") => {
       append(`TabSwitch ${newTab}`);
       setTab(newTab);
     },
@@ -66,6 +66,7 @@ export function AppLayout({
     () => [
       { key: "main" as const, label: "Flasher", icon: Zap },
       { key: "menu" as const, label: "Menu", icon: Settings2 },
+      { key: "extra" as const, label: "Extra", icon: Layers3 },
     ],
     [],
   );

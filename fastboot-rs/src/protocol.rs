@@ -47,6 +47,11 @@ pub enum FastBootCommand<S> {
     Flash(S),
     /// Erase a partition
     Erase(S),
+    /// Resize a logical partition to the given byte size.
+    ResizeLogicalPartition {
+        partition: S,
+        size: u64,
+    },
     /// Set the active A/B slot
     SetActive(S),
     /// Boot the downloaded data
@@ -75,6 +80,9 @@ impl<S: Display> Display for FastBootCommand<S> {
             FastBootCommand::Verify(size) => write!(f, "verify:{size}"),
             FastBootCommand::Flash(part) => write!(f, "flash:{part}"),
             FastBootCommand::Erase(part) => write!(f, "erase:{part}"),
+            FastBootCommand::ResizeLogicalPartition { partition, size } => {
+                write!(f, "resize-logical-partition:{partition}:{size}")
+            }
             FastBootCommand::SetActive(slot) => write!(f, "set_active:{slot}"),
             FastBootCommand::Boot => write!(f, "boot"),
             FastBootCommand::Continue => write!(f, "continue"),
@@ -260,6 +268,26 @@ mod test {
     #[test]
     fn powerdown_command_formats_correctly() {
         assert_eq!(FastBootCommand::<&str>::Powerdown.to_string(), "powerdown");
+    }
+
+    #[test]
+    fn reboot_fastboot_command_formats_correctly() {
+        assert_eq!(
+            FastBootCommand::<&str>::RebootTo("fastboot").to_string(),
+            "reboot-fastboot"
+        );
+    }
+
+    #[test]
+    fn resize_logical_partition_command_formats_correctly() {
+        assert_eq!(
+            FastBootCommand::<&str>::ResizeLogicalPartition {
+                partition: "system_a",
+                size: 1234,
+            }
+            .to_string(),
+            "resize-logical-partition:system_a:1234"
+        );
     }
 
     #[test]
