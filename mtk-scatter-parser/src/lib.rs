@@ -562,6 +562,8 @@ pub struct FlashAction {
     pub size_human: String,
     /// Resolved image information.
     pub image: Option<Value>,
+    /// Scatter image type hint.
+    pub image_type: Option<String>,
     /// Safety classification.
     pub safety_class: String,
     /// Reason for this action.
@@ -1209,6 +1211,7 @@ fn slot_synthesized_action(
         size_hex: format!("{:#x}", target.size),
         size_human: human_size(target.size),
         image,
+        image_type: target.image_type.clone(),
         safety_class: target.safety_class(),
         reason: format!("inferred from slot {source_slot} image for slot all"),
         warnings,
@@ -2385,6 +2388,7 @@ fn flash_action(
         size_hex: format!("{:#x}", part.size),
         size_human: human_size(part.size),
         image,
+        image_type: part.image_type.clone(),
         safety_class: part.safety_class(),
         reason: reason.to_string(),
         warnings,

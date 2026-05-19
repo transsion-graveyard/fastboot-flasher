@@ -195,6 +195,30 @@ fn flash_action_should_expose_typed_image_path_fields() {
     assert!(action.image_exists().is_some());
 }
 
+#[test]
+fn flash_action_should_expose_scatter_image_type() {
+    let temp = write_global_yaml_fixture(true);
+    let scatter = parse_scatter(temp.path().join("global-scatter.txt")).unwrap();
+    let plan = build_flash_plan(
+        &scatter,
+        FlashPlanOptions {
+            mode: Mode::Selective,
+            slot_policy: SlotPolicy::A,
+            parts: vec!["boot".to_string()],
+            firmware_dir: Some(temp.path().to_path_buf()),
+            ..FlashPlanOptions::default()
+        },
+    );
+
+    let action = plan
+        .actions
+        .iter()
+        .find(|action| action.action == "flash")
+        .unwrap();
+
+    assert_eq!(action.image_type.as_deref(), Some("NORMAL_ROM"));
+}
+
 fn write_global_yaml_fixture(write_boot_image: bool) -> tempfile::TempDir {
     let temp = tempfile::tempdir().unwrap();
     if write_boot_image {

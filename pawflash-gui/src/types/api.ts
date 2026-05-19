@@ -5,6 +5,7 @@ export interface PartitionDto {
   size_human: string;
   size_bytes: number;
   safety_class: string;
+  image_type: string | null;
   source: string;
   image_path: string | null;
   image_name: string | null;

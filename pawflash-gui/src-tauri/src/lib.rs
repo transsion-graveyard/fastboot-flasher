@@ -26,7 +26,7 @@ use pawflash::{
 use fastboot_rs::{open_fastboot_with_observer, BackendKind, FlashProgress, ProbeLogLevel};
 
 const CANCELLED_MESSAGE: &str = "cancelled by user";
-const DEVICE_CHECK_TIMEOUT_MS: u64 = 120_000;
+const DEVICE_CHECK_TIMEOUT_MS: u64 = 3_000;
 const DEVICE_RETRY_DELAY_MS: u64 = pawflash::connect::FASTBOOT_RETRY_DELAY_MS;
 const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
     "On Windows, fastbootd may need a different USB driver than bootloader mode. Reinstall the fastbootd interface driver (for example with Zadig or the Google USB Driver), then reconnect.";
@@ -112,6 +112,7 @@ pub struct PartitionDto {
     size_human: String,
     size_bytes: u64,
     safety_class: String,
+    image_type: Option<String>,
     source: String,
     image_path: Option<String>,
     image_name: Option<String>,
@@ -2033,6 +2034,7 @@ fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
                 size_human: a.size_human.clone(),
                 size_bytes: u64::try_from(a.size).unwrap_or(0),
                 safety_class: display_safety_class(&a.safety_class),
+                image_type: a.image_type.clone(),
                 source: a.reason.clone(),
                 image_path,
                 image_name,
@@ -2194,6 +2196,7 @@ mod tests {
             size_hex: "0x400".to_string(),
             size_human: "1 KiB".to_string(),
             image: Some(json!({ "path": { "resolved_path": format!("/tmp/{partition}.img") } })),
+            image_type: Some("NORMAL_ROM".to_string()),
             safety_class: "boot_critical".to_string(),
             reason: "test".to_string(),
             warnings: Vec::new(),
@@ -2365,6 +2368,7 @@ mod tests {
 
         assert_eq!(partition.image_path.as_deref(), Some("/tmp/boot.img"));
         assert_eq!(partition.image_name.as_deref(), Some("boot.img"));
+        assert_eq!(partition.image_type.as_deref(), Some("NORMAL_ROM"));
         assert_eq!(dto.chipset.as_deref(), Some("mt6789"));
     }
 
@@ -2559,8 +2563,8 @@ mod tests {
     }
 
     #[test]
-    fn device_check_timeout_is_two_minutes() {
-        assert_eq!(DEVICE_CHECK_TIMEOUT_MS, 120_000);
+    fn device_check_timeout_is_three_seconds() {
+        assert_eq!(DEVICE_CHECK_TIMEOUT_MS, 3_000);
     }
 
     #[test]

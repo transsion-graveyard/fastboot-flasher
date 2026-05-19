@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Power, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -13,14 +13,13 @@ import { useDevice } from "@/hooks/useDevice";
 import { SectionCard } from "@/components/menu-tab/SectionCard";
 import { useFlashLog } from "@/hooks/useFlashProgress";
 
-type RebootTarget = "system" | "bootloader" | "fastboot" | "recovery" | "poweroff";
+type RebootTarget = "system" | "bootloader" | "fastboot" | "recovery";
 
 const targetLabels: Record<RebootTarget, string> = {
   system: "System",
   bootloader: "Bootloader",
   fastboot: "Fastbootd",
   recovery: "Recovery",
-  poweroff: "Power off",
 };
 
 const successLabels: Record<RebootTarget, string> = {
@@ -28,7 +27,6 @@ const successLabels: Record<RebootTarget, string> = {
   bootloader: "Rebooted to bootloader",
   fastboot: "Rebooted to fastbootd",
   recovery: "Rebooted to recovery",
-  poweroff: "Powered off device",
 };
 
 interface RebootSectionProps {
@@ -36,7 +34,7 @@ interface RebootSectionProps {
 }
 
 export function RebootSection({ disabled = false }: RebootSectionProps) {
-  const { reboot, rebootBootloader, rebootFastboot, rebootRecovery, powerOff } = useDevice();
+  const { reboot, rebootBootloader, rebootFastboot, rebootRecovery } = useDevice();
   const [target, setTarget] = useState<RebootTarget>("system");
   const [busy, setBusy] = useState(false);
   const { append } = useFlashLog();
@@ -49,12 +47,10 @@ export function RebootSection({ disabled = false }: RebootSectionProps) {
         return rebootFastboot;
       case "recovery":
         return rebootRecovery;
-      case "poweroff":
-        return powerOff;
       default:
         return reboot;
     }
-  }, [powerOff, reboot, rebootBootloader, rebootFastboot, rebootRecovery, target]);
+  }, [reboot, rebootBootloader, rebootFastboot, rebootRecovery, target]);
 
   const handleReboot = async () => {
     setBusy(true);
@@ -85,7 +81,6 @@ export function RebootSection({ disabled = false }: RebootSectionProps) {
             <SelectItem value="bootloader">Bootloader</SelectItem>
             <SelectItem value="fastboot">Fastbootd</SelectItem>
             <SelectItem value="recovery">Recovery</SelectItem>
-            <SelectItem value="poweroff">Power off</SelectItem>
           </SelectContent>
         </Select>
         <Button
@@ -94,12 +89,10 @@ export function RebootSection({ disabled = false }: RebootSectionProps) {
           disabled={disabled || busy}
           onClick={handleReboot}
         >
-          {target === "poweroff" ? <Power className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+          <RotateCcw className="h-4 w-4" />
           {busy
             ? "Sending command..."
-            : target === "poweroff"
-              ? "Power off device"
-              : `Reboot to ${targetLabels[target]}`}
+            : `Reboot to ${targetLabels[target]}`}
         </Button>
     </SectionCard>
   );

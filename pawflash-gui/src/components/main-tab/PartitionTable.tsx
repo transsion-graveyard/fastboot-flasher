@@ -27,22 +27,6 @@ interface PartitionTableProps {
   className?: string;
 }
 
-const safetyColor: Record<
-  string,
-  "default" | "destructive" | "success" | "warning" | "secondary" | "outline"
-> = {
-  dangerous: "destructive",
-  identity_or_calibration: "destructive",
-  bootloader_critical: "success",
-  preloader: "success",
-  boot_critical: "warning",
-  firmware: "secondary",
-  android_system: "secondary",
-  wipe_only: "outline",
-  regional: "outline",
-  other: "outline",
-};
-
 export const PartitionTable = memo(function PartitionTable({
   partitions,
   isParsingPlan = false,
@@ -88,13 +72,15 @@ export const PartitionTable = memo(function PartitionTable({
           </colgroup>
           <TableHeader className="[&_th]:text-muted-foreground">
             <TableRow>
-              <TableHead className={columnWidths[0]}>
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={someSelected}
-                  onCheckedChange={onToggleAll}
-                  aria-label={allSelected ? "Clear all partitions" : "Select all partitions"}
-                />
+              <TableHead className={cn(columnWidths[0], "px-0 text-center")}>
+                <div className="flex justify-center">
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={someSelected}
+                    onCheckedChange={onToggleAll}
+                    aria-label={allSelected ? "Clear all partitions" : "Select all partitions"}
+                  />
+                </div>
               </TableHead>
               <TableHead className={columnWidths[1]}>Partition</TableHead>
               <TableHead className={columnWidths[2]}>Size</TableHead>
@@ -114,23 +100,29 @@ export const PartitionTable = memo(function PartitionTable({
           <TableBody>
             {partitions.map((partition) => (
               <TableRow key={partition.index}>
-                <TableCell>
-                  <Checkbox
-                    checked={partition.selected}
-                    onCheckedChange={() => onToggle(partition.index)}
-                    aria-label={`Select ${partition.partition}`}
-                  />
+                <TableCell className="px-0 text-center">
+                  <div className="flex justify-center">
+                    <Checkbox
+                      checked={partition.selected}
+                      onCheckedChange={() => onToggle(partition.index)}
+                      aria-label={`Select ${partition.partition}`}
+                    />
+                  </div>
                 </TableCell>
-                <TableCell className="truncate font-mono" title={partition.partition}>
+                <TableCell className="truncate font-mono text-left" title={partition.partition}>
                   {partition.partition}
                 </TableCell>
-                <TableCell className="whitespace-nowrap">{partition.size_human}</TableCell>
-                <TableCell className="truncate">
-                  <Badge variant={safetyColor[partition.safety_class] ?? "outline"}>
-                    {partition.safety_class}
-                  </Badge>
+                <TableCell className="whitespace-nowrap text-center">{partition.size_human}</TableCell>
+                <TableCell className="truncate text-center">
+                  {partition.image_type ? (
+                    <Badge variant="outline" className="max-w-full truncate">
+                      {partition.image_type}
+                    </Badge>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
                 </TableCell>
-                <TableCell>
+                <TableCell className="text-left">
                   {partition.action === "flash" ? (
                     <Tooltip>
                       <TooltipTrigger render={
@@ -139,13 +131,13 @@ export const PartitionTable = memo(function PartitionTable({
                           variant="ghost"
                           size="sm"
                           className={cn(
-                            "h-auto w-full justify-start gap-2 px-0 py-1 text-left hover:bg-transparent",
+                            "h-auto w-full min-w-0 justify-start gap-2 px-0 py-1 text-left hover:bg-transparent",
                             partition.image_overridden && "text-accent-brand",
                           )}
                           onClick={() => onPickImage(partition)}
                         >
                           <FilePenLine className="h-4 w-4" />
-                          <span className="truncate">
+                          <span className="min-w-0 truncate">
                             {partition.image_name ?? "Choose image"}
                           </span>
                         </Button>

@@ -28,7 +28,6 @@ export function DataSection({ onWipeData, disabled = false }: DataSectionProps) 
         open={open}
         onOpenChange={setOpen}
         title="Wipe Data"
-        description="This formats userdata and also wipes metadata and cache when those partitions exist."
         confirmLabel="Wipe Data"
         destructive
         onConfirm={async () => {

@@ -133,7 +133,12 @@ export function AppLayout({
                     key={option.value}
                     variant={theme === option.value ? "secondary" : "ghost"}
                     size="icon-sm"
-                    className="w-full"
+                    className={cn(
+                      "w-full",
+                      theme === option.value &&
+                        theme === "light" &&
+                        "border border-sidebar-border/70 bg-sidebar-accent text-sidebar-accent-foreground shadow-[var(--panel-shadow)] hover:bg-sidebar-accent/90",
+                    )}
                     aria-label={`Theme ${option.label}`}
                     title={option.label}
                     onClick={() => {

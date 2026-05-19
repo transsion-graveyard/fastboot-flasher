@@ -52,7 +52,11 @@ export function FlashDialog({
   return (
     <DialogPrimitive.Root
       open={open}
-      onOpenChange={(nextOpen) => {
+      onOpenChange={(nextOpen, details) => {
+        if (!nextOpen && details.reason === "outside-press") {
+          details.cancel();
+          return;
+        }
         onOpenChange(nextOpen);
       }}
     >
