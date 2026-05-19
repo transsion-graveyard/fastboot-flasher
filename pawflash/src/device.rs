@@ -56,7 +56,9 @@ pub fn resolve_max_download_size_from_vars(vars: &HashMap<String, String>) -> an
 
 /// Set the active boot slot on the device.
 pub async fn set_fastboot_active_slot(dev: &mut FastbootDevice, slot: &str) -> anyhow::Result<()> {
-    with_device_context(dev.set_active(slot).await, || format!("set active slot to {slot}"))
+    with_device_context(dev.set_active(slot).await, || {
+        format!("set active slot to {slot}")
+    })
 }
 
 /// Reboot the device into the normal OS.
@@ -66,12 +68,16 @@ pub async fn reboot_device(dev: &mut FastbootDevice) -> anyhow::Result<()> {
 
 /// Reboot the device into the bootloader.
 pub async fn reboot_device_bootloader(dev: &mut FastbootDevice) -> anyhow::Result<()> {
-    with_device_context(dev.reboot_bootloader().await, || "reboot to bootloader".to_string())
+    with_device_context(dev.reboot_bootloader().await, || {
+        "reboot to bootloader".to_string()
+    })
 }
 
 /// Reboot the device into fastbootd (userspace fastboot).
 pub async fn reboot_device_fastboot(dev: &mut FastbootDevice) -> anyhow::Result<()> {
-    with_device_context(dev.reboot_fastboot().await, || "reboot to fastboot".to_string())
+    with_device_context(dev.reboot_fastboot().await, || {
+        "reboot to fastboot".to_string()
+    })
 }
 
 /// Power off the device.
@@ -81,12 +87,16 @@ pub async fn power_off_device(dev: &mut FastbootDevice) -> anyhow::Result<()> {
 
 /// Send the `flashing unlock` command to unlock the bootloader.
 pub async fn send_flashing_unlock(dev: &mut FastbootDevice) -> anyhow::Result<()> {
-    with_device_context(dev.unlock_bootloader().await, || "unlock bootloader".to_string())
+    with_device_context(dev.unlock_bootloader().await, || {
+        "unlock bootloader".to_string()
+    })
 }
 
 /// Send the `flashing lock` command to lock the bootloader.
 pub async fn send_flashing_lock(dev: &mut FastbootDevice) -> anyhow::Result<()> {
-    with_device_context(dev.lock_bootloader().await, || "lock bootloader".to_string())
+    with_device_context(dev.lock_bootloader().await, || {
+        "lock bootloader".to_string()
+    })
 }
 
 /// Build a flash plan by parsing a scatter file with the given mode, slot,
@@ -127,7 +137,9 @@ mod tests {
         let wrapped = wrapped.unwrap_err();
 
         assert!(wrapped.to_string().contains("erase userdata"));
-        assert!(wrapped.chain().any(|cause| cause.to_string().contains("boom")));
+        assert!(wrapped
+            .chain()
+            .any(|cause| cause.to_string().contains("boom")));
     }
 
     #[test]

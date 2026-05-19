@@ -156,9 +156,9 @@ mod tests {
     use super::{should_skip_failed_partition, should_skip_failed_partition_error};
 
     fn fastboot_failed_error() -> FastbootExecutionError {
-        FastbootExecutionError::Fastboot(FastbootError::Nusb(
-            NusbFastBootError::FastbootFailed("bootloader rejected flash".to_string()),
-        ))
+        FastbootExecutionError::Fastboot(FastbootError::Nusb(NusbFastBootError::FastbootFailed(
+            "bootloader rejected flash".to_string(),
+        )))
     }
 
     fn non_skippable_error() -> FastbootExecutionError {

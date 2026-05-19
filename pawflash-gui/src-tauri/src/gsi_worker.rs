@@ -432,6 +432,7 @@ fn gsi_step_status(step: GsiStep) -> &'static str {
     match step {
         GsiStep::RebootingToBootloader => "rebooting_bootloader",
         GsiStep::RebootingToFastbootd => "rebooting_fastbootd",
+        GsiStep::WaitingForFastbootd => "waiting_for_fastbootd",
         GsiStep::PreparingVbmetaFlash => "preparing_vbmeta",
         GsiStep::FlashingVbmeta => "flashing_vbmeta",
         GsiStep::CheckingSystemPartition => "checking_system_partition",
@@ -567,6 +568,20 @@ mod tests {
             events,
             vec![FlashEvent::GsiStatus {
                 status: "flashing_system_gsi".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn gsi_worker_progress_mapper_converts_waiting_for_fastbootd_step() {
+        let mut mapper = GsiWorkerProgressMapper::new(10);
+
+        let events = mapper.map_event(GsiEvent::Step(GsiStep::WaitingForFastbootd));
+
+        assert_eq!(
+            events,
+            vec![FlashEvent::GsiStatus {
+                status: "waiting_for_fastbootd".to_string(),
             }]
         );
     }

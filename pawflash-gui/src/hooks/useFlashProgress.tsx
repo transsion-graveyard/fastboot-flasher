@@ -560,6 +560,8 @@ function gsiStatusMessage(status: string) {
       return "Fastbootd ready";
     case "rebooting_to_fastbootd":
       return "Rebooting to fastbootd";
+    case "waiting_for_fastbootd":
+      return "Waiting for fastbootd";
     case "rebooting_to_bootloader":
       return "Rebooting to bootloader";
     case "starting_bootloader_phase":

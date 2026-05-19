@@ -1002,6 +1002,9 @@ impl<'a> FlashProgressContext<'a> {
         .await
         ?;
 
+        // Drop the original sender so the emitter task can observe channel close
+        // and finish after the final progress update.
+        drop(progress_tx);
         let emit_result = emit_task.await.map_err(anyhow::Error::from)?;
         emit_result.map_err(anyhow::Error::msg)?;
         Ok(())

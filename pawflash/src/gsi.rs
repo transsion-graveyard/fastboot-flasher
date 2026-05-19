@@ -37,7 +37,6 @@ pub const PRODUCT_GSI_BLOCKS: u64 = 82;
 pub const PRODUCT_GSI_LABEL: &str = "product";
 /// UUID for the product_gsi ext4 filesystem.
 pub const PRODUCT_GSI_UUID: &str = "cdd462dd-8dd0-4006-8a5a-94e5a70c2bc3";
-const MODE_WAIT_ATTEMPTS: usize = 20;
 const MODE_WAIT_DELAY_MS: u64 = 250;
 const MODE_TRANSITION_ATTEMPTS: usize = 2;
 
@@ -80,6 +79,8 @@ pub enum GsiStep {
     RebootingToBootloader,
     /// Rebooting into fastbootd mode.
     RebootingToFastbootd,
+    /// Waiting for fastbootd to re-enumerate after reboot.
+    WaitingForFastbootd,
     /// Preparing to flash the vbmeta image.
     PreparingVbmetaFlash,
     /// Flashing the vbmeta image.
@@ -112,6 +113,7 @@ impl GsiStep {
         match self {
             Self::RebootingToBootloader => "rebooting to bootloader",
             Self::RebootingToFastbootd => "rebooting to fastbootd",
+            Self::WaitingForFastbootd => "waiting for fastbootd",
             Self::PreparingVbmetaFlash => "preparing vbmeta flash",
             Self::FlashingVbmeta => "flashing vbmeta",
             Self::CheckingSystemPartition => "checking system partition",
@@ -484,27 +486,21 @@ async fn resolve_device_partition(
 async fn wait_for_device_vars(
     preferred_backend: Option<fastboot_rs::BackendKind>,
 ) -> anyhow::Result<(FastbootDevice, HashMap<String, String>)> {
-    let mut last_error = None;
-
-    for _ in 0..MODE_WAIT_ATTEMPTS {
+    loop {
         let mut dev = match try_connect_fastboot_prefer_backend(preferred_backend).await {
             Ok(dev) => dev,
-            Err(error) => {
-                last_error = Some(error);
+            Err(_) => {
                 sleep(Duration::from_millis(MODE_WAIT_DELAY_MS)).await;
                 continue;
             }
         };
         match read_all_variables(&mut dev).await {
             Ok(vars) => return Ok((dev, vars)),
-            Err(error) => {
-                last_error = Some(error);
+            Err(_) => {
                 sleep(Duration::from_millis(MODE_WAIT_DELAY_MS)).await;
             }
         }
     }
-
-    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("timed out waiting for fastboot variables")))
 }
 
 fn resolve_fastboot_capabilities(
@@ -565,6 +561,7 @@ async fn transition_mode(
                 FastbootMode::Fastbootd => {
                     report(GsiEvent::Step(GsiStep::RebootingToFastbootd));
                     reboot_device_fastboot(&mut dev).await?;
+                    report(GsiEvent::Step(GsiStep::WaitingForFastbootd));
                 }
             }
             drop(dev);
@@ -1097,7 +1094,7 @@ pub async fn execute_gsi_flash_with_vars(
 mod tests {
     use super::{
         build_gsi_execution_plan, detect_fastboot_mode, fixed_product_gsi_spec, normalize_slot,
-        resolve_target_partition, should_flash_product_gsi, FastbootMode, GsiFlashOptions,
+        resolve_target_partition, should_flash_product_gsi, FastbootMode, GsiFlashOptions, GsiStep,
         MODE_TRANSITION_TIMEOUT_SECS, PRODUCT_GSI_BLOCKS, PRODUCT_GSI_BLOCK_SIZE,
         PRODUCT_GSI_LABEL, PRODUCT_GSI_SIZE_BYTES, PRODUCT_GSI_UUID,
     };
@@ -1170,6 +1167,11 @@ mod tests {
         assert_eq!(detect_fastboot_mode(&missing), FastbootMode::Bootloader);
         assert_eq!(detect_fastboot_mode(&no), FastbootMode::Bootloader);
         assert_eq!(detect_fastboot_mode(&maybe), FastbootMode::Bootloader);
+    }
+
+    #[test]
+    fn waiting_for_fastbootd_step_has_expected_label() {
+        assert_eq!(GsiStep::WaitingForFastbootd.as_str(), "waiting for fastbootd");
     }
 
     #[test]
