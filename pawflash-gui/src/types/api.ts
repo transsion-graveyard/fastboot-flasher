@@ -46,6 +46,7 @@ export interface DeviceInfo {
   secure: string;
   unlocked: string;
   version: string;
+  mode: string;
   all_vars: Record<string, string>;
 }
 

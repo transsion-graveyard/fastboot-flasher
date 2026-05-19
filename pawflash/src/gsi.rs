@@ -16,7 +16,7 @@ use tokio::time::{sleep, timeout, Duration as TokioDuration};
 use tracing::debug;
 
 use crate::{
-    connect_fastboot, flash_one_partition,
+    connect::try_connect_fastboot_prefer_backend, flash_one_partition,
     format::{
         detect_userdata, erase_optional_partition, generate_userdata_image, parse_fastboot_u64,
         FormatTools, FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
@@ -25,6 +25,7 @@ use crate::{
     read_all_variables, read_variable, reboot_device_bootloader, reboot_device_fastboot,
     resolve_max_download_size_from_vars, FastbootDevice,
 };
+use fastboot_rs::alternate_backend_kind;
 
 /// Size in bytes of the product_gsi fallback image.
 pub const PRODUCT_GSI_SIZE_BYTES: u64 = 335_872;
@@ -39,6 +40,10 @@ pub const PRODUCT_GSI_UUID: &str = "cdd462dd-8dd0-4006-8a5a-94e5a70c2bc3";
 const MODE_WAIT_ATTEMPTS: usize = 20;
 const MODE_WAIT_DELAY_MS: u64 = 250;
 const MODE_TRANSITION_ATTEMPTS: usize = 2;
+
+#[cfg(windows)]
+const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
+    "On Windows, fastbootd may need a different USB driver than bootloader mode. Reinstall the fastbootd interface driver (for example with Zadig or the Google USB Driver), then reconnect.";
 
 fn check_cancelled(token: &Option<Arc<AtomicBool>>) -> anyhow::Result<()> {
     if let Some(ref flag) = token {
@@ -401,9 +406,17 @@ pub fn generate_product_gsi_image(tools: &FormatTools) -> anyhow::Result<Generat
 /// by inspecting the `is-userspace` variable.
 pub fn detect_fastboot_mode(vars: &HashMap<String, String>) -> FastbootMode {
     match vars.get("is-userspace").map(String::as_str) {
-        Some("yes") => FastbootMode::Fastbootd,
+        Some(value) if is_userspace_fastboot_value(value) => FastbootMode::Fastbootd,
         _ => FastbootMode::Bootloader,
     }
+}
+
+/// Return whether an `is-userspace` value should be treated as fastbootd.
+pub fn is_userspace_fastboot_value(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "yes" | "true" | "1" | "on"
+    )
 }
 
 fn normalize_slot(slot: Option<&String>) -> Option<String> {
@@ -468,11 +481,13 @@ async fn resolve_device_partition(
     resolve_target_partition(base, slot, &available).map(|partition| (partition, 0))
 }
 
-async fn wait_for_device_vars() -> anyhow::Result<(FastbootDevice, HashMap<String, String>)> {
+async fn wait_for_device_vars(
+    preferred_backend: Option<fastboot_rs::BackendKind>,
+) -> anyhow::Result<(FastbootDevice, HashMap<String, String>)> {
     let mut last_error = None;
 
     for _ in 0..MODE_WAIT_ATTEMPTS {
-        let mut dev = match connect_fastboot().await {
+        let mut dev = match try_connect_fastboot_prefer_backend(preferred_backend).await {
             Ok(dev) => dev,
             Err(error) => {
                 last_error = Some(error);
@@ -539,6 +554,7 @@ async fn transition_mode(
         return Ok((dev, vars, capabilities));
     }
 
+    let preferred_backend = alternate_backend_kind(dev.backend_kind());
     let fut = async {
         for _ in 0..MODE_TRANSITION_ATTEMPTS {
             match target_mode {
@@ -553,7 +569,22 @@ async fn transition_mode(
             }
             drop(dev);
 
-            let (next_dev, next_vars) = wait_for_device_vars().await?;
+            let (next_dev, next_vars) = wait_for_device_vars(preferred_backend)
+                .await
+                .with_context(|| {
+                    #[cfg(windows)]
+                    {
+                        format!(
+                            "waiting for {} after reboot failed: {}",
+                            target_mode.as_str(),
+                            WINDOWS_FASTBOOTD_DRIVER_HINT
+                        )
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        format!("waiting for {} after reboot failed", target_mode.as_str())
+                    }
+                })?;
             let next_mode = detect_fastboot_mode(&next_vars);
             if next_mode == target_mode {
                 report(GsiEvent::ModeReady(target_mode));
@@ -563,16 +594,36 @@ async fn transition_mode(
             dev = next_dev;
         }
 
-        anyhow::bail!(
-            "GSI flow required {}, but the device did not switch modes after retry",
-            target_mode.as_str()
-        )
+        #[cfg(windows)]
+        {
+            anyhow::bail!(
+                "GSI flow required {}, but the device did not switch modes after retry. {}",
+                target_mode.as_str(),
+                WINDOWS_FASTBOOTD_DRIVER_HINT
+            )
+        }
+        #[cfg(not(windows))]
+        {
+            anyhow::bail!(
+                "GSI flow required {}, but the device did not switch modes after retry",
+                target_mode.as_str()
+            )
+        }
     };
 
     timeout(TokioDuration::from_secs(MODE_TRANSITION_TIMEOUT_SECS), fut)
         .await
         .map_err(|_| {
-            anyhow::anyhow!("mode transition timed out after {MODE_TRANSITION_TIMEOUT_SECS}s")
+            #[cfg(windows)]
+            {
+                anyhow::anyhow!(
+                    "mode transition timed out after {MODE_TRANSITION_TIMEOUT_SECS}s. {WINDOWS_FASTBOOTD_DRIVER_HINT}"
+                )
+            }
+            #[cfg(not(windows))]
+            {
+                anyhow::anyhow!("mode transition timed out after {MODE_TRANSITION_TIMEOUT_SECS}s")
+            }
         })?
 }
 
@@ -1100,12 +1151,25 @@ mod tests {
     }
 
     #[test]
-    fn detect_fastboot_mode_treats_missing_or_non_yes_as_bootloader() {
+    fn detect_fastboot_mode_treats_truthy_is_userspace_values_as_fastbootd() {
+        let true_value = HashMap::from([("is-userspace".to_string(), "true".to_string())]);
+        let one_value = HashMap::from([("is-userspace".to_string(), "1".to_string())]);
+        let on_value = HashMap::from([("is-userspace".to_string(), "On".to_string())]);
+
+        assert_eq!(detect_fastboot_mode(&true_value), FastbootMode::Fastbootd);
+        assert_eq!(detect_fastboot_mode(&one_value), FastbootMode::Fastbootd);
+        assert_eq!(detect_fastboot_mode(&on_value), FastbootMode::Fastbootd);
+    }
+
+    #[test]
+    fn detect_fastboot_mode_treats_missing_or_non_truthy_values_as_bootloader() {
         let missing = HashMap::new();
         let no = HashMap::from([("is-userspace".to_string(), "no".to_string())]);
+        let maybe = HashMap::from([("is-userspace".to_string(), "maybe".to_string())]);
 
         assert_eq!(detect_fastboot_mode(&missing), FastbootMode::Bootloader);
         assert_eq!(detect_fastboot_mode(&no), FastbootMode::Bootloader);
+        assert_eq!(detect_fastboot_mode(&maybe), FastbootMode::Bootloader);
     }
 
     #[test]

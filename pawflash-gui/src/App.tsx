@@ -54,17 +54,13 @@ function partitionSortRank(partition: PartitionDto): number {
   return partition.image_path ? 0 : 1;
 }
 
-function describeDeviceMode(info: DeviceInfo) {
-  return info.all_vars["is-userspace"] === "yes" ? "fastbootd" : "bootloader";
-}
-
 function buildDeviceSummary(info: DeviceInfo) {
   return [
     `serial=${info.serial || "unknown"}`,
     `product=${info.product || "unknown"}`,
     `slot=${info.slot || "unknown"}`,
     `unlocked=${info.unlocked || "unknown"}`,
-    `mode=${describeDeviceMode(info)}`,
+    `mode=${info.mode || "bootloader"}`,
   ].join(" ");
 }
 

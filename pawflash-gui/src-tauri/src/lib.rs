@@ -13,6 +13,7 @@ use tracing::{debug, warn};
 
 use pawflash as pawflash;
 use pawflash::{
+    gsi::detect_fastboot_mode,
     cli::{FlashMode, SlotArg},
     format::{
         detect_userdata, erase_optional_partition, generate_userdata_image, FormatTools,
@@ -26,9 +27,9 @@ use fastboot_rs::{open_fastboot_with_observer, BackendKind, FlashProgress, Probe
 
 const CANCELLED_MESSAGE: &str = "cancelled by user";
 const DEVICE_CHECK_TIMEOUT_MS: u64 = 120_000;
-const DEVICE_RETRY_DELAY_MS: u64 = 250;
+const DEVICE_RETRY_DELAY_MS: u64 = pawflash::connect::FASTBOOT_RETRY_DELAY_MS;
 const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
-    "On Windows, fastbootd may need a different USB driver than bootloader mode.";
+    "On Windows, fastbootd may need a different USB driver than bootloader mode. Reinstall the fastbootd interface driver (for example with Zadig or the Google USB Driver), then reconnect.";
 const POWER_OFF_UNSUPPORTED_MESSAGE: &str =
     "Power off is not supported by this device in the current fastboot mode.";
 
@@ -98,6 +99,7 @@ pub struct DeviceInfo {
     secure: String,
     unlocked: String,
     version: String,
+    mode: String,
     all_vars: HashMap<String, String>,
 }
 
@@ -1100,6 +1102,7 @@ async fn read_device_info(dev: &mut FastbootDevice) -> Result<DeviceInfo, String
     let vars = pawflash::read_all_variables(dev)
         .await
         .map_err(|e| format!("read vars: {e}"))?;
+    let mode = detect_fastboot_mode(&vars).as_str().to_string();
     Ok(DeviceInfo {
         serial: vars.get("serialno").cloned().unwrap_or_default(),
         product: vars.get("product").cloned().unwrap_or_default(),
@@ -1110,6 +1113,7 @@ async fn read_device_info(dev: &mut FastbootDevice) -> Result<DeviceInfo, String
         secure: vars.get("secure").cloned().unwrap_or_default(),
         unlocked: vars.get("unlocked").cloned().unwrap_or_default(),
         version: vars.get("version-bootloader").cloned().unwrap_or_default(),
+        mode,
         all_vars: vars,
     })
 }
@@ -2154,6 +2158,7 @@ mod tests {
         start_force_fastboot_session, store_flash_plan, update_overall_progress, AppState,
         DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashRunControl, ForceFastbootState,
         PartitionFlashFailureDisposition, StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
+        DEVICE_RETRY_DELAY_MS,
     };
     use fastboot_rs::{
         transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError,
@@ -2473,10 +2478,30 @@ mod tests {
     }
 
     #[test]
-    fn detect_fastboot_mode_treats_missing_or_non_yes_as_bootloader() {
+    fn detect_fastboot_mode_treats_truthy_is_userspace_values_as_fastbootd() {
+        let true_value = HashMap::from([("is-userspace".to_string(), "true".to_string())]);
+        let one_value = HashMap::from([("is-userspace".to_string(), "1".to_string())]);
+        let on_value = HashMap::from([("is-userspace".to_string(), "on".to_string())]);
+
+        assert_eq!(
+            shared_detect_fastboot_mode(&true_value),
+            SharedFastbootMode::Fastbootd
+        );
+        assert_eq!(
+            shared_detect_fastboot_mode(&one_value),
+            SharedFastbootMode::Fastbootd
+        );
+        assert_eq!(
+            shared_detect_fastboot_mode(&on_value),
+            SharedFastbootMode::Fastbootd
+        );
+    }
+
+    #[test]
+    fn detect_fastboot_mode_treats_missing_or_non_truthy_values_as_bootloader() {
         let missing = HashMap::new();
         let no = HashMap::from([("is-userspace".to_string(), "no".to_string())]);
-        let upper = HashMap::from([("is-userspace".to_string(), "YES".to_string())]);
+        let maybe = HashMap::from([("is-userspace".to_string(), "maybe".to_string())]);
 
         assert_eq!(
             shared_detect_fastboot_mode(&missing),
@@ -2487,8 +2512,16 @@ mod tests {
             SharedFastbootMode::Bootloader
         );
         assert_eq!(
-            shared_detect_fastboot_mode(&upper),
+            shared_detect_fastboot_mode(&maybe),
             SharedFastbootMode::Bootloader
+        );
+    }
+
+    #[test]
+    fn device_check_retry_delay_matches_shared_connect_policy() {
+        assert_eq!(
+            DEVICE_RETRY_DELAY_MS,
+            pawflash::connect::FASTBOOT_RETRY_DELAY_MS
         );
     }
 

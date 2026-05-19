@@ -310,7 +310,7 @@ pub(crate) async fn run_gsi_worker_and_emit(
 pub(crate) fn gsi_worker_connect_retry_delay() -> Duration {
     #[cfg(target_os = "windows")]
     {
-        Duration::from_millis(250)
+        pawflash::connect::fastboot_connect_retry_delay()
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -574,7 +574,10 @@ mod tests {
     #[test]
     fn gsi_worker_connect_retry_delay_matches_platform_policy() {
         #[cfg(target_os = "windows")]
-        assert_eq!(gsi_worker_connect_retry_delay(), Duration::from_millis(250));
+        assert_eq!(
+            gsi_worker_connect_retry_delay(),
+            pawflash::connect::fastboot_connect_retry_delay()
+        );
 
         #[cfg(not(target_os = "windows"))]
         assert_eq!(gsi_worker_connect_retry_delay(), Duration::ZERO);

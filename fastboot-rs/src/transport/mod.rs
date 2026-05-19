@@ -325,67 +325,127 @@ pub async fn open_fastboot() -> Result<FastbootDevice, FastbootOpenError> {
 pub async fn open_fastboot_with_observer(
     observer: impl FnMut(ProbeEvent),
 ) -> Result<FastbootDevice, FastbootOpenError> {
+    open_fastboot_with_preferred_backend(None, observer).await
+}
+
+/// Open the first available fastboot device, preferring one backend before the other.
+pub async fn open_fastboot_with_preferred_backend(
+    preferred_backend: Option<BackendKind>,
+    observer: impl FnMut(ProbeEvent),
+) -> Result<FastbootDevice, FastbootOpenError> {
     let mut observer = observer;
-    observer(ProbeEvent {
-        backend: BackendKind::Nusb,
-        level: ProbeLogLevel::Info,
-        stage: "backend_attempt",
-        message: "Trying nusb backend".to_string(),
-    });
-    match nusb::open_first_fastboot().await {
-        Ok(device) => {
-            observer(ProbeEvent {
-                backend: BackendKind::Nusb,
-                level: ProbeLogLevel::Info,
-                stage: "backend_success",
-                message: "Opened fastboot device with nusb".to_string(),
-            });
-            Ok(FastbootDevice {
-                backend: FastbootDeviceBackend::Nusb(device),
-            })
+    let mut nusb_error = None;
+    #[cfg(windows)]
+    let mut adbwinapi_error = None;
+
+    for backend in backend_attempt_order(preferred_backend) {
+        observer(ProbeEvent {
+            backend,
+            level: ProbeLogLevel::Info,
+            stage: "backend_attempt",
+            message: format!("Trying {} backend", backend.as_str()),
+        });
+
+        match backend {
+            BackendKind::Nusb => match nusb::open_first_fastboot().await {
+                Ok(device) => {
+                    observer(ProbeEvent {
+                        backend,
+                        level: ProbeLogLevel::Info,
+                        stage: "backend_success",
+                        message: "Opened fastboot device with nusb".to_string(),
+                    });
+                    return Ok(FastbootDevice {
+                        backend: FastbootDeviceBackend::Nusb(device),
+                    });
+                }
+                Err(error) => {
+                    observer(ProbeEvent {
+                        backend,
+                        level: ProbeLogLevel::Warning,
+                        stage: "backend_failed",
+                        message: error.to_string(),
+                    });
+                    nusb_error = Some(error);
+                }
+            },
+            #[cfg(windows)]
+            BackendKind::AdbWinApi => match AdbWinApiFastboot::open_first() {
+                Ok(device) => {
+                    observer(ProbeEvent {
+                        backend,
+                        level: ProbeLogLevel::Info,
+                        stage: "backend_success",
+                        message: format!(
+                            "Opened fastboot device with AdbWinApi from {}",
+                            device.discovery().adb_win_api.display()
+                        ),
+                    });
+                    return Ok(FastbootDevice {
+                        backend: FastbootDeviceBackend::AdbWinApi(device),
+                    });
+                }
+                Err(adb_error) => {
+                    log_adbwinapi_probe_detail(&mut observer, &adb_error);
+                    adbwinapi_error = Some(adb_error);
+                }
+            },
         }
-        Err(error) => {
-            observer(ProbeEvent {
-                backend: BackendKind::Nusb,
-                level: ProbeLogLevel::Warning,
-                stage: "backend_failed",
-                message: error.to_string(),
-            });
-            #[cfg(not(windows))]
-            return Err(FastbootOpenError::Nusb(error));
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err(FastbootOpenError::Nusb(
+            nusb_error.expect("nusb backend must have been attempted"),
+        ))
+    }
+
+    #[cfg(windows)]
+    {
+        Err(FastbootOpenError::Combined {
+            nusb: nusb_error
+                .expect("nusb backend must have been attempted")
+                .to_string(),
+            adbwinapi: adbwinapi_error
+                .expect("adbwinapi backend must have been attempted")
+                .to_string(),
+        })
+    }
+}
+
+/// Return the order in which backends should be probed.
+pub fn backend_attempt_order(preferred_backend: Option<BackendKind>) -> Vec<BackendKind> {
+    match preferred_backend {
+        #[cfg(windows)]
+        Some(BackendKind::AdbWinApi) => vec![BackendKind::AdbWinApi, BackendKind::Nusb],
+        Some(BackendKind::Nusb) | None => {
+            let backends = vec![BackendKind::Nusb];
+            #[cfg(windows)]
+            let backends = {
+                let mut backends = backends;
+                backends.push(BackendKind::AdbWinApi);
+                backends
+            };
+            backends
+        }
+    }
+}
+
+/// Return the alternate backend when one exists.
+pub fn alternate_backend_kind(kind: BackendKind) -> Option<BackendKind> {
+    match kind {
+        BackendKind::Nusb => {
             #[cfg(windows)]
             {
-                observer(ProbeEvent {
-                    backend: BackendKind::AdbWinApi,
-                    level: ProbeLogLevel::Info,
-                    stage: "backend_attempt",
-                    message: "Trying AdbWinApi fallback backend".to_string(),
-                });
-                match AdbWinApiFastboot::open_first() {
-                    Ok(device) => {
-                        observer(ProbeEvent {
-                            backend: BackendKind::AdbWinApi,
-                            level: ProbeLogLevel::Info,
-                            stage: "backend_success",
-                            message: format!(
-                                "Opened fastboot device with AdbWinApi from {}",
-                                device.discovery().adb_win_api.display()
-                            ),
-                        });
-                        Ok(FastbootDevice {
-                            backend: FastbootDeviceBackend::AdbWinApi(device),
-                        })
-                    }
-                    Err(adb_error) => {
-                        log_adbwinapi_probe_detail(&mut observer, &adb_error);
-                        Err(FastbootOpenError::Combined {
-                            nusb: error.to_string(),
-                            adbwinapi: adb_error.to_string(),
-                        })
-                    }
-                }
+                Some(BackendKind::AdbWinApi)
+            }
+            #[cfg(not(windows))]
+            {
+                None
             }
         }
+        #[cfg(windows)]
+        BackendKind::AdbWinApi => Some(BackendKind::Nusb),
     }
 }
 
@@ -451,5 +511,40 @@ impl fmt::Debug for FastbootDevice {
         f.debug_struct("FastbootDevice")
             .field("backend", &self.backend_kind().as_str())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{alternate_backend_kind, backend_attempt_order, BackendKind};
+
+    #[test]
+    fn backend_attempt_order_defaults_to_nusb() {
+        assert_eq!(backend_attempt_order(None), vec![BackendKind::Nusb]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn backend_attempt_order_prefers_requested_windows_backend() {
+        assert_eq!(
+            backend_attempt_order(Some(BackendKind::AdbWinApi)),
+            vec![BackendKind::AdbWinApi, BackendKind::Nusb]
+        );
+        assert_eq!(
+            backend_attempt_order(Some(BackendKind::Nusb)),
+            vec![BackendKind::Nusb, BackendKind::AdbWinApi]
+        );
+    }
+
+    #[test]
+    fn alternate_backend_kind_exists_only_when_supported() {
+        assert_eq!(alternate_backend_kind(BackendKind::Nusb), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn alternate_backend_kind_returns_the_other_backend() {
+        assert_eq!(alternate_backend_kind(BackendKind::Nusb), Some(BackendKind::AdbWinApi));
+        assert_eq!(alternate_backend_kind(BackendKind::AdbWinApi), Some(BackendKind::Nusb));
     }
 }
