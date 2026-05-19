@@ -9,9 +9,7 @@ pub mod adbwinapi;
 pub mod nusb;
 
 #[cfg(windows)]
-use self::adbwinapi::{
-    AdbWinApiFastboot, AdbWinApiFastbootError, AdbWinApiFastbootOpenError, AdbWinApiProbeDetail,
-};
+use self::adbwinapi::{AdbWinApiFastboot, AdbWinApiFastbootError, AdbWinApiFastbootOpenError};
 use self::nusb::{
     DataDownload as NusbDataDownload, NusbFastBoot, NusbFastBootError, NusbFastBootOpenError,
 };
@@ -229,12 +227,7 @@ impl FastbootDevice {
         partition: &str,
         size: u64,
     ) -> Result<(), FastbootError> {
-        delegate_device_backend!(
-            &mut self.backend,
-            resize_logical_partition,
-            partition,
-            size
-        )
+        delegate_device_backend!(&mut self.backend, resize_logical_partition, partition, size)
     }
 
     /// Continue booting the device.
@@ -401,36 +394,56 @@ fn log_adbwinapi_probe_detail(
     observer: &mut impl FnMut(ProbeEvent),
     error: &AdbWinApiFastbootOpenError,
 ) {
-    if let Some(detail) = error.detail() {
-        let (level, stage) = match detail {
-            AdbWinApiProbeDetail::DllMissing { .. } => (ProbeLogLevel::Warning, "dll_missing"),
-            AdbWinApiProbeDetail::DllLoadFailed { .. } => (ProbeLogLevel::Error, "dll_load_failed"),
-            AdbWinApiProbeDetail::EnumeratingInterfaces { .. } => {
-                (ProbeLogLevel::Info, "enumerating_interfaces")
-            }
-            AdbWinApiProbeDetail::AndroidInterfaceFound { .. } => {
-                (ProbeLogLevel::Info, "android_interface_found")
-            }
-            AdbWinApiProbeDetail::FastbootInterfaceFound { .. } => {
-                (ProbeLogLevel::Info, "fastboot_interface_found")
-            }
-            AdbWinApiProbeDetail::OpenInterfaceFailed { .. } => {
-                (ProbeLogLevel::Warning, "open_interface_failed")
-            }
-            AdbWinApiProbeDetail::NoAndroidInterface => {
-                (ProbeLogLevel::Warning, "no_android_interface")
-            }
-            AdbWinApiProbeDetail::NoFastbootInterface => {
-                (ProbeLogLevel::Warning, "no_fastboot_interface")
-            }
-        };
-        observer(ProbeEvent {
-            backend: BackendKind::AdbWinApi,
-            level,
-            stage,
-            message: detail.to_string(),
-        });
-    }
+    let (level, stage, message) = match error {
+        AdbWinApiFastbootOpenError::DllMissing { searched } => (
+            ProbeLogLevel::Warning,
+            "dll_missing",
+            format!(
+                "AdbWinApi.dll not found; searched {}",
+                searched
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ),
+        AdbWinApiFastbootOpenError::DllLoadFailed { path, error } => (
+            ProbeLogLevel::Error,
+            "dll_load_failed",
+            format!("failed to load {}: {error}", path.display()),
+        ),
+        AdbWinApiFastbootOpenError::InterfaceEnumerationFailed { path, error } => (
+            ProbeLogLevel::Info,
+            "enumerating_interfaces",
+            format!(
+                "failed to enumerate Android USB interfaces from {}: {error}",
+                path.display()
+            ),
+        ),
+        AdbWinApiFastbootOpenError::OpenInterfaceFailed { name, error } => (
+            ProbeLogLevel::Warning,
+            "open_interface_failed",
+            format!("failed to open Android USB interface {name}: {error}"),
+        ),
+        AdbWinApiFastbootOpenError::NoAndroidInterface => (
+            ProbeLogLevel::Warning,
+            "no_android_interface",
+            "AdbWinApi enumerated no Android USB interfaces".to_string(),
+        ),
+        AdbWinApiFastbootOpenError::NoFastbootInterface => (
+            ProbeLogLevel::Warning,
+            "no_fastboot_interface",
+            "AdbWinApi found Android USB interfaces but none matched fastboot".to_string(),
+        ),
+        AdbWinApiFastbootOpenError::DescriptorReadFailed { .. }
+        | AdbWinApiFastbootOpenError::EndpointOpenFailed { .. } => return,
+    };
+    observer(ProbeEvent {
+        backend: BackendKind::AdbWinApi,
+        level,
+        stage,
+        message,
+    });
 }
 
 impl fmt::Debug for FastbootDevice {

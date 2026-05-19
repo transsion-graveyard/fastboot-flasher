@@ -3,7 +3,7 @@ use std::{
     env,
     ffi::c_void,
     fmt, io,
-    mem::MaybeUninit,
+    mem::{size_of, MaybeUninit},
     path::{Path, PathBuf},
     ptr,
 };
@@ -24,7 +24,10 @@ const ANDROID_USB_CLASS_ID: Guid = Guid {
 const ADB_OPEN_ACCESS_TYPE_READ_WRITE: i32 = 0;
 const ADB_OPEN_SHARING_MODE_READ_WRITE: i32 = 0;
 const MAX_USBFS_BULK_SIZE: usize = 1024 * 1024;
+const INITIAL_INTERFACE_BUFFER_SIZE: usize = 4096;
 const READ_BUFFER_SIZE: usize = 4096;
+const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
+const ERROR_NO_MORE_ITEMS: i32 = 259;
 
 type AdbHandle = *mut c_void;
 
@@ -93,15 +96,46 @@ type AdbWriteEndpointSync =
     unsafe extern "C" fn(AdbHandle, *mut c_void, u32, *mut u32, u32) -> bool;
 type AdbCloseHandle = unsafe extern "C" fn(AdbHandle) -> bool;
 
+/// Probe detail emitted while discovering a Windows AdbWinApi backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdbWinApiProbeDetail {
-    DllMissing { searched: Vec<PathBuf> },
-    DllLoadFailed { path: PathBuf, error: String },
-    EnumeratingInterfaces { source: PathBuf },
-    AndroidInterfaceFound { name: String },
-    FastbootInterfaceFound { name: String },
-    OpenInterfaceFailed { name: String, error: String },
+    /// No `AdbWinApi.dll` was found in the search paths.
+    DllMissing {
+        /// Search paths that were checked.
+        searched: Vec<PathBuf>,
+    },
+    /// Loading `AdbWinApi.dll` failed.
+    DllLoadFailed {
+        /// DLL path that failed to load.
+        path: PathBuf,
+        /// Loader error string.
+        error: String,
+    },
+    /// The code is currently enumerating Android USB interfaces.
+    EnumeratingInterfaces {
+        /// DLL path that produced the probe event.
+        source: PathBuf,
+    },
+    /// An Android USB interface was found.
+    AndroidInterfaceFound {
+        /// USB interface name.
+        name: String,
+    },
+    /// A fastboot-capable interface was found.
+    FastbootInterfaceFound {
+        /// USB interface name.
+        name: String,
+    },
+    /// An interface could not be opened.
+    OpenInterfaceFailed {
+        /// USB interface name.
+        name: String,
+        /// Open error string.
+        error: String,
+    },
+    /// No Android USB interfaces were reported.
     NoAndroidInterface,
+    /// Android USB interfaces were found, but none matched fastboot.
     NoFastbootInterface,
 }
 
@@ -141,45 +175,100 @@ impl fmt::Display for AdbWinApiProbeDetail {
     }
 }
 
+/// Errors surfaced by the Windows AdbWinApi fastboot transport while issuing commands.
 #[derive(Debug, Error)]
 pub enum AdbWinApiFastbootError {
+    /// Underlying I/O failure from the Windows API.
     #[error(transparent)]
     Io(#[from] io::Error),
+    /// A fastboot command failed on the device.
     #[error("Fastboot client failure: {0}")]
     FastbootFailed(String),
+    /// The device returned an unexpected response kind.
     #[error("Unexpected fastboot response")]
     FastbootUnexpectedReply,
+    /// A response could not be parsed as a fastboot packet.
     #[error("Unknown fastboot response: {0}")]
     FastbootParseError(#[from] FastBootResponseParseError),
+    /// A fastboot variable failed validation.
     #[error("Invalid fastboot variable {name}={value:?}: {reason}")]
     InvalidVariable {
+        /// Variable name.
         name: &'static str,
+        /// Returned value.
         value: String,
+        /// Why the value was rejected.
         reason: String,
     },
+    /// The device reported an unexpected byte count while streaming data.
     #[error("Incorrect data length: expected {expected}, got {actual}")]
-    IncorrectDataLength { actual: u32, expected: u32 },
+    IncorrectDataLength {
+        /// Actual bytes transferred.
+        actual: u32,
+        /// Expected bytes.
+        expected: u32,
+    },
 }
 
+/// Errors while opening the Windows AdbWinApi fastboot transport.
 #[derive(Debug, Error)]
 pub enum AdbWinApiFastbootOpenError {
+    /// No `AdbWinApi.dll` was found.
     #[error("AdbWinApi.dll not found")]
-    DllMissing { searched: Vec<PathBuf> },
+    DllMissing {
+        /// Search paths that were checked.
+        searched: Vec<PathBuf>,
+    },
+    /// `AdbWinApi.dll` failed to load.
     #[error("failed to load {path}: {error}")]
-    DllLoadFailed { path: PathBuf, error: String },
+    DllLoadFailed {
+        /// DLL path that failed to load.
+        path: PathBuf,
+        /// Loader error string.
+        error: String,
+    },
+    /// Interface enumeration failed unexpectedly.
+    #[error("failed to enumerate Android USB interfaces from {path}: {error}")]
+    InterfaceEnumerationFailed {
+        /// DLL path that produced the failure.
+        path: PathBuf,
+        /// Enumeration error string.
+        error: String,
+    },
+    /// No Android USB interfaces were reported.
     #[error("no Android USB interfaces reported by AdbWinApi")]
     NoAndroidInterface,
+    /// No fastboot interface matched the Android USB interfaces.
     #[error("no fastboot interface matched Android USB interfaces")]
     NoFastbootInterface,
+    /// Creating an interface handle failed.
     #[error("failed to open interface {name}: {error}")]
-    OpenInterfaceFailed { name: String, error: String },
+    OpenInterfaceFailed {
+        /// USB interface name.
+        name: String,
+        /// Open error string.
+        error: String,
+    },
+    /// Reading USB descriptors failed.
     #[error("failed to read USB descriptors for {name}: {error}")]
-    DescriptorReadFailed { name: String, error: String },
+    DescriptorReadFailed {
+        /// USB interface name.
+        name: String,
+        /// Descriptor read error string.
+        error: String,
+    },
+    /// Opening the read or write endpoint failed.
     #[error("failed to open endpoints for {name}: {error}")]
-    EndpointOpenFailed { name: String, error: String },
+    EndpointOpenFailed {
+        /// USB interface name.
+        name: String,
+        /// Endpoint open error string.
+        error: String,
+    },
 }
 
 impl AdbWinApiFastbootOpenError {
+    /// Return a structured probe detail for logging when one is available.
     pub fn detail(&self) -> Option<AdbWinApiProbeDetail> {
         Some(match self {
             Self::DllMissing { searched } => AdbWinApiProbeDetail::DllMissing {
@@ -189,6 +278,11 @@ impl AdbWinApiFastbootOpenError {
                 path: path.clone(),
                 error: error.clone(),
             },
+            Self::InterfaceEnumerationFailed { path, .. } => {
+                AdbWinApiProbeDetail::EnumeratingInterfaces {
+                    source: path.clone(),
+                }
+            }
             Self::NoAndroidInterface => AdbWinApiProbeDetail::NoAndroidInterface,
             Self::NoFastbootInterface => AdbWinApiProbeDetail::NoFastbootInterface,
             Self::OpenInterfaceFailed { name, error } => {
@@ -202,6 +296,28 @@ impl AdbWinApiFastbootOpenError {
     }
 }
 
+/// State for an open Windows AdbWinApi fastboot connection.
+///
+/// The transport keeps the loaded DLL and the underlying interface and endpoint handles alive for
+/// the lifetime of the client.
+#[derive(Debug)]
+pub struct AdbWinApiFastboot {
+    api: AdbApi,
+    interface: AdbHandle,
+    read_pipe: AdbHandle,
+    write_pipe: AdbHandle,
+    discovery: super::AdbWinApiDiscovery,
+}
+
+/// A queued Windows AdbWinApi data transfer.
+pub struct DataDownload<'a> {
+    fastboot: &'a mut AdbWinApiFastboot,
+    size: u32,
+    left: u32,
+    current: Vec<u8>,
+}
+
+#[derive(Debug)]
 struct AdbApi {
     _library: Library,
     enum_interfaces: AdbEnumInterfaces,
@@ -216,21 +332,6 @@ struct AdbApi {
     close_handle: AdbCloseHandle,
 }
 
-pub struct AdbWinApiFastboot {
-    api: AdbApi,
-    interface: AdbHandle,
-    read_pipe: AdbHandle,
-    write_pipe: AdbHandle,
-    discovery: super::AdbWinApiDiscovery,
-}
-
-pub struct DataDownload<'a> {
-    fastboot: &'a mut AdbWinApiFastboot,
-    size: u32,
-    left: u32,
-    current: Vec<u8>,
-}
-
 // SAFETY: `AdbWinApiFastboot` wraps Windows handle types (`AdbHandle = *mut c_void`) which are
 // safe to send between threads. The handles are only used from synchronous methods and the
 // `Drop` impl serializes cleanup. No thread-unsafe state is stored.
@@ -241,6 +342,7 @@ unsafe impl Send for AdbWinApiFastboot {}
 unsafe impl Sync for AdbWinApiFastboot {}
 
 impl AdbWinApiFastboot {
+    /// Open the first Windows AdbWinApi fastboot device that can be enumerated.
     pub fn open_first() -> Result<Self, AdbWinApiFastbootOpenError> {
         let discovery = discover_dlls()?;
         // SAFETY: `AdbApi::load` resolves function symbols from a dynamically-loaded DLL. The DLL
@@ -258,12 +360,13 @@ impl AdbWinApiFastboot {
             return Err(AdbWinApiFastbootOpenError::NoAndroidInterface);
         }
 
-        let mut entry_buffer = vec![0u8; 4096];
+        let mut entry_buffer = vec![0u8; INITIAL_INTERFACE_BUFFER_SIZE];
         loop {
             let mut entry_buffer_size = entry_buffer.len() as u32;
             // SAFETY: `api.next_interface` is a valid function pointer. The buffer is
-            // stack-allocated (4096 bytes) and sized appropriately for `AdbInterfaceInfo`. The
-            // function writes into `entry_buffer` and updates `entry_buffer_size` on success.
+            // heap-allocated and sized according to the most recent successful call. The function
+            // writes into `entry_buffer` and updates `entry_buffer_size` on success or when it
+            // reports that the buffer was too small.
             let has_next = unsafe {
                 (api.next_interface)(
                     enum_handle,
@@ -272,16 +375,53 @@ impl AdbWinApiFastboot {
                 )
             };
             if !has_next {
-                break;
+                let error = io::Error::last_os_error();
+                match error.raw_os_error() {
+                    Some(ERROR_INSUFFICIENT_BUFFER) => {
+                        let required = entry_buffer_size as usize;
+                        if required <= entry_buffer.len() {
+                            unsafe { (api.close_handle)(enum_handle) };
+                            return Err(AdbWinApiFastbootOpenError::InterfaceEnumerationFailed {
+                                path: discovery.adb_win_api.clone(),
+                                error: format!(
+                                    "AdbNextInterface reported insufficient buffer but size stayed at {required}"
+                                ),
+                            });
+                        }
+                        entry_buffer.resize(required, 0);
+                        continue;
+                    }
+                    Some(ERROR_NO_MORE_ITEMS) => break,
+                    _ => {
+                        unsafe { (api.close_handle)(enum_handle) };
+                        return Err(AdbWinApiFastbootOpenError::InterfaceEnumerationFailed {
+                            path: discovery.adb_win_api.clone(),
+                            error: error.to_string(),
+                        });
+                    }
+                }
             }
 
             // SAFETY: `entry_buffer` was populated by the preceding `next_interface` call, so
-            // casting it to `AdbInterfaceInfo` yields valid data. `device_name` is a null-terminated
-            // wide string embedded in the interface info struct.
-            let name = unsafe {
-                let info = entry_buffer.as_ptr().cast::<AdbInterfaceInfo>();
-                wide_ptr_to_string((*info).device_name.as_ptr())
-            };
+            // the returned byte count is authoritative for the entry. The helper validates that
+            // the record is large enough before decoding the UTF-16 interface name.
+            let entry_len = entry_buffer_size as usize;
+            if entry_len > entry_buffer.len() {
+                unsafe { (api.close_handle)(enum_handle) };
+                return Err(AdbWinApiFastbootOpenError::InterfaceEnumerationFailed {
+                    path: discovery.adb_win_api.clone(),
+                    error: format!(
+                        "AdbNextInterface reported {entry_len} bytes, but the buffer only held {} bytes",
+                        entry_buffer.len()
+                    ),
+                });
+            }
+            let name = interface_name_from_entry(&entry_buffer[..entry_len]).map_err(|error| {
+                AdbWinApiFastbootOpenError::InterfaceEnumerationFailed {
+                    path: discovery.adb_win_api.clone(),
+                    error,
+                }
+            })?;
             saw_android = true;
             trace!("AdbWinApi candidate interface: {name}");
 
@@ -403,16 +543,31 @@ impl AdbWinApiFastboot {
         Ok((interface, read_pipe, write_pipe))
     }
 
+    /// Return the DLL discovery information used to open this transport.
     pub fn discovery(&self) -> &super::AdbWinApiDiscovery {
         &self.discovery
     }
 
     fn parse_is_logical_value(value: &str) -> Result<bool, String> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "yes" => Ok(true),
-            "no" => Ok(false),
-            other => Err(format!("unsupported logical partition value: {other}")),
+        let value = value.trim();
+        if value.eq_ignore_ascii_case("yes") {
+            return Ok(true);
         }
+        if value.eq_ignore_ascii_case("no") {
+            return Ok(false);
+        }
+        Err(format!("unsupported logical partition value: {value}"))
+    }
+
+    fn parse_current_slot_value(value: &str) -> Result<&'static str, String> {
+        let value = value.trim().trim_start_matches('_');
+        if value.eq_ignore_ascii_case("a") {
+            return Ok("a");
+        }
+        if value.eq_ignore_ascii_case("b") {
+            return Ok("b");
+        }
+        Err(format!("unsupported slot value: {value}"))
     }
 
     fn write_all_sync(&mut self, mut data: &[u8]) -> Result<(), AdbWinApiFastbootError> {
@@ -501,10 +656,12 @@ impl AdbWinApiFastboot {
         self.handle_responses_sync()
     }
 
+    /// Read a fastboot variable by name.
     pub async fn get_var(&mut self, var: &str) -> Result<String, AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::GetVar(var))
     }
 
+    /// Read and parse `max-download-size`.
     pub async fn max_download_size(&mut self) -> Result<u32, AdbWinApiFastbootError> {
         let value = self.get_var("max-download-size").await?;
         crate::operation::parse_max_download_size(&value).map_err(|err| {
@@ -516,19 +673,19 @@ impl AdbWinApiFastboot {
         })
     }
 
+    /// Read and normalize the current A/B slot suffix.
     pub async fn current_slot(&mut self) -> Result<String, AdbWinApiFastbootError> {
         let value = self.get_var("current-slot").await?;
-        match value.trim().trim_start_matches('_').to_lowercase().as_str() {
-            "a" => Ok("a".to_string()),
-            "b" => Ok("b".to_string()),
-            other => Err(AdbWinApiFastbootError::InvalidVariable {
+        Self::parse_current_slot_value(&value)
+            .map(str::to_string)
+            .map_err(|reason| AdbWinApiFastbootError::InvalidVariable {
                 name: "current-slot",
                 value,
-                reason: format!("unsupported slot value: {other}"),
-            }),
-        }
+                reason,
+            })
     }
 
+    /// Start a download transfer for the given byte size.
     pub async fn download(
         &mut self,
         size: u32,
@@ -556,11 +713,13 @@ impl AdbWinApiFastboot {
         }
     }
 
+    /// Flash the given target partition or image.
     pub async fn flash(&mut self, target: &str) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::Flash(target))
             .map(|_| ())
     }
 
+    /// Return whether the named partition is logical.
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool, AdbWinApiFastbootError> {
         let value = match self.get_var(&format!("is-logical:{partition}")).await {
             Ok(value) => value,
@@ -580,6 +739,7 @@ impl AdbWinApiFastboot {
         })
     }
 
+    /// Resize a logical partition.
     pub async fn resize_logical_partition(
         &mut self,
         partition: &str,
@@ -589,55 +749,66 @@ impl AdbWinApiFastboot {
             .map(|_| ())
     }
 
+    /// Send the `continue` fastboot command.
     pub async fn continue_boot(&mut self) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::<&str>::Continue)
             .map(|_| ())
     }
 
+    /// Mark the given slot active.
     pub async fn set_active(&mut self, slot: &str) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::SetActive(slot))
             .map(|_| ())
     }
 
+    /// Erase the given target partition.
     pub async fn erase(&mut self, target: &str) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::Erase(target))
             .map(|_| ())
     }
 
+    /// Reboot the device.
     pub async fn reboot(&mut self) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::<&str>::Reboot)
             .map(|_| ())
     }
 
+    /// Reboot into bootloader mode.
     pub async fn reboot_bootloader(&mut self) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::<&str>::RebootBootloader)
             .map(|_| ())
     }
 
+    /// Power the device down.
     pub async fn power_down(&mut self) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::<&str>::Powerdown)
             .map(|_| ())
     }
 
+    /// Reboot the device into the requested mode.
     pub async fn reboot_to(&mut self, mode: &str) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::<&str>::RebootTo(mode))
             .map(|_| ())
     }
 
+    /// Reboot the device into fastboot mode.
     pub async fn reboot_fastboot(&mut self) -> Result<(), AdbWinApiFastbootError> {
         self.reboot_to("fastboot").await
     }
 
+    /// Unlock the bootloader.
     pub async fn unlock_bootloader(&mut self) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::<&str>::FlashingUnlock)
             .map(|_| ())
     }
 
+    /// Lock the bootloader.
     pub async fn lock_bootloader(&mut self) -> Result<(), AdbWinApiFastbootError> {
         self.execute_sync(FastBootCommand::<&str>::FlashingLock)
             .map(|_| ())
     }
 
+    /// Query all fastboot variables reported by the device.
     pub async fn get_all_vars(
         &mut self,
     ) -> Result<HashMap<String, String>, AdbWinApiFastbootError> {
@@ -689,14 +860,17 @@ impl Drop for AdbWinApiFastboot {
 }
 
 impl DataDownload<'_> {
+    /// Expected transfer size in bytes.
     pub fn size(&self) -> u32 {
         self.size
     }
 
+    /// Bytes still left to satisfy the requested transfer size.
     pub fn left(&self) -> u32 {
         self.left
     }
 
+    /// Append bytes to the in-flight download buffer.
     pub async fn extend_from_slice(
         &mut self,
         mut data: &[u8],
@@ -715,6 +889,7 @@ impl DataDownload<'_> {
         Ok(())
     }
 
+    /// Reserve writable space in the current download buffer.
     pub async fn get_mut_data(&mut self, max: usize) -> Result<&mut [u8], AdbWinApiFastbootError> {
         if self.current.len() == MAX_USBFS_BULK_SIZE {
             self.flush_current()?;
@@ -727,6 +902,7 @@ impl DataDownload<'_> {
         Ok(&mut self.current[start..])
     }
 
+    /// Finalize the transfer and wait for the final fastboot response.
     pub async fn finish(mut self) -> Result<(), AdbWinApiFastbootError> {
         if self.left != 0 {
             return Err(AdbWinApiFastbootError::IncorrectDataLength {
@@ -872,22 +1048,49 @@ fn candidate_search_dirs() -> Vec<PathBuf> {
                 .join("platform-tools"),
         );
     }
+    normalize_candidate_search_dirs(dirs)
+}
+
+fn normalize_candidate_search_dirs(mut dirs: Vec<PathBuf>) -> Vec<PathBuf> {
     dirs.sort();
     dirs.dedup();
     dirs
 }
 
-/// # Safety
-///
-/// `ptr` must point to a valid null-terminated wide-character (`u16`) string. The string
-/// must be properly aligned for `u16` access. Callers must ensure the string is
-/// well-formed UTF-16 (lossy conversion handles malformed surrogates).
-unsafe fn wide_ptr_to_string(ptr: *const u16) -> String {
-    let mut len = 0usize;
-    while *ptr.add(len) != 0 {
-        len += 1;
+fn interface_name_from_entry(entry: &[u8]) -> Result<String, String> {
+    let min_size = size_of::<AdbInterfaceInfo>();
+    if entry.len() < min_size {
+        return Err(format!(
+            "interface info shorter than minimum size: {} bytes",
+            entry.len()
+        ));
     }
-    String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
+    let name_offset = size_of::<Guid>() + size_of::<u32>();
+    let name_bytes = &entry[name_offset..];
+    if name_bytes.len() % 2 != 0 {
+        return Err(format!(
+            "interface name buffer had odd length: {} bytes",
+            name_bytes.len()
+        ));
+    }
+
+    let mut name_words = Vec::with_capacity(name_bytes.len() / 2);
+    for chunk in name_bytes.chunks_exact(2) {
+        let value = u16::from_le_bytes([chunk[0], chunk[1]]);
+        if value == 0 {
+            return String::from_utf16(&name_words).map_err(|error| error.to_string());
+        }
+        name_words.push(value);
+    }
+
+    Err("unterminated UTF-16 interface name".to_string())
+}
+
+fn wide_slice_to_string(words: &[u16]) -> Result<String, String> {
+    let Some(len) = words.iter().position(|word| *word == 0) else {
+        return Err("unterminated UTF-16 string".to_string());
+    };
+    String::from_utf16(&words[..len]).map_err(|error| error.to_string())
 }
 
 fn to_wide(input: &str) -> Vec<u16> {
@@ -896,7 +1099,13 @@ fn to_wide(input: &str) -> Vec<u16> {
 
 #[cfg(test)]
 mod tests {
-    use super::candidate_search_dirs;
+    use std::path::PathBuf;
+
+    use super::{
+        candidate_search_dirs, is_fastboot_interface, normalize_candidate_search_dirs,
+        wide_slice_to_string, AdbWinApiFastboot, AdbWinApiFastbootOpenError, AdbWinApiProbeDetail,
+        UsbInterfaceDescriptor,
+    };
 
     #[test]
     fn candidate_search_dirs_include_current_exe_directory() {
@@ -906,5 +1115,94 @@ mod tests {
         let dirs = candidate_search_dirs();
 
         assert!(dirs.contains(&current_dir));
+    }
+
+    #[test]
+    fn normalize_candidate_search_dirs_sorts_and_dedups() {
+        let dirs = normalize_candidate_search_dirs(vec![
+            PathBuf::from("/tmp/z"),
+            PathBuf::from("/tmp/a"),
+            PathBuf::from("/tmp/z"),
+            PathBuf::from("/tmp/b"),
+        ]);
+
+        assert_eq!(
+            dirs,
+            vec![
+                PathBuf::from("/tmp/a"),
+                PathBuf::from("/tmp/b"),
+                PathBuf::from("/tmp/z"),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_current_slot_value_accepts_common_variants() {
+        assert_eq!(
+            AdbWinApiFastboot::parse_current_slot_value("_A").unwrap(),
+            "a"
+        );
+        assert_eq!(
+            AdbWinApiFastboot::parse_current_slot_value(" b ").unwrap(),
+            "b"
+        );
+        assert_eq!(
+            AdbWinApiFastboot::parse_current_slot_value("__B").unwrap(),
+            "b"
+        );
+    }
+
+    #[test]
+    fn parse_current_slot_value_rejects_unknown_values() {
+        let error = AdbWinApiFastboot::parse_current_slot_value("other").unwrap_err();
+        assert!(error.contains("unsupported slot value"));
+    }
+
+    #[test]
+    fn wide_slice_to_string_stops_at_terminator_and_rejects_missing_null() {
+        let decoded = wide_slice_to_string(&[0x41, 0x42, 0x00, 0x43]).unwrap();
+        assert_eq!(decoded, "AB");
+
+        let error = wide_slice_to_string(&[0x41, 0x42, 0x43]).unwrap_err();
+        assert!(error.contains("unterminated"));
+    }
+
+    #[test]
+    fn is_fastboot_interface_requires_the_expected_descriptor_shape() {
+        let fastboot = UsbInterfaceDescriptor {
+            b_length: 0,
+            b_descriptor_type: 0,
+            b_interface_number: 0,
+            b_alternate_setting: 0,
+            b_num_endpoints: 2,
+            b_interface_class: 0xff,
+            b_interface_sub_class: 0x42,
+            b_interface_protocol: 0x03,
+            i_interface: 0,
+        };
+        assert!(is_fastboot_interface(&fastboot));
+
+        let mut not_fastboot = fastboot;
+        not_fastboot.b_num_endpoints = 1;
+        assert!(!is_fastboot_interface(&not_fastboot));
+    }
+
+    #[test]
+    fn interface_enumeration_failure_reports_probe_detail() {
+        let error = AdbWinApiFastbootOpenError::InterfaceEnumerationFailed {
+            path: PathBuf::from(r"C:\Android\platform-tools\AdbWinApi.dll"),
+            error: "boom".to_string(),
+        };
+
+        let detail = error.detail().unwrap();
+        assert_eq!(
+            detail,
+            AdbWinApiProbeDetail::EnumeratingInterfaces {
+                source: PathBuf::from(r"C:\Android\platform-tools\AdbWinApi.dll"),
+            }
+        );
+        assert!(error
+            .to_string()
+            .contains("failed to enumerate Android USB interfaces"));
     }
 }
