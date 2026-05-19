@@ -2885,8 +2885,7 @@ fn storage_family(storage: Option<&str>, layout: Option<&str>, region: Option<&s
     {
         layout.unwrap_or_default().to_uppercase()
     } else {
-        region
-            .map_or_else(|| "UNKNOWN".to_string(), region_family)
+        region.map_or_else(|| "UNKNOWN".to_string(), region_family)
     }
 }
 

@@ -12,7 +12,9 @@ pub mod nusb;
 use self::adbwinapi::{
     AdbWinApiFastboot, AdbWinApiFastbootError, AdbWinApiFastbootOpenError, AdbWinApiProbeDetail,
 };
-use self::nusb::{DataDownload as NusbDataDownload, NusbFastBoot, NusbFastBootError, NusbFastBootOpenError};
+use self::nusb::{
+    DataDownload as NusbDataDownload, NusbFastBoot, NusbFastBootError, NusbFastBootOpenError,
+};
 
 /// Fastboot transport backend kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

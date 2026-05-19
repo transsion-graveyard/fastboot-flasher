@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+//! CLI integration tests for `mtk-scatter-parser`.
 
 use assert_cmd::Command;
 use predicates::prelude::*;

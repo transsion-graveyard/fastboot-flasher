@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+//! Integration tests for `mtk-scatter-parser`.
 
 use std::{
     fs::{self, File},

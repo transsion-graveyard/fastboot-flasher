@@ -19,21 +19,19 @@ pub mod plan;
 pub mod progress;
 
 // Re-export types from protocol crates
-pub use fastboot_rs::{
-    FastbootDevice, FastbootError, FastbootExecutionError, FlashProgress,
-};
+pub use fastboot_rs::{FastbootDevice, FastbootError, FastbootExecutionError, FlashProgress};
 
 // Re-export from force-fastboot
-pub use force_fastboot::{run_force_fastboot, ForceFastbootOptions, ForceFastbootError};
+pub use force_fastboot::{run_force_fastboot, ForceFastbootError, ForceFastbootOptions};
 
 // Re-export from mtk-scatter-parser
-pub use mtk_scatter_parser::{FlashPlan, FlashAction, FlashPlanOptions, Mode, SlotPolicy};
+pub use mtk_scatter_parser::{FlashAction, FlashPlan, FlashPlanOptions, Mode, SlotPolicy};
 
 // Re-export helpers needed by submodules
 pub use connect::connect_fastboot;
 pub use device::{
-    build_flash_plan, power_off_device, reboot_device, reboot_device_bootloader,
-    reboot_device_fastboot, read_all_variables, read_variable, resolve_max_download_size_from_vars,
+    build_flash_plan, power_off_device, read_all_variables, read_variable, reboot_device,
+    reboot_device_bootloader, reboot_device_fastboot, resolve_max_download_size_from_vars,
     send_flashing_lock, send_flashing_unlock, set_fastboot_active_slot,
 };
 pub use flash::{erase_one_partition, flash_one_partition};
@@ -77,7 +75,8 @@ mod tests {
 
     #[test]
     fn resolve_max_download_size_from_vars_requires_variable() {
-        let error = super::device::resolve_max_download_size_from_vars(&HashMap::new()).unwrap_err();
+        let error =
+            super::device::resolve_max_download_size_from_vars(&HashMap::new()).unwrap_err();
 
         assert!(error.to_string().contains("max-download-size"));
     }

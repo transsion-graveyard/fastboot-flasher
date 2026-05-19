@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+//! Example CLI for exercising the fastboot protocol helpers.
 
 use std::{
     io::SeekFrom,

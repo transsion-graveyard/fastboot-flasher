@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+//! Protocol helper tests for `fastboot-rs`.
 
 use fastboot_rs::{
     parse_max_download_size,

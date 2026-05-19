@@ -1,7 +1,7 @@
 //! Terminal progress rendering helpers for flash/wipe operations.
 
 pub use terminal_output::progress::{
-    centered_prefix, fixed_bar_width, fit_width, format_byte_pair, format_mm_ss, visible_width,
+    centered_prefix, fit_width, fixed_bar_width, format_byte_pair, format_mm_ss, visible_width,
 };
 
 use indicatif::ProgressStyle;
@@ -16,9 +16,8 @@ pub fn active_flash_style(bar_width: usize, message_width: usize) -> ProgressSty
 
 /// Build a progress bar style for a completed action (history row).
 pub fn completed_total_style(bar_width: usize) -> ProgressStyle {
-    let template = format!(
-        "{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.blue/black}}] {{byte_pair}}"
-    );
+    let template =
+        format!("{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.blue/black}}] {{byte_pair}}");
     ProgressStyle::with_template(&template).unwrap()
 }
 

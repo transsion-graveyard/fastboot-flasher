@@ -84,7 +84,10 @@ pub fn byte_pair(bytes: u64, total_bytes: u64) -> String {
 /// `elapsed_mmss`, `eta_mmss`, and `byte_pair`.
 pub fn timed_style(template: &str) -> ProgressStyle {
     ProgressStyle::with_template(template)
-        .unwrap_or_else(|_| ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {wide_msg}").expect("fallback template is valid"))
+        .unwrap_or_else(|_| {
+            ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {wide_msg}")
+                .expect("fallback template is valid")
+        })
         .with_key(
             "elapsed_mmss",
             |state: &ProgressState, out: &mut dyn Write| {
@@ -105,7 +108,10 @@ pub fn timed_style(template: &str) -> ProgressStyle {
 /// Uses byte pair formatting and removes ETA for space savings.
 pub fn progress_style(template: &str) -> ProgressStyle {
     ProgressStyle::with_template(template)
-        .unwrap_or_else(|_| ProgressStyle::with_template("{spinner:.green} {wide_msg}").expect("fallback template is valid"))
+        .unwrap_or_else(|_| {
+            ProgressStyle::with_template("{spinner:.green} {wide_msg}")
+                .expect("fallback template is valid")
+        })
         .with_key("byte_pair", |state: &ProgressState, out: &mut dyn Write| {
             let total = state.len().unwrap_or_else(|| state.pos());
             let _ = write!(out, "{}", byte_pair(state.pos(), total));

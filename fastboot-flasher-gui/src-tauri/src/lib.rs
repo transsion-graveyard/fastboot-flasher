@@ -1,7 +1,7 @@
 mod gsi_worker;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -790,116 +790,204 @@ async fn check_device_with_diagnostics(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn flash_partition_and_emit(
-    dev: &mut FastbootDevice,
-    app: &tauri::AppHandle,
-    summary: &mut FlashSummaryDto,
-    control: &FlashRunControl,
+struct FlashProgressContext<'a> {
+    dev: &'a mut FastbootDevice,
+    app: &'a tauri::AppHandle,
+    summary: &'a mut FlashSummaryDto,
+    control: &'a FlashRunControl,
     max_download_size: u32,
-    partition: &str,
-    image_path: &std::path::Path,
-    bytes: u64,
-    completed_before: u64,
     overall_total: u64,
-) -> Result<(), String> {
-    ensure_not_cancelled(control)?;
-    app.emit(
-        "flash-progress",
-        FlashEvent::PreparingImage {
-            partition: partition.to_string(),
-        },
-    )
-    .map_err(|e| format!("emit: {e}"))?;
-
-    emit_overall_progress(app, completed_before, 0, overall_total)?;
-
-    let result = flash_one_partition_evented(
-        dev,
-        max_download_size,
-        partition,
-        image_path,
-        bytes,
-        app,
-        completed_before,
-        overall_total,
-    )
-    .await;
-
-    match result {
-        Ok(()) => {
-            summary.flash_count += 1;
-            emit_overall_progress(app, completed_before, bytes, overall_total)?;
-            app.emit(
-                "flash-progress",
-                FlashEvent::PartitionComplete {
-                    partition: partition.to_string(),
-                },
-            )
-            .map_err(|e| format!("emit: {e}"))?;
-            Ok(())
-        }
-        Err(e) => {
-            let msg = format!("{e:#}");
-            app.emit(
-                "flash-progress",
-                FlashEvent::PartitionFailed {
-                    partition: partition.to_string(),
-                    error: msg.clone(),
-                },
-            )
-            .map_err(|e| format!("emit: {e}"))?;
-            Err(msg)
-        }
-    }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn erase_partition_and_emit(
-    dev: &mut FastbootDevice,
-    app: &tauri::AppHandle,
-    summary: &mut FlashSummaryDto,
-    control: &FlashRunControl,
-    partition: &str,
-    bytes: u64,
-    completed_before: u64,
-    overall_total: u64,
-) -> Result<(), String> {
-    ensure_not_cancelled(control)?;
-    app.emit(
-        "flash-progress",
-        FlashEvent::Erasing {
-            partition: partition.to_string(),
-        },
-    )
-    .map_err(|e| format!("emit: {e}"))?;
-    emit_overall_progress(app, completed_before, 0, overall_total)?;
+impl<'a> FlashProgressContext<'a> {
+    async fn flash_partition(
+        &mut self,
+        partition: &str,
+        image_path: &Path,
+        bytes: u64,
+        completed_before: u64,
+    ) -> Result<(), String> {
+        ensure_not_cancelled(self.control)?;
+        self.app
+            .emit(
+                "flash-progress",
+                FlashEvent::PreparingImage {
+                    partition: partition.to_string(),
+                },
+            )
+            .map_err(|e| format!("emit: {e}"))?;
 
-    match fastboot_flasher::erase_one_partition(dev, partition).await {
-        Ok(()) => {
-            summary.wipe_count += 1;
-            emit_overall_progress(app, completed_before, bytes, overall_total)?;
-            app.emit(
+        emit_overall_progress(self.app, completed_before, 0, self.overall_total)?;
+
+        let result = self
+            .flash_one_partition_evented(partition, image_path, bytes, completed_before)
+            .await;
+
+        match result {
+            Ok(()) => {
+                self.summary.flash_count += 1;
+                emit_overall_progress(self.app, completed_before, bytes, self.overall_total)?;
+                self.app
+                    .emit(
+                        "flash-progress",
+                        FlashEvent::PartitionComplete {
+                            partition: partition.to_string(),
+                        },
+                    )
+                    .map_err(|e| format!("emit: {e}"))?;
+                Ok(())
+            }
+            Err(e) => {
+                let msg = format!("{e:#}");
+                self.app
+                    .emit(
+                        "flash-progress",
+                        FlashEvent::PartitionFailed {
+                            partition: partition.to_string(),
+                            error: msg.clone(),
+                        },
+                    )
+                    .map_err(|e| format!("emit: {e}"))?;
+                Err(msg)
+            }
+        }
+    }
+
+    async fn erase_partition(
+        &mut self,
+        partition: &str,
+        bytes: u64,
+        completed_before: u64,
+    ) -> Result<(), String> {
+        ensure_not_cancelled(self.control)?;
+        self.app
+            .emit(
                 "flash-progress",
-                FlashEvent::EraseComplete {
+                FlashEvent::Erasing {
                     partition: partition.to_string(),
                 },
             )
             .map_err(|e| format!("emit: {e}"))?;
-            Ok(())
+        emit_overall_progress(self.app, completed_before, 0, self.overall_total)?;
+
+        match fastboot_flasher::erase_one_partition(self.dev, partition).await {
+            Ok(()) => {
+                self.summary.wipe_count += 1;
+                emit_overall_progress(self.app, completed_before, bytes, self.overall_total)?;
+                self.app
+                    .emit(
+                        "flash-progress",
+                        FlashEvent::EraseComplete {
+                            partition: partition.to_string(),
+                        },
+                    )
+                    .map_err(|e| format!("emit: {e}"))?;
+                Ok(())
+            }
+            Err(e) => {
+                let msg = format!("{e:#}");
+                self.app
+                    .emit(
+                        "flash-progress",
+                        FlashEvent::PartitionFailed {
+                            partition: partition.to_string(),
+                            error: msg.clone(),
+                        },
+                    )
+                    .map_err(|e| format!("emit: {e}"))?;
+                Err(msg)
+            }
         }
-        Err(e) => {
-            let msg = format!("{e:#}");
-            app.emit(
-                "flash-progress",
-                FlashEvent::PartitionFailed {
-                    partition: partition.to_string(),
-                    error: msg.clone(),
-                },
-            )
-            .map_err(|e| format!("emit: {e}"))?;
-            Err(msg)
+    }
+
+    async fn execute_plan_actions(
+        &mut self,
+        actions: &[&mtk_scatter_parser::FlashAction],
+        image_overrides: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        let mut completed_before = 0_u64;
+
+        for action in actions {
+            ensure_not_cancelled(self.control)?;
+            let action_bytes = u64::try_from(action.size).unwrap_or(0);
+            match action.action.as_str() {
+                "flash" => {
+                    let image_path = resolve_image_path_for_action(action, image_overrides)?;
+
+                    self.flash_partition(
+                        &action.partition,
+                        &image_path,
+                        action_bytes,
+                        completed_before,
+                    )
+                    .await?;
+                }
+                "wipe" => {
+                    self.erase_partition(&action.partition, action_bytes, completed_before)
+                        .await?;
+                }
+                other => {
+                    return Err(format!("unsupported plan action: {other}"));
+                }
+            }
+            completed_before = completed_before.saturating_add(action_bytes);
         }
+
+        Ok(())
+    }
+
+    async fn flash_one_partition_evented(
+        &mut self,
+        partition: &str,
+        image: &Path,
+        total_bytes: u64,
+        completed_before: u64,
+    ) -> Result<(), String> {
+        let app = self.app.clone();
+        let p = partition.to_string();
+        let p2 = p.clone();
+        let emit_partition = p.clone();
+        let overall_total = self.overall_total;
+        let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<(u64, u64)>();
+        let callback_tx = progress_tx.clone();
+        let emit_task = tokio::spawn(async move {
+            while let Some((bytes, speed_bps)) = progress_rx.recv().await {
+                app.emit(
+                    "flash-progress",
+                    FlashEvent::Flashing {
+                        partition: emit_partition.clone(),
+                        bytes,
+                        total: total_bytes,
+                        speed_bps,
+                    },
+                )
+                .map_err(|e| format!("emit: {e}"))?;
+                emit_overall_progress(&app, completed_before, bytes, overall_total)?;
+            }
+            Ok::<(), String>(())
+        });
+        let mut bytes_flashed: u64 = 0;
+        let start = std::time::Instant::now();
+
+        fastboot_flasher::flash_one_partition(self.dev, &p2, image, self.max_download_size, move |event| {
+            if let FlashProgress::DownloadBytes { bytes, .. } = event {
+                bytes_flashed += bytes;
+                let speed_bps = {
+                    let secs = start.elapsed().as_secs_f64();
+                    if secs > 0.0 {
+                        (bytes_flashed as f64 / secs) as u64
+                    } else {
+                        0
+                    }
+                };
+                let _ = callback_tx.send((bytes_flashed, speed_bps));
+            }
+        })
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+
+        emit_task.await.map_err(|e| format!("join flash task: {e}"))??;
+        Ok(())
     }
 }
 
@@ -1183,17 +1271,15 @@ async fn start_flash_inner(
     let max_download_size = resolve_max_download_size_from_vars(&vars)
         .map_err(|e| format!("max-download-size: {e}"))?;
 
-    execute_plan_actions(
-        &filtered,
-        &image_overrides,
-        &mut dev,
+    let mut flash = FlashProgressContext {
+        dev: &mut dev,
+        app: &app,
+        summary: &mut summary,
+        control: &control,
         max_download_size,
-        &app,
-        &control,
-        &mut summary,
-        total_bytes,
-    )
-    .await?;
+        overall_total: total_bytes,
+    };
+    flash.execute_plan_actions(&filtered, &image_overrides).await?;
 
     if reboot {
         fastboot_flasher::reboot_device(&mut dev)
@@ -1328,62 +1414,6 @@ async fn simulate_dry_run_actions(
         }
     }
 
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn execute_plan_actions(
-    actions: &[&mtk_scatter_parser::FlashAction],
-    image_overrides: &HashMap<String, String>,
-    dev: &mut FastbootDevice,
-    max_download_size: u32,
-    app: &tauri::AppHandle,
-    control: &FlashRunControl,
-    summary: &mut FlashSummaryDto,
-    overall_total: u64,
-) -> Result<(), String> {
-    let mut completed_before = 0_u64;
-
-    for action in actions {
-        ensure_not_cancelled(control)?;
-        let action_bytes = u64::try_from(action.size).unwrap_or(0);
-        match action.action.as_str() {
-            "flash" => {
-                let image_path = resolve_image_path_for_action(action, image_overrides)?;
-
-                flash_partition_and_emit(
-                    dev,
-                    app,
-                    summary,
-                    control,
-                    max_download_size,
-                    &action.partition,
-                    &image_path,
-                    action_bytes,
-                    completed_before,
-                    overall_total,
-                )
-                .await?;
-            }
-            "wipe" => {
-                erase_partition_and_emit(
-                    dev,
-                    app,
-                    summary,
-                    control,
-                    &action.partition,
-                    action_bytes,
-                    completed_before,
-                    overall_total,
-                )
-                .await?;
-            }
-            other => {
-                return Err(format!("unsupported plan action: {other}"));
-            }
-        }
-        completed_before = completed_before.saturating_add(action_bytes);
-    }
     Ok(())
 }
 
@@ -1529,32 +1559,30 @@ async fn format_userdata_inner(
 
     match generated {
         Ok(image) => {
-            flash_partition_and_emit(
-                &mut dev,
-                &app,
-                &mut summary,
-                &control,
+            let mut flash = FlashProgressContext {
+                dev: &mut dev,
+                app: &app,
+                summary: &mut summary,
+                control: &control,
                 max_download_size,
-                "userdata",
-                image.path(),
-                total_bytes,
-                0,
-                total_bytes,
-            )
-            .await?;
+                overall_total: total_bytes,
+            };
+            flash
+                .flash_partition("userdata", image.path(), total_bytes, 0)
+                .await?;
         }
         Err(_error) if erase_fallback => {
-            erase_partition_and_emit(
-                &mut dev,
-                &app,
-                &mut summary,
-                &control,
-                "userdata",
-                total_bytes.max(1),
-                0,
-                total_bytes.max(1),
-            )
-            .await?;
+            let mut flash = FlashProgressContext {
+                dev: &mut dev,
+                app: &app,
+                summary: &mut summary,
+                control: &control,
+                max_download_size,
+                overall_total: total_bytes.max(1),
+            };
+            flash
+                .erase_partition("userdata", total_bytes.max(1), 0)
+                .await?;
         }
         Err(error) => return Err(format!("generate userdata image: {error:#}")),
     }
@@ -1630,32 +1658,30 @@ async fn wipe_data_inner(
 
     match generated {
         Ok(image) => {
-            flash_partition_and_emit(
-                &mut dev,
-                &app,
-                &mut summary,
-                &control,
+            let mut flash = FlashProgressContext {
+                dev: &mut dev,
+                app: &app,
+                summary: &mut summary,
+                control: &control,
                 max_download_size,
-                "userdata",
-                image.path(),
-                base_bytes.max(1),
-                0,
-                total_bytes.max(1),
-            )
-            .await?;
+                overall_total: total_bytes.max(1),
+            };
+            flash
+                .flash_partition("userdata", image.path(), base_bytes.max(1), 0)
+                .await?;
         }
         Err(_error) if erase_fallback => {
-            erase_partition_and_emit(
-                &mut dev,
-                &app,
-                &mut summary,
-                &control,
-                "userdata",
-                base_bytes.max(1),
-                0,
-                total_bytes.max(1),
-            )
-            .await?;
+            let mut flash = FlashProgressContext {
+                dev: &mut dev,
+                app: &app,
+                summary: &mut summary,
+                control: &control,
+                max_download_size,
+                overall_total: total_bytes.max(1),
+            };
+            flash
+                .erase_partition("userdata", base_bytes.max(1), 0)
+                .await?;
         }
         Err(error) => return Err(format!("generate userdata image: {error:#}")),
     }
@@ -1774,80 +1800,24 @@ async fn execute_manual_flash(
     let mut completed_before = 0_u64;
     for action in actions {
         ensure_not_cancelled(control)?;
-        flash_partition_and_emit(
+        let mut flash = FlashProgressContext {
             dev,
             app,
             summary,
             control,
             max_download_size,
-            &action.partition,
-            &action.image,
-            action.size,
-            completed_before,
             overall_total,
-        )
-        .await?;
+        };
+        flash
+            .flash_partition(
+                &action.partition,
+                &action.image,
+                action.size,
+                completed_before,
+            )
+            .await?;
         completed_before = completed_before.saturating_add(action.size);
     }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn flash_one_partition_evented(
-    dev: &mut FastbootDevice,
-    max_download_size: u32,
-    partition: &str,
-    image: &std::path::Path,
-    total_bytes: u64,
-    app: &tauri::AppHandle,
-    completed_before: u64,
-    overall_total: u64,
-) -> Result<(), String> {
-    let app = app.clone();
-    let p = partition.to_string();
-    let p2 = p.clone();
-    let emit_partition = p.clone();
-    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<(u64, u64)>();
-    let callback_tx = progress_tx.clone();
-    let emit_task = tokio::spawn(async move {
-        while let Some((bytes, speed_bps)) = progress_rx.recv().await {
-            app.emit(
-                "flash-progress",
-                FlashEvent::Flashing {
-                    partition: emit_partition.clone(),
-                    bytes,
-                    total: total_bytes,
-                    speed_bps,
-                },
-            )
-            .map_err(|e| format!("emit: {e}"))?;
-            emit_overall_progress(&app, completed_before, bytes, overall_total)?;
-        }
-        Ok::<(), String>(())
-    });
-    let mut bytes_flashed: u64 = 0;
-    let start = std::time::Instant::now();
-
-    fastboot_flasher::flash_one_partition(dev, &p2, image, max_download_size, move |event| {
-        if let FlashProgress::DownloadBytes { bytes, .. } = event {
-            bytes_flashed += bytes;
-            let speed_bps = {
-                let secs = start.elapsed().as_secs_f64();
-                if secs > 0.0 {
-                    (bytes_flashed as f64 / secs) as u64
-                } else {
-                    0
-                }
-            };
-            let _ = callback_tx.send((bytes_flashed, speed_bps));
-        }
-    })
-    .await
-    .map_err(|e| format!("{e:#}"))?;
-    drop(progress_tx);
-    emit_task
-        .await
-        .map_err(|e| format!("join flash emitter task: {e}"))??;
     Ok(())
 }
 

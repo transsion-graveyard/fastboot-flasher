@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+//! Image operation tests for `fastboot-rs`.
 
 use std::{collections::HashMap, fs::File, io::Write, path::Path};
 

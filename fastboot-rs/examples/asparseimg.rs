@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+//! Example CLI for inspecting and splitting Android sparse images.
 
 use std::{
     io::{copy, Read, Seek, SeekFrom, Write},

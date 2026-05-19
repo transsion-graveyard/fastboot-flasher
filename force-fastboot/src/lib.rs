@@ -85,16 +85,16 @@ notice_box(
 
     println!(
         "{}",
-status_line(Tone::Info, "port", &format!("opening {}", candidate.device))
+        status_line(Tone::Info, "port", &format!("opening {}", candidate.device))
     );
     let mut port = serial::open_with_permission_recovery(&candidate, discovery, auto_udev)
         .map_err(|e| {
-        if permissions::is_permission_error(&e) {
-            ForceFastbootError::PermissionDenied(format!("{e:#}"))
-        } else {
-            ForceFastbootError::Serial(format!("{e:#}"))
-        }
-    })?;
+            if permissions::is_permission_error(&e) {
+                ForceFastbootError::PermissionDenied(format!("{e:#}"))
+            } else {
+                ForceFastbootError::Serial(format!("{e:#}"))
+            }
+        })?;
 
     {
         let _spinner = spinner::StatusSpinner::new("Waiting for preloader handshake byte...");
@@ -106,7 +106,7 @@ status_line(Tone::Info, "port", &format!("opening {}", candidate.device))
 
     println!(
         "{}",
-status_line(Tone::Success, "handshake", "FASTBOOT command sent")
+        status_line(Tone::Success, "handshake", "FASTBOOT command sent")
     );
     Ok(())
 }

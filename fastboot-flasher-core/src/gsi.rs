@@ -576,173 +576,205 @@ async fn transition_mode(
         })?
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn flash_vbmeta_logged(
-    dev: &mut FastbootDevice,
-    vars: &mut HashMap<String, String>,
-    capabilities: &FastbootCapabilities,
-    image: &Path,
-    size_bytes: u64,
-    summary: &mut GsiFlashSummary,
-    report: &mut impl FnMut(GsiEvent),
-    options: &GsiFlashOptions,
-) -> anyhow::Result<()> {
-    check_cancelled(&options.cancel_token)?;
-    report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
-    let current_slot = normalize_slot(vars.get("current-slot"));
-    let (vbmeta_partition, vbmeta_partition_size) =
-        resolve_device_partition(dev, vars, "vbmeta", current_slot.as_deref()).await?;
-    report(GsiEvent::ResolvedPartition {
-        base: "vbmeta",
-        partition: vbmeta_partition.clone(),
-        size_bytes: vbmeta_partition_size,
-    });
-    report(GsiEvent::Step(GsiStep::FlashingVbmeta));
-    flash_partition_logged(
-        dev,
-        &vbmeta_partition,
-        image,
-        size_bytes,
-        capabilities.max_download_size,
-        summary,
-        report,
-        options,
-    )
-    .await
+struct PartitionFlashContext<'a, F>
+where
+    F: FnMut(GsiEvent),
+{
+    dev: &'a mut FastbootDevice,
+    summary: &'a mut GsiFlashSummary,
+    report: &'a mut F,
+    options: &'a GsiFlashOptions,
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn flash_fastbootd_gsi_logged(
-    dev: &mut FastbootDevice,
-    vars: &mut HashMap<String, String>,
-    capabilities: &FastbootCapabilities,
-    image: &Path,
-    image_size: u64,
-    gsi_expanded_size: u64,
-    tools: &FormatTools,
-    summary: &mut GsiFlashSummary,
-    report: &mut impl FnMut(GsiEvent),
-    options: &GsiFlashOptions,
-) -> anyhow::Result<()> {
-    check_cancelled(&options.cancel_token)?;
-    report(GsiEvent::Step(GsiStep::CheckingSystemPartition));
-    let current_slot = normalize_slot(vars.get("current-slot"));
-    let (system_partition, system_partition_size) =
-        resolve_device_partition(dev, vars, "system", current_slot.as_deref()).await?;
-    report(GsiEvent::ResolvedPartition {
-        base: "system",
-        partition: system_partition.clone(),
-        size_bytes: system_partition_size,
-    });
-
-    report(GsiEvent::Step(GsiStep::CheckingProductGsiFallback));
-    if should_flash_product_gsi(system_partition_size, gsi_expanded_size) {
-        check_cancelled(&options.cancel_token)?;
-        let (product_partition, product_partition_size) =
-            resolve_device_partition(dev, vars, "product", current_slot.as_deref()).await?;
-        report(GsiEvent::ResolvedPartition {
-            base: "product",
-            partition: product_partition.clone(),
-            size_bytes: product_partition_size,
+impl<'a, F> PartitionFlashContext<'a, F>
+where
+    F: FnMut(GsiEvent),
+{
+    async fn flash_partition_logged(
+        &mut self,
+        partition: &str,
+        image: &Path,
+        size_bytes: u64,
+        max_download_size: u32,
+    ) -> anyhow::Result<()> {
+        check_cancelled(&self.options.cancel_token)?;
+        debug!(
+            partition,
+            image = %image.display(),
+            size_bytes,
+            "before report flashing-like event"
+        );
+        (self.report)(GsiEvent::Flashing {
+            partition: partition.to_string(),
+            image: image.to_path_buf(),
+            size_bytes,
         });
-        report(GsiEvent::Step(GsiStep::GeneratingProductGsiImage));
-        let product_image = generate_product_gsi_image(tools)?;
-        let product_size = std::fs::metadata(product_image.path())
-            .with_context(|| format!("read image metadata for {}", product_image.path().display()))?
-            .len();
-        report(GsiEvent::Step(GsiStep::FlashingProductGsi));
-        debug!(
-            partition = %product_partition,
-            image = %product_image.path().display(),
-            size_bytes = product_size,
-            "before create flash_partition_logged future"
-        );
-        let flash_future = flash_partition_logged(
-            dev,
-            &product_partition,
-            product_image.path(),
-            product_size,
-            capabilities.max_download_size,
-            summary,
-            report,
-            options,
-        );
-        debug!(
-            partition = %product_partition,
-            size_bytes = product_size,
-            "after create flash_partition_logged future"
-        );
-        flash_future.await?;
-    } else {
-        report(GsiEvent::Step(GsiStep::ProductGsiFallbackNotNeeded));
+        debug!(partition, size_bytes, "after report Flashing");
+        let partition_name = partition.to_string();
+        let mut bytes_flashed = 0_u64;
+        let started = std::time::Instant::now();
+        let report = &mut *self.report;
+        flash_one_partition(self.dev, partition, image, max_download_size, |event| {
+            if let crate::FlashProgress::DownloadBytes { bytes, .. } = event {
+                bytes_flashed += bytes;
+                let speed_bps = match started.elapsed().as_secs_f64() {
+                    secs if secs > 0.0 => (bytes_flashed as f64 / secs) as u64,
+                    _ => 0,
+                };
+                report(GsiEvent::FlashProgress {
+                    partition: partition_name.clone(),
+                    bytes: bytes_flashed,
+                    total_bytes: size_bytes.max(1),
+                    speed_bps,
+                });
+            }
+        })
+        .await?;
+        check_cancelled(&self.options.cancel_token)?;
+        (self.report)(GsiEvent::FlashFinished {
+            partition: partition.to_string(),
+            size_bytes,
+        });
+        self.summary.flash_count += 1;
+        self.summary.total_bytes = self.summary.total_bytes.saturating_add(size_bytes);
+        Ok(())
+    }
+}
+
+struct GsiFlashContext<'a, F>
+where
+    F: FnMut(GsiEvent),
+{
+    dev: &'a mut FastbootDevice,
+    vars: &'a mut HashMap<String, String>,
+    summary: &'a mut GsiFlashSummary,
+    report: &'a mut F,
+    options: &'a GsiFlashOptions,
+}
+
+impl<'a, F> GsiFlashContext<'a, F>
+where
+    F: FnMut(GsiEvent),
+{
+    async fn flash_vbmeta_logged(
+        &mut self,
+        capabilities: &FastbootCapabilities,
+        image: &Path,
+        size_bytes: u64,
+    ) -> anyhow::Result<()> {
+        check_cancelled(&self.options.cancel_token)?;
+        (self.report)(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
+        let current_slot = normalize_slot(self.vars.get("current-slot"));
+        let (vbmeta_partition, vbmeta_partition_size) =
+            resolve_device_partition(self.dev, self.vars, "vbmeta", current_slot.as_deref())
+                .await?;
+        (self.report)(GsiEvent::ResolvedPartition {
+            base: "vbmeta",
+            partition: vbmeta_partition.clone(),
+            size_bytes: vbmeta_partition_size,
+        });
+        (self.report)(GsiEvent::Step(GsiStep::FlashingVbmeta));
+        let mut flash = PartitionFlashContext {
+            dev: self.dev,
+            summary: self.summary,
+            report: self.report,
+            options: self.options,
+        };
+        flash
+            .flash_partition_logged(
+                &vbmeta_partition,
+                image,
+                size_bytes,
+                capabilities.max_download_size,
+            )
+            .await
     }
 
-    check_cancelled(&options.cancel_token)?;
-    report(GsiEvent::Step(GsiStep::FlashingSystemGsi));
-    flash_partition_logged(
-        dev,
-        &system_partition,
-        image,
-        image_size,
-        capabilities.max_download_size,
-        summary,
-        report,
-        options,
-    )
-    .await
-}
+    async fn flash_fastbootd_gsi_logged(
+        &mut self,
+        capabilities: &FastbootCapabilities,
+        image: &Path,
+        image_size: u64,
+        gsi_expanded_size: u64,
+        tools: &FormatTools,
+    ) -> anyhow::Result<()> {
+        check_cancelled(&self.options.cancel_token)?;
+        (self.report)(GsiEvent::Step(GsiStep::CheckingSystemPartition));
+        let current_slot = normalize_slot(self.vars.get("current-slot"));
+        let (system_partition, system_partition_size) =
+            resolve_device_partition(self.dev, self.vars, "system", current_slot.as_deref())
+                .await?;
+        (self.report)(GsiEvent::ResolvedPartition {
+            base: "system",
+            partition: system_partition.clone(),
+            size_bytes: system_partition_size,
+        });
 
-#[allow(clippy::too_many_arguments)]
-async fn flash_partition_logged(
-    dev: &mut FastbootDevice,
-    partition: &str,
-    image: &Path,
-    size_bytes: u64,
-    max_download_size: u32,
-    summary: &mut GsiFlashSummary,
-    report: &mut impl FnMut(GsiEvent),
-    options: &GsiFlashOptions,
-) -> anyhow::Result<()> {
-    check_cancelled(&options.cancel_token)?;
-    debug!(
-        partition,
-        image = %image.display(),
-        size_bytes,
-        "before report flashing-like event"
-    );
-    report(GsiEvent::Flashing {
-        partition: partition.to_string(),
-        image: image.to_path_buf(),
-        size_bytes,
-    });
-    debug!(partition, size_bytes, "after report Flashing");
-    let partition_name = partition.to_string();
-    let mut bytes_flashed = 0_u64;
-    let started = std::time::Instant::now();
-    flash_one_partition(dev, partition, image, max_download_size, |event| {
-        if let crate::FlashProgress::DownloadBytes { bytes, .. } = event {
-            bytes_flashed += bytes;
-            let speed_bps = match started.elapsed().as_secs_f64() {
-                secs if secs > 0.0 => (bytes_flashed as f64 / secs) as u64,
-                _ => 0,
-            };
-            report(GsiEvent::FlashProgress {
-                partition: partition_name.clone(),
-                bytes: bytes_flashed,
-                total_bytes: size_bytes.max(1),
-                speed_bps,
+        (self.report)(GsiEvent::Step(GsiStep::CheckingProductGsiFallback));
+        if should_flash_product_gsi(system_partition_size, gsi_expanded_size) {
+            check_cancelled(&self.options.cancel_token)?;
+            let (product_partition, product_partition_size) =
+                resolve_device_partition(self.dev, self.vars, "product", current_slot.as_deref())
+                    .await?;
+            (self.report)(GsiEvent::ResolvedPartition {
+                base: "product",
+                partition: product_partition.clone(),
+                size_bytes: product_partition_size,
             });
+            (self.report)(GsiEvent::Step(GsiStep::GeneratingProductGsiImage));
+            let product_image = generate_product_gsi_image(tools)?;
+            let product_size = std::fs::metadata(product_image.path())
+                .with_context(|| {
+                    format!("read image metadata for {}", product_image.path().display())
+                })?
+                .len();
+            (self.report)(GsiEvent::Step(GsiStep::FlashingProductGsi));
+            debug!(
+                partition = %product_partition,
+                image = %product_image.path().display(),
+                size_bytes = product_size,
+                "before create flash_partition_logged future"
+            );
+            debug!(
+                partition = %product_partition,
+                size_bytes = product_size,
+                "after create flash_partition_logged future"
+            );
+            let mut flash = PartitionFlashContext {
+                dev: self.dev,
+                summary: self.summary,
+                report: self.report,
+                options: self.options,
+            };
+            flash
+                .flash_partition_logged(
+                    &product_partition,
+                    product_image.path(),
+                    product_size,
+                    capabilities.max_download_size,
+                )
+                .await?;
+        } else {
+            (self.report)(GsiEvent::Step(GsiStep::ProductGsiFallbackNotNeeded));
         }
-    })
-    .await?;
-    check_cancelled(&options.cancel_token)?;
-    report(GsiEvent::FlashFinished {
-        partition: partition.to_string(),
-        size_bytes,
-    });
-    summary.flash_count += 1;
-    summary.total_bytes = summary.total_bytes.saturating_add(size_bytes);
-    Ok(())
+
+        check_cancelled(&self.options.cancel_token)?;
+        (self.report)(GsiEvent::Step(GsiStep::FlashingSystemGsi));
+        let mut flash = PartitionFlashContext {
+            dev: self.dev,
+            summary: self.summary,
+            report: self.report,
+            options: self.options,
+        };
+        flash
+            .flash_partition_logged(
+                &system_partition,
+                image,
+                image_size,
+                capabilities.max_download_size,
+            )
+            .await
+    }
 }
 
 async fn erase_optional_partition_logged(
@@ -789,19 +821,22 @@ async fn wipe_userdata_logged(
     ) {
         Ok(generated) => {
             let userdata_bytes = generated.image_len()?;
-            flash_partition_logged(
+            let mut flash = PartitionFlashContext {
                 dev,
-                "userdata",
-                generated.path(),
-                userdata_bytes,
-                info.max_download_size
-                    .and_then(|value| u32::try_from(value).ok())
-                    .context("missing userdata max-download-size")?,
                 summary,
                 report,
                 options,
-            )
-            .await?;
+            };
+            flash
+                .flash_partition_logged(
+                    "userdata",
+                    generated.path(),
+                    userdata_bytes,
+                    info.max_download_size
+                        .and_then(|value| u32::try_from(value).ok())
+                        .context("missing userdata max-download-size")?,
+                )
+                .await?;
             summary.wipe_count += 1;
         }
         Err(_error) if wipe_data.erase_fallback || info.fs_type.eq_ignore_ascii_case("raw") => {
@@ -885,17 +920,18 @@ pub async fn execute_gsi_flash_with_vars(
         FastbootMode::Bootloader => {
             report(GsiEvent::Step(GsiStep::StartingBootloaderPhase));
             check_cancelled(&options.cancel_token)?;
-            flash_vbmeta_logged(
-                &mut dev,
-                &mut vars,
-                &capabilities,
-                &vbmeta_image,
-                vbmeta_size,
-                &mut summary,
-                &mut report,
-                options,
-            )
-            .await?;
+            {
+                let mut flash = GsiFlashContext {
+                    dev: &mut dev,
+                    vars: &mut vars,
+                    summary: &mut summary,
+                    report: &mut report,
+                    options,
+                };
+                flash
+                    .flash_vbmeta_logged(&capabilities, &vbmeta_image, vbmeta_size)
+                    .await?;
+            }
             check_cancelled(&options.cancel_token)?;
             wipe_userdata_logged(
                 &mut dev,
@@ -916,36 +952,46 @@ pub async fn execute_gsi_flash_with_vars(
             capabilities = transitioned.2;
 
             check_cancelled(&options.cancel_token)?;
-            flash_fastbootd_gsi_logged(
-                &mut dev,
-                &mut vars,
-                &capabilities,
-                image,
-                metadata.len(),
-                inspected.expanded_size,
-                tools,
-                &mut summary,
-                &mut report,
-                options,
-            )
-            .await?;
+            {
+                let mut flash = GsiFlashContext {
+                    dev: &mut dev,
+                    vars: &mut vars,
+                    summary: &mut summary,
+                    report: &mut report,
+                    options,
+                };
+                flash
+                    .flash_fastbootd_gsi_logged(
+                        &capabilities,
+                        image,
+                        metadata.len(),
+                        inspected.expanded_size,
+                        tools,
+                    )
+                    .await?;
+            }
         }
         FastbootMode::Fastbootd => {
             report(GsiEvent::Step(GsiStep::StartingFastbootdPhase));
             check_cancelled(&options.cancel_token)?;
-            flash_fastbootd_gsi_logged(
-                &mut dev,
-                &mut vars,
-                &capabilities,
-                image,
-                metadata.len(),
-                inspected.expanded_size,
-                tools,
-                &mut summary,
-                &mut report,
-                options,
-            )
-            .await?;
+            {
+                let mut flash = GsiFlashContext {
+                    dev: &mut dev,
+                    vars: &mut vars,
+                    summary: &mut summary,
+                    report: &mut report,
+                    options,
+                };
+                flash
+                    .flash_fastbootd_gsi_logged(
+                        &capabilities,
+                        image,
+                        metadata.len(),
+                        inspected.expanded_size,
+                        tools,
+                    )
+                    .await?;
+            }
 
             check_cancelled(&options.cancel_token)?;
             let transitioned =
@@ -955,17 +1001,18 @@ pub async fn execute_gsi_flash_with_vars(
             capabilities = transitioned.2;
 
             check_cancelled(&options.cancel_token)?;
-            flash_vbmeta_logged(
-                &mut dev,
-                &mut vars,
-                &capabilities,
-                &vbmeta_image,
-                vbmeta_size,
-                &mut summary,
-                &mut report,
-                options,
-            )
-            .await?;
+            {
+                let mut flash = GsiFlashContext {
+                    dev: &mut dev,
+                    vars: &mut vars,
+                    summary: &mut summary,
+                    report: &mut report,
+                    options,
+                };
+                flash
+                    .flash_vbmeta_logged(&capabilities, &vbmeta_image, vbmeta_size)
+                    .await?;
+            }
             check_cancelled(&options.cancel_token)?;
             wipe_userdata_logged(
                 &mut dev,
