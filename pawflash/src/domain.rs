@@ -17,7 +17,7 @@ pub const POWER_OFF_UNSUPPORTED_MESSAGE: &str =
 
 /// Windows-specific driver hint used when device probing fails in fastbootd.
 pub const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
-    "On Windows, fastbootd may need a different USB driver than bootloader mode. Reinstall the fastbootd interface driver (for example with Zadig or the Google USB Driver), then reconnect.";
+    "On Windows, install the Google USB Driver for the fastbootd interface, then reconnect.";
 
 /// A device snapshot shown to the UI or CLI.
 #[derive(Clone, Serialize)]
@@ -95,6 +95,9 @@ pub enum FlashEvent {
     },
     GsiStatus {
         status: String,
+    },
+    Rebooting {
+        target: String,
     },
     PlanBuilt {
         actions: usize,

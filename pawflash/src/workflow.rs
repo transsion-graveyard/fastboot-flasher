@@ -394,6 +394,9 @@ pub async fn run_scatter_flash(
     flash.execute_plan_actions(&actions, image_overrides).await?;
 
     if reboot {
+        emit(FlashEvent::Rebooting {
+            target: "system".to_string(),
+        })?;
         reboot_device(dev)
             .await
             .map_err(|e| format!("reboot: {e}"))?;

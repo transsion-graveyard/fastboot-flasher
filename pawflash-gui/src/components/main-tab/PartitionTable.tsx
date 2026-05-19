@@ -1,6 +1,5 @@
 import { memo } from "react";
 import { FilePenLine } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -122,13 +121,7 @@ export const PartitionTable = memo(function PartitionTable({
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-center">{partition.size_human}</TableCell>
                 <TableCell className="truncate text-center">
-                  {partition.image_type ? (
-                    <Badge variant="outline" className="max-w-full truncate">
-                      {partition.image_type}
-                    </Badge>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
+                  {partition.image_type ? partition.image_type : <span className="text-muted-foreground">—</span>}
                 </TableCell>
                 <TableCell className="text-left">
                   {partition.action === "flash" ? (

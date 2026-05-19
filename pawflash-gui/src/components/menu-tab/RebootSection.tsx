@@ -13,7 +13,7 @@ import { useDevice } from "@/hooks/useDevice";
 import { SectionCard } from "@/components/menu-tab/SectionCard";
 import { useFlashLog } from "@/hooks/useFlashProgress";
 
-type RebootTarget = "system" | "bootloader" | "fastboot" | "recovery";
+export type RebootTarget = "system" | "bootloader" | "fastboot" | "recovery";
 
 const targetLabels: Record<RebootTarget, string> = {
   system: "System",
@@ -31,11 +31,12 @@ const successLabels: Record<RebootTarget, string> = {
 
 interface RebootSectionProps {
   disabled?: boolean;
+  target: RebootTarget;
+  onTargetChange: (target: RebootTarget) => void;
 }
 
-export function RebootSection({ disabled = false }: RebootSectionProps) {
+export function RebootSection({ disabled = false, target, onTargetChange }: RebootSectionProps) {
   const { reboot, rebootBootloader, rebootFastboot, rebootRecovery } = useDevice();
-  const [target, setTarget] = useState<RebootTarget>("system");
   const [busy, setBusy] = useState(false);
   const { append } = useFlashLog();
 
@@ -72,28 +73,26 @@ export function RebootSection({ disabled = false }: RebootSectionProps) {
       title="Reboot"
       contentClassName="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
     >
-        <Select value={target} onValueChange={(value) => setTarget(value as RebootTarget)}>
-          <SelectTrigger className="w-full" aria-label="Reboot target" disabled={disabled || busy}>
-            <SelectValue>{targetLabels[target]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="system">System</SelectItem>
-            <SelectItem value="bootloader">Bootloader</SelectItem>
-            <SelectItem value="fastboot">Fastbootd</SelectItem>
-            <SelectItem value="recovery">Recovery</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button
-          variant="outline"
-          className="gap-3"
-          disabled={disabled || busy}
-          onClick={handleReboot}
-        >
-          <RotateCcw className="h-4 w-4" />
-          {busy
-            ? "Sending command..."
-            : `Reboot to ${targetLabels[target]}`}
-        </Button>
+      <Select value={target} onValueChange={(value) => onTargetChange(value as RebootTarget)}>
+        <SelectTrigger className="w-full" aria-label="Reboot target" disabled={disabled || busy}>
+          <SelectValue>{targetLabels[target]}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="system">System</SelectItem>
+          <SelectItem value="bootloader">Bootloader</SelectItem>
+          <SelectItem value="fastboot">Fastbootd</SelectItem>
+          <SelectItem value="recovery">Recovery</SelectItem>
+        </SelectContent>
+      </Select>
+      <Button
+        variant="outline"
+        className="gap-3"
+        disabled={disabled || busy}
+        onClick={handleReboot}
+      >
+        <RotateCcw className="h-4 w-4" />
+        {busy ? "Sending command..." : `Reboot to ${targetLabels[target]}`}
+      </Button>
     </SectionCard>
   );
 }

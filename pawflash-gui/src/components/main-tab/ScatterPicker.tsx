@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -19,10 +20,10 @@ export const ScatterPicker = memo(function ScatterPicker({ path, onChange }: Sca
     setPicking(true);
     try {
       const selected = await open({
-        title: "Select scatter or firmware manifest",
+        title: "Select MTK scatter file",
         filters: [
           {
-            name: "Scatter files",
+            name: "MTK scatter files",
             extensions: ["xml", "txt"],
           },
         ],
@@ -30,6 +31,15 @@ export const ScatterPicker = memo(function ScatterPicker({ path, onChange }: Sca
       });
       if (typeof selected === "string") {
         const name = selected.split(/[/\\]/).pop() || selected;
+        try {
+          await invoke("validate_scatter", { path: selected });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          append(`ScatterRejected ${name} ${message}`);
+          toast.error(message);
+          return;
+        }
+
         append(`ScatterPicked ${name}`);
         onChange(selected);
         toast.success(`Scatter loaded: ${name}`);
@@ -49,10 +59,10 @@ export const ScatterPicker = memo(function ScatterPicker({ path, onChange }: Sca
         <Input
           value={path}
           readOnly
-          placeholder="No scatter or manifest selected"
+          placeholder="No scatter file selected"
           className="min-w-0 flex-1"
-          aria-label="Selected scatter or firmware manifest path"
-          title={path || "No scatter or manifest selected"}
+          aria-label="Selected scatter file path"
+          title={path || "No scatter file selected"}
         />
       </div>
     </section>

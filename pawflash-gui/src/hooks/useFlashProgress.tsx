@@ -88,6 +88,10 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               phase: "waiting",
               runMode: "live",
               operation: "",
+              partition: "",
+              bytes: 0,
+              total: 0,
+              speedBps: 0,
               errorMessage: "",
             }));
             toast.info("Waiting for device...");
@@ -98,7 +102,25 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             setState((p) => ({
               ...p,
               statusText: gsiStatusMessage(ev.data.status),
+              operation: "",
+              partition: "",
+              bytes: 0,
+              total: 0,
+              speedBps: 0,
             }));
+            toast.info(gsiStatusMessage(ev.data.status));
+            break;
+          case "Rebooting":
+            setState((p) => ({
+              ...p,
+              statusText: `Rebooting to ${ev.data.target}`,
+              operation: "",
+              partition: "",
+              bytes: 0,
+              total: 0,
+              speedBps: 0,
+            }));
+            toast.info(`Rebooting to ${ev.data.target}...`);
             break;
           case "PlanBuilt":
             progressMilestonesRef.current = {};
@@ -123,7 +145,12 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               runMode: p.runMode || "live",
               operation: "flash",
               partition: ev.data.partition,
+              bytes: 0,
+              total: 0,
+              speedBps: 0,
+              statusText: "",
             }));
+            toast.info(`Preparing ${ev.data.partition}...`);
             break;
           case "Flashing":
             runModeRef.current = "live";
@@ -137,6 +164,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               total: ev.data.total,
               speedBps: ev.data.speed_bps,
               errorMessage: "",
+              statusText: "",
             }));
             break;
           case "Simulating":
@@ -151,6 +179,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               total: ev.data.total,
               speedBps: ev.data.speed_bps,
               errorMessage: "",
+              statusText: "",
             }));
             break;
           case "Overall":
@@ -167,6 +196,15 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             );
             toast.error(`${ev.data.partition}: ${ev.data.error}`);
             break;
+          case "PartitionComplete":
+            toast.success(`${ev.data.partition} complete`);
+            break;
+          case "PartitionSkipped":
+            toast.warning(`${ev.data.partition} skipped`);
+            break;
+          case "EraseComplete":
+            toast.success(`${ev.data.partition} erased`);
+            break;
           case "Erasing":
             progressMilestonesRef.current = clearProgressMilestonesForPartition(
               progressMilestonesRef.current,
@@ -181,7 +219,10 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               partition: ev.data.partition,
               bytes: 0,
               total: 1,
+              speedBps: 0,
+              statusText: "",
             }));
+            toast.info(`Erasing ${ev.data.partition}...`);
             break;
           case "Complete":
             progressMilestonesRef.current = {};
@@ -190,6 +231,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               phase: "complete",
               summary: ev.data.summary,
               errorMessage: "",
+              statusText: "",
               bytes: p.total > 0 ? p.total : p.bytes,
               total: p.total > 0 ? p.total : p.bytes,
               overallBytes: ev.data.summary.total_bytes,
@@ -209,6 +251,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               phase: "cancelled",
               operation: "",
               errorMessage: ev.data.message,
+              statusText: "",
             }));
             toast.message("Flash cancelled");
             tryNotify("Flash cancelled");
@@ -219,6 +262,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               ...p,
               phase: "error",
               errorMessage: ev.data.message,
+              statusText: "",
             }));
             toast.error(ev.data.message);
             tryNotify("Flash failed", ev.data.message);
@@ -306,6 +350,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
       ...prev,
       phase: "error",
       errorMessage: message,
+      statusText: "",
     }));
   }, []);
 
@@ -377,6 +422,8 @@ function formatFlashEventForLog(
       return formatDeviceCheckDiagnostic(event.data.stage, event.data.level, event.data.message);
     case "GsiStatus":
       return `GsiPhase ${gsiStatusMessage(event.data.status)}`;
+    case "Rebooting":
+      return `Rebooting target=${event.data.target}`;
     case "PlanBuilt":
       return `PlanBuilt actions=${event.data.actions} total=${formatGiB(event.data.total_bytes)}`;
     case "PreparingImage":
@@ -559,19 +606,19 @@ function gsiStatusMessage(status: string) {
     case "fastbootd_ready":
       return "Fastbootd ready";
     case "rebooting_to_fastbootd":
-      return "Rebooting to fastbootd";
+      return "Rebooting into fastbootd";
     case "waiting_for_fastbootd":
       return "Waiting for fastbootd";
     case "rebooting_to_bootloader":
-      return "Rebooting to bootloader";
+      return "Rebooting into bootloader";
     case "starting_bootloader_phase":
       return "Starting bootloader phase";
     case "starting_fastbootd_phase":
       return "Starting fastbootd phase";
     case "preparing_vbmeta_flash":
-      return "Preparing vbmeta flash";
+      return "Preparing empty vbmeta";
     case "flashing_vbmeta":
-      return "Flashing vbmeta";
+      return "Flashing empty vbmeta";
     case "checking_system_partition":
       return "Checking system partition";
     case "checking_product_gsi_fallback":
@@ -581,7 +628,7 @@ function gsiStatusMessage(status: string) {
     case "flashing_product_gsi":
       return "Flashing product_gsi";
     case "wiping_userdata":
-      return "Wiping data";
+      return "Wiping userdata";
     case "flashing_system_gsi":
       return "Flashing system GSI";
     case "product_gsi_fallback_not_needed":

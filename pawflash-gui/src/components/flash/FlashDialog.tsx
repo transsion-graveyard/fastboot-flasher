@@ -52,6 +52,11 @@ export function FlashDialog({
   const overallPct = overallTotal > 0 ? Math.round((overallBytes / overallTotal) * 100) : 0;
   const tone = phaseTone(phase);
   const isFinished = phase === "complete" || phase === "cancelled" || phase === "error";
+  const currentLabel = phase === "waiting" || (statusText && !partition)
+    ? "Current step"
+    : operation === "erase"
+      ? "Current erase"
+      : "Current image";
 
   return (
     <DialogPrimitive.Root
@@ -62,7 +67,10 @@ export function FlashDialog({
         <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-stone-950/18 backdrop-blur-sm transition-opacity duration-150 data-closed:opacity-0 data-open:opacity-100" />
         <DialogPrimitive.Popup
           data-slot="flash-dialog"
-          className="fixed top-1/2 left-1/2 z-50 flex w-[min(34rem,calc(100vw-1rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md border border-border bg-background shadow-[var(--overlay-shadow)] pointer-events-auto outline-none transition-all duration-150 data-closed:scale-[0.99] data-closed:opacity-0 data-open:scale-100 data-open:opacity-100"
+          className={cn(
+            "fixed top-1/2 left-1/2 z-50 flex w-[min(34rem,calc(100vw-1rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md border border-border bg-background shadow-[var(--overlay-shadow)] pointer-events-auto outline-none transition-all duration-150 data-closed:scale-[0.99] data-closed:opacity-0 data-open:scale-100 data-open:opacity-100",
+            !isFinished && "min-h-[19rem]",
+          )}
         >
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
             <div className="min-w-0 flex-1">
@@ -125,10 +133,10 @@ export function FlashDialog({
 
             <div className="space-y-3">
               <ProgressBlock
-                label={operation === "erase" ? "Current erase" : "Current image"}
+                label={currentLabel}
                 value={phase === "waiting" ? 0 : imagePct}
                 toneClass={tone.bar}
-                caption={partitionLabel(phase, operation, partition)}
+                caption={partitionLabel(phase, operation, partition, statusText)}
                 amount={phase === "waiting" ? "" : formatBytesProgress(bytes, total)}
                 speedText={phase === "flashing" && speedBps > 0 ? formatSpeed(speedBps) : undefined}
               />
@@ -250,8 +258,9 @@ function partitionLabel(
   phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
   operation: "" | "flash" | "erase",
   partition: string,
+  statusText = "",
 ) {
-  if (phase === "waiting") return "No device connected";
+  if (phase === "waiting") return statusText || "No device connected";
   if (!partition) return operation === "erase" ? "Erase step" : "Pending image";
   return partition;
 }
@@ -261,7 +270,7 @@ function overallCaption(
   overallBytes: number,
   overallTotal: number,
 ) {
-  if (phase === "waiting") return "Ready to start";
+  if (phase === "waiting") return "Waiting for device";
   if (phase === "complete") return "";
   if (phase === "cancelled") return "Stopped before finishing all actions";
   if (phase === "error") return "Stopped due to an error";

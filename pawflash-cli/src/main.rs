@@ -421,5 +421,6 @@ fn print_flash_event(event: &FlashEvent) {
             println!("[{level}] {stage}: {message}")
         }
         FlashEvent::GsiStatus { status } => println!("gsi: {status}"),
+        FlashEvent::Rebooting { target } => println!("rebooting to {target}"),
     }
 }

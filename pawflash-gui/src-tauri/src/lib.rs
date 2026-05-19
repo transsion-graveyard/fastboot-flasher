@@ -28,7 +28,7 @@ const CANCELLED_MESSAGE: &str = "cancelled by user";
 const DEVICE_CHECK_TIMEOUT_MS: u64 = 3_000;
 const DEVICE_RETRY_DELAY_MS: u64 = pawflash::connect::FASTBOOT_RETRY_DELAY_MS;
 const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
-    "On Windows, fastbootd may need a different USB driver than bootloader mode. Reinstall the fastbootd interface driver (for example with Zadig or the Google USB Driver), then reconnect.";
+    "On Windows, install the Google USB Driver for the fastbootd interface, then reconnect.";
 const POWER_OFF_UNSUPPORTED_MESSAGE: &str =
     "Power off is not supported by this device in the current fastboot mode.";
 
@@ -1008,6 +1008,13 @@ async fn parse_scatter(
 }
 
 #[tauri::command]
+async fn validate_scatter(path: String) -> Result<(), String> {
+    mtk_scatter_parser::parse_scatter(&path)
+        .map_err(|e| format!("parse scatter metadata: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn start_flash(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
@@ -1156,6 +1163,13 @@ async fn start_flash_inner(
     flash.execute_plan_actions(&filtered, &image_overrides).await?;
 
     if reboot {
+        app.emit(
+            "flash-progress",
+            FlashEvent::Rebooting {
+                target: "system".to_string(),
+            },
+        )
+        .map_err(|e| format!("emit: {e}"))?;
         pawflash::reboot_device(&mut dev)
             .await
             .map_err(|e| format!("reboot: {e}"))?;
@@ -1958,6 +1972,7 @@ pub fn run() {
             check_device,
             get_variable,
             get_all_variables,
+            validate_scatter,
             parse_scatter,
             start_flash,
             start_gsi_flash,

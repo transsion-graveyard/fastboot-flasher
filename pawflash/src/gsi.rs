@@ -42,7 +42,7 @@ const MODE_TRANSITION_ATTEMPTS: usize = 2;
 
 #[cfg(windows)]
 const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
-    "On Windows, fastbootd may need a different USB driver than bootloader mode. Reinstall the fastbootd interface driver (for example with Zadig or the Google USB Driver), then reconnect.";
+    "On Windows, install the Google USB Driver for the fastbootd interface, then reconnect.";
 
 fn check_cancelled(token: &Option<Arc<AtomicBool>>) -> anyhow::Result<()> {
     if let Some(ref flag) = token {

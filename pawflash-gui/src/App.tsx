@@ -12,12 +12,13 @@ import { PartitionTable } from "@/components/main-tab/PartitionTable";
 import { FlashFab } from "@/components/main-tab/FlashFab";
 import { GsiFlasher } from "@/components/extra-tab/GsiFlasher";
 import { FlashDialog } from "@/components/flash/FlashDialog";
+import { FlashPlanConfirmDialog } from "@/components/flash/FlashPlanConfirmDialog";
 import { ForceFastbootDialog } from "@/components/flash/ForceFastbootDialog";
 import { DeviceSection } from "@/components/menu-tab/DeviceSection";
 import { BootloaderSection } from "@/components/menu-tab/BootloaderSection";
 import { DataSection } from "@/components/menu-tab/DataSection";
 import { LogSection } from "@/components/menu-tab/LogSection";
-import { RebootSection } from "@/components/menu-tab/RebootSection";
+import { RebootSection, type RebootTarget } from "@/components/menu-tab/RebootSection";
 import { SlotSection } from "@/components/menu-tab/SlotSection";
 import { useDevice } from "@/hooks/useDevice";
 import { useFlashLog, useFlashProgress } from "@/hooks/useFlashProgress";
@@ -28,6 +29,7 @@ import type { DeviceInfo, FlashPlanDto, ParseScatterResponseDto, PartitionDto } 
 
 const SCATTER_STORAGE_KEY = "last-scatter-path";
 const GSI_STORAGE_KEY = "last-gsi-image-path";
+const REBOOT_TARGET_STORAGE_KEY = "last-reboot-target";
 type AppTheme = "light" | "dark";
 
 function resolveInitialTheme(): AppTheme {
@@ -106,6 +108,7 @@ export default function App() {
   const [planId, setPlanId] = useState<number | null>(null);
   const [partitions, setPartitions] = useState<PartitionDto[]>([]);
   const [imageOverrides, setImageOverrides] = useState<Record<string, string>>({});
+  const [flashConfirmOpen, setFlashConfirmOpen] = useState(false);
   const [flashOpen, setFlashOpen] = useState(false);
   const [flashMinimized, setFlashMinimized] = useState(false);
   const [forceOpen, setForceOpen] = useState(false);
@@ -117,6 +120,16 @@ export default function App() {
   const [isFormattingData, setIsFormattingData] = useState(false);
   const [isParsingPlan, setIsParsingPlan] = useState(false);
   const [isCheckingDevice, setIsCheckingDevice] = useState(false);
+  const [rebootTarget, setRebootTarget] = useState<RebootTarget>(() => {
+    if (typeof window === "undefined") {
+      return "system";
+    }
+
+    const stored = window.localStorage.getItem(REBOOT_TARGET_STORAGE_KEY);
+    return stored === "system" || stored === "bootloader" || stored === "fastboot" || stored === "recovery"
+      ? stored
+      : "system";
+  });
   const [gsiImagePath, setGsiImagePath] = useState(() => {
     if (typeof window === "undefined") {
       return "";
@@ -268,6 +281,14 @@ export default function App() {
       window.localStorage.removeItem(GSI_STORAGE_KEY);
     }
   }, [gsiImagePath]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(REBOOT_TARGET_STORAGE_KEY, rebootTarget);
+  }, [rebootTarget]);
 
   useEffect(() => {
     if (flash.phase === "complete" || flash.phase === "cancelled" || flash.phase === "error") {
@@ -723,7 +744,7 @@ export default function App() {
                   />
                 </div>
                 <div className="xl:text-right">
-                  <FlashFab onClick={startFlash} disabled={flashDisabled} />
+                  <FlashFab onClick={() => setFlashConfirmOpen(true)} disabled={flashDisabled} />
                 </div>
               </div>
             </div>
@@ -754,13 +775,29 @@ export default function App() {
                 <SlotSection disabled={menuActionDisabled} />
               </div>
               <div className="flex min-h-0 flex-col gap-5">
-                <RebootSection disabled={menuActionDisabled} />
+                <RebootSection
+                  disabled={menuActionDisabled}
+                  target={rebootTarget}
+                  onTargetChange={setRebootTarget}
+                />
                 <LogSection />
               </div>
             </div>
           )
         }
       </AppLayout>
+      <FlashPlanConfirmDialog
+        open={flashConfirmOpen}
+        onOpenChange={setFlashConfirmOpen}
+        onConfirm={async () => {
+          setFlashConfirmOpen(false);
+          await startFlash();
+        }}
+        plan={plan}
+        selectedPartitions={selectedPartitions}
+        rebootAfter={rebootAfter}
+        isPending={isStartingFlash || isParsingPlan || flash.phase === "waiting" || forceFastboot.phase === "waiting"}
+      />
       <FlashDialog
         open={flashOpen}
         onOpenChange={(nextOpen, reason) => {
