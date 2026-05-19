@@ -142,16 +142,15 @@ jobs:
         id: notes
         run: |
           PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
-          BODY="## What's Changed"
-          if [ -z "$PREV" ]; then
-            BODY="$BODY\n\nInitial release."
-          else
-            ENTRIES=$(git log "$PREV..HEAD" --no-merges --format='### %s%n%b' | sed '/^[[:space:]]*$/d')
-            BODY="$BODY\n\n$ENTRIES"
-          fi
           {
             echo 'body<<EOF'
-            printf "%b" "$BODY"
+            echo "## What's Changed"
+            echo
+            if [ -z "$PREV" ]; then
+              echo "Initial release."
+            else
+              git log "$PREV..HEAD" --no-merges --format='- %s'
+            fi
             echo
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
