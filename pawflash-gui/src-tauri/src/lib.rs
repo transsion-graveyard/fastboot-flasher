@@ -490,8 +490,6 @@ async fn connect_fastboot_for_device_check(
             };
             let backend = match event.backend {
                 BackendKind::Nusb => "nusb",
-                #[cfg(windows)]
-                BackendKind::AdbWinApi => "adbwinapi",
             };
             let _ = emit_device_check_diagnostic(
                 app,

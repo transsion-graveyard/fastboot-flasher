@@ -33,10 +33,6 @@ fn is_fastboot_failed(err: &FastbootError) -> bool {
         FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => {
             true
         }
-        #[cfg(windows)]
-        FastbootError::AdbWinApi(
-            fastboot_rs::transport::adbwinapi::AdbWinApiFastbootError::FastbootFailed(_),
-        ) => true,
         _ => false,
     }
 }
