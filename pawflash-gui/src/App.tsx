@@ -690,9 +690,9 @@ export default function App() {
         theme={theme}
         onThemeChange={setTheme}
       >
-        {({ tab }) =>
-          tab === "main" ? (
-            <div className="flex h-full min-h-0 flex-col gap-4">
+        {({ tab }) => (
+          <>
+            <div className={tab === "main" ? "flex h-full min-h-0 flex-col gap-4" : "hidden"}>
               <ScatterPicker path={scatterPath} onChange={loadScatter} />
               <FlashOptions
                 mode={mode}
@@ -748,8 +748,8 @@ export default function App() {
                 </div>
               </div>
             </div>
-          ) : tab === "extra" ? (
-            <div className="flex h-full min-h-0 flex-col gap-5">
+
+            <div className={tab === "extra" ? "flex h-full min-h-0 flex-col gap-5" : "hidden"}>
               <GsiFlasher
                 imagePath={gsiImagePath}
                 onImagePathChange={setGsiImagePath}
@@ -758,8 +758,8 @@ export default function App() {
                 flashing={isStartingGsiFlash}
               />
             </div>
-          ) : (
-            <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+
+            <div className={tab === "menu" ? "grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]" : "hidden"}>
               <div className="flex min-h-0 flex-col gap-5">
                 <DeviceSection
                   onForceFastboot={startForceFastboot}
@@ -783,8 +783,8 @@ export default function App() {
                 <LogSection />
               </div>
             </div>
-          )
-        }
+          </>
+        )}
       </AppLayout>
       <FlashPlanConfirmDialog
         open={flashConfirmOpen}

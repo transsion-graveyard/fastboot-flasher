@@ -29,13 +29,6 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
   const flashPartitions = selectedPartitions.filter((partition) => partition.action === "flash");
   const wipePartitions = selectedPartitions.filter((partition) => partition.action === "wipe");
   const steps = [
-    {
-      key: "review",
-      title: "Review flash plan",
-      detail: plan ? `${plan.mode} on ${plan.storage} storage with ${plan.slot_policy} slot policy.` : "No plan loaded yet.",
-      icon: Sparkles,
-      tone: "text-accent-brand",
-    },
     ...(flashPartitions.length > 0
       ? [{
           key: "flash",
@@ -76,10 +69,10 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="w-[min(72rem,calc(100vw-1rem))] max-w-none gap-4">
         <DialogHeader>
           <DialogTitle>Confirm flash plan</DialogTitle>
-          <DialogDescription className="max-w-[60ch] leading-6">
+          <DialogDescription className="max-w-[72ch] leading-6">
             Review the exact steps before the device starts flashing.
           </DialogDescription>
         </DialogHeader>
@@ -98,49 +91,34 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
             {rebootAfter && <Badge variant="outline">reboot after flash</Badge>}
           </div>
 
-          <ScrollArea className="max-h-[46vh] pr-2">
-            <div className="space-y-3">
-              {steps.map((step, index) => {
-                const Icon = step.icon;
-                return (
-                  <div key={step.key} className="flex gap-3">
-                    <div className="flex w-8 shrink-0 flex-col items-center">
-                      <div className={cn("flex h-8 w-8 items-center justify-center rounded-full border bg-background", step.tone)}>
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      {index < steps.length - 1 && <div className="mt-2 h-full min-h-8 w-px flex-1 bg-border" />}
-                    </div>
-                    <div className="min-w-0 flex-1 rounded-md border border-border bg-muted/20 px-3 py-3">
-                      <p className="text-sm font-semibold">{step.title}</p>
-                      <p className="mt-1 text-sm leading-6 text-muted-foreground">{step.detail}</p>
-                      {"items" in step && step.items && step.items.length > 0 ? (
-                        <ul className="mt-3 space-y-2">
-                          {step.items.map((item) => (
-                            <li key={`${step.key}-${item.label}`} className="rounded-sm border border-border/70 bg-background px-3 py-2 text-sm">
-                              <div className="flex items-start justify-between gap-3">
-                                <span className="min-w-0 truncate font-medium">{item.label}</span>
-                                <span className="shrink-0 text-xs uppercase tracking-[0.12em] text-muted-foreground">{item.kind}</span>
-                              </div>
-                              {item.detail ? (
-                                <p className="mt-1 truncate text-xs text-muted-foreground">{item.detail}</p>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
+          <ScrollArea className="max-h-[50vh] pr-2">
+            <div className="space-y-4">
+              {plan && (
+                <div className="grid gap-3 rounded-lg border border-border/60 bg-muted/20 p-3 sm:grid-cols-3 xl:grid-cols-4">
+                  <InfoChip label="Mode" value={plan.mode} />
+                  <InfoChip label="Storage" value={plan.storage} />
+                  <InfoChip label="Slot" value={plan.slot_policy} />
+                  <InfoChip label="Selected" value={`${selectedPartitions.length} partitions`} />
+                </div>
+              )}
+
+              <div className="relative">
+                <div className="pointer-events-none absolute left-8 right-8 top-7 hidden xl:block h-px bg-border/80" />
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {steps.map((step, index) => (
+                    <StepCard key={step.key} step={step} index={index} total={steps.length} />
+                  ))}
+                </div>
+              </div>
             </div>
           </ScrollArea>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
+        <DialogFooter className="items-stretch sm:items-center">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending} className="w-full sm:w-auto">
             Cancel
           </Button>
-          <Button onClick={onConfirm} disabled={isPending}>
+          <Button onClick={onConfirm} disabled={isPending} className="w-full sm:w-auto">
             {isPending ? "Starting..." : "Start flash"}
           </Button>
         </DialogFooter>
@@ -157,4 +135,66 @@ function partitionLine(partition: PartitionDto) {
       : partition.action,
     kind: partition.action,
   };
+}
+
+function InfoChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border/70 bg-background px-3 py-2">
+      <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-semibold leading-5">{value}</p>
+    </div>
+  );
+}
+
+function StepCard({
+  step,
+  index,
+  total,
+}: {
+  step: {
+    key: string;
+    title: string;
+    detail: string;
+    icon: typeof Sparkles;
+    tone: string;
+    items?: Array<{
+      label: string;
+      detail: string;
+      kind: string;
+    }>;
+  };
+  index: number;
+  total: number;
+}) {
+  const Icon = step.icon;
+  const hasItems = Boolean(step.items && step.items.length > 0);
+
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-border/70 bg-background px-3 py-3 shadow-sm">
+      {index < total - 1 && <div className="pointer-events-none absolute right-0 top-7 hidden xl:block h-px w-6 translate-x-full bg-border/80" />}
+      <div className="flex items-start gap-3">
+        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/70 bg-card", step.tone)}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold leading-5">{step.title}</p>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">{step.detail}</p>
+        </div>
+      </div>
+
+      {hasItems ? (
+        <div className="mt-3 grid gap-2">
+          {step.items?.map((item) => (
+            <div key={`${step.key}-${item.label}`} className="rounded-md border border-border/70 bg-muted/25 px-3 py-2">
+              <div className="flex items-start justify-between gap-3">
+                <span className="min-w-0 truncate text-sm font-medium">{item.label}</span>
+                <span className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{item.kind}</span>
+              </div>
+              <p className="mt-1 truncate text-xs text-muted-foreground">{item.detail}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
