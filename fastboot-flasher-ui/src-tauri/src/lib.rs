@@ -168,6 +168,11 @@ pub struct FlashSummaryDto {
 #[serde(tag = "event", content = "data")]
 pub enum FlashEvent {
     WaitingForDevice,
+    DeviceCheckDiagnostic {
+        stage: String,
+        level: String,
+        message: String,
+    },
     GsiStatus {
         status: String,
     },
@@ -335,6 +340,51 @@ fn describe_fastboot_probe_failure(failure: &FastbootProbeFailure) -> String {
         FastbootProbeFailure::ReadVariablesFailed(error) => format!(
             "Fastboot device opened but did not respond to fastboot variables: {error}. {WINDOWS_FASTBOOTD_DRIVER_HINT}"
         ),
+    }
+}
+
+fn build_device_check_diagnostic(
+    stage: &str,
+    level: &str,
+    message: impl Into<String>,
+) -> FlashEvent {
+    FlashEvent::DeviceCheckDiagnostic {
+        stage: stage.to_string(),
+        level: level.to_string(),
+        message: message.into(),
+    }
+}
+
+fn emit_device_check_diagnostic(
+    app: &tauri::AppHandle,
+    stage: &str,
+    level: &str,
+    message: impl Into<String>,
+) -> Result<(), String> {
+    app.emit(
+        "flash-progress",
+        build_device_check_diagnostic(stage, level, message),
+    )
+    .map_err(|e| format!("emit: {e}"))
+}
+
+#[cfg(test)]
+fn describe_probe_stage(stage: &str) -> &str {
+    match stage {
+        "using_cached_device" => "Using cached fastboot device",
+        "enumerating" => "Enumerating fastboot devices",
+        "candidate_found" => "Found fastboot interface candidate",
+        "open_ok" => "Opened fastboot interface",
+        "open_failed" => "Opening fastboot interface failed",
+        "no_interface_yet" => "No fastboot interface detected yet",
+        "retrying" => "Waiting before next device probe",
+        "reading_vars" => "Reading fastboot variables",
+        "read_vars_ok" => "Read fastboot variables",
+        "read_vars_failed" => "Reading fastboot variables failed",
+        "mode_detected" => "Detected fastboot mode",
+        "refreshing_connection" => "Refreshing fastboot connection",
+        "probe_failed" => "Fastboot probe failed",
+        _ => stage,
     }
 }
 
@@ -577,44 +627,87 @@ async fn connect_device_with_policy(
     }
 }
 
-async fn connect_fastboot_for_device_check() -> Result<NusbFastBoot, FastbootProbeFailure> {
+async fn connect_fastboot_for_device_check(
+    app: &tauri::AppHandle,
+) -> Result<NusbFastBoot, FastbootProbeFailure> {
     let deadline = Instant::now() + Duration::from_millis(DEVICE_CHECK_TIMEOUT_MS);
     let mut last_open_error = None;
+    let mut attempt = 0_u64;
 
     loop {
+        attempt = attempt.saturating_add(1);
+        let _ = emit_device_check_diagnostic(
+            app,
+            "enumerating",
+            "info",
+            format!("Attempt {attempt}: scanning for fastboot devices"),
+        );
         let mut infos = list_fastboot_devices()
             .await
             .map_err(|error| FastbootProbeFailure::OpenFailed(format!("enumerate fastboot devices: {error}")))?;
         let mut saw_candidate = false;
+        let mut candidate_index = 0_u64;
 
         for info in infos.by_ref() {
             saw_candidate = true;
+            candidate_index = candidate_index.saturating_add(1);
+            let _ = emit_device_check_diagnostic(
+                app,
+                "candidate_found",
+                "info",
+                format!("Attempt {attempt}: candidate {candidate_index} reported a fastboot interface"),
+            );
             match NusbFastBoot::from_info(&info).await {
                 Ok(dev) => {
                     eprintln!("[device-check] opened fastboot interface");
+                    let _ = emit_device_check_diagnostic(
+                        app,
+                        "open_ok",
+                        "info",
+                        format!("Attempt {attempt}: opened candidate {candidate_index}"),
+                    );
                     return Ok(dev);
                 }
                 Err(error) => {
                     eprintln!("[device-check] failed to open fastboot interface: {error}");
-                    last_open_error = Some(match error {
+                    let open_error = match error {
                         NusbFastBootOpenError::Device(inner) => format!("open device: {inner}"),
                         NusbFastBootOpenError::Interface(inner) => {
                             format!("claim fastboot interface: {inner}")
                         }
                         other => other.to_string(),
-                    });
+                    };
+                    let _ = emit_device_check_diagnostic(
+                        app,
+                        "open_failed",
+                        "warning",
+                        format!("Attempt {attempt}: candidate {candidate_index}: {open_error}"),
+                    );
+                    last_open_error = Some(open_error);
                 }
             }
         }
 
         if !saw_candidate {
             eprintln!("[device-check] no fastboot interface detected");
+            let _ = emit_device_check_diagnostic(
+                app,
+                "no_interface_yet",
+                "warning",
+                format!("Attempt {attempt}: no fastboot interface detected"),
+            );
         }
 
         if Instant::now() >= deadline {
             break;
         }
 
+        let _ = emit_device_check_diagnostic(
+            app,
+            "retrying",
+            "info",
+            format!("Attempt {attempt}: retrying in {DEVICE_RETRY_DELAY_MS} ms"),
+        );
         sleep(Duration::from_millis(DEVICE_RETRY_DELAY_MS)).await;
     }
 
@@ -624,34 +717,91 @@ async fn connect_fastboot_for_device_check() -> Result<NusbFastBoot, FastbootPro
     })
 }
 
-async fn connect_or_reconnect_device_for_check(state: &AppState) -> Result<NusbFastBoot, String> {
+async fn connect_or_reconnect_device_for_check(
+    state: &AppState,
+    app: &tauri::AppHandle,
+) -> Result<NusbFastBoot, String> {
     if let Some(dev) = take_device(state)? {
+        let _ = emit_device_check_diagnostic(
+            app,
+            "using_cached_device",
+            "info",
+            "Reusing cached fastboot session",
+        );
         return Ok(dev);
     }
 
-    connect_fastboot_for_device_check()
+    connect_fastboot_for_device_check(app)
         .await
-        .map_err(|failure| describe_fastboot_probe_failure(&failure))
+        .map_err(|failure| {
+            let message = describe_fastboot_probe_failure(&failure);
+            let _ = emit_device_check_diagnostic(app, "probe_failed", "error", &message);
+            message
+        })
 }
 
-async fn check_device_with_diagnostics(state: &AppState) -> Result<DeviceInfo, String> {
-    let mut dev = connect_or_reconnect_device_for_check(state).await?;
+async fn read_device_info_with_diagnostics(
+    dev: &mut NusbFastBoot,
+    app: &tauri::AppHandle,
+) -> Result<DeviceInfo, String> {
+    let _ = emit_device_check_diagnostic(app, "reading_vars", "info", "Reading device variables");
+    let info = read_device_info(dev).await?;
+    let _ = emit_device_check_diagnostic(
+        app,
+        "read_vars_ok",
+        "info",
+        format!("Read {} fastboot variables", info.all_vars.len()),
+    );
+    let mode = fastboot_flasher::gsi::detect_fastboot_mode(&info.all_vars);
+    let _ = emit_device_check_diagnostic(
+        app,
+        "mode_detected",
+        "info",
+        format!("Device reported mode={}", mode.as_str()),
+    );
+    Ok(info)
+}
 
-    match read_device_info(&mut dev).await {
+async fn check_device_with_diagnostics(
+    state: &AppState,
+    app: &tauri::AppHandle,
+) -> Result<DeviceInfo, String> {
+    let mut dev = connect_or_reconnect_device_for_check(state, app).await?;
+
+    match read_device_info_with_diagnostics(&mut dev, app).await {
         Ok(info) => {
             put_device(state, dev)?;
             Ok(info)
         }
         Err(error) => {
             eprintln!("[device-check] cached-or-fresh device read failed: {error}");
+            let _ = emit_device_check_diagnostic(
+                app,
+                "read_vars_failed",
+                "warning",
+                format!("Cached device read failed: {error}"),
+            );
             invalidate_cached_device(state)?;
-            let mut fresh = connect_fastboot_for_device_check()
+            let _ = emit_device_check_diagnostic(
+                app,
+                "refreshing_connection",
+                "info",
+                "Discarding cached device and probing again",
+            );
+            let mut fresh = connect_fastboot_for_device_check(app)
                 .await
-                .map_err(|failure| describe_fastboot_probe_failure(&failure))?;
-            let info = read_device_info(&mut fresh)
+                .map_err(|failure| {
+                    let message = describe_fastboot_probe_failure(&failure);
+                    let _ = emit_device_check_diagnostic(app, "probe_failed", "error", &message);
+                    message
+                })?;
+            let info = read_device_info_with_diagnostics(&mut fresh, app)
                 .await
                 .map_err(|error| {
-                    describe_fastboot_probe_failure(&FastbootProbeFailure::ReadVariablesFailed(error))
+                    let message =
+                        describe_fastboot_probe_failure(&FastbootProbeFailure::ReadVariablesFailed(error));
+                    let _ = emit_device_check_diagnostic(app, "read_vars_failed", "error", &message);
+                    message
                 })?;
             put_device(state, fresh)?;
             Ok(info)
@@ -822,13 +972,19 @@ async fn erase_optional_partition_and_emit(
 }
 
 #[tauri::command]
-async fn connect_device(state: tauri::State<'_, AppState>) -> Result<DeviceInfo, String> {
-    check_device_with_diagnostics(&state).await
+async fn connect_device(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<DeviceInfo, String> {
+    check_device_with_diagnostics(&state, &app).await
 }
 
 #[tauri::command]
-async fn check_device(state: tauri::State<'_, AppState>) -> Result<DeviceInfo, String> {
-    check_device_with_diagnostics(&state).await
+async fn check_device(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<DeviceInfo, String> {
+    check_device_with_diagnostics(&state, &app).await
 }
 
 #[tauri::command]
@@ -2032,15 +2188,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        cancel_force_fastboot_session, describe_fastboot_probe_failure, display_safety_class,
+        build_device_check_diagnostic, cancel_force_fastboot_session,
+        describe_fastboot_probe_failure, describe_probe_stage, display_safety_class,
         filter_actions, load_flash_plan, normalize_power_off_error, normalize_slot,
         normalize_storage_label, parse_flash_mode, parse_plan_request,
         plan_requires_connected_device, plan_to_dto, prepare_for_gsi_worker_launch,
         resolve_image_path_for_action, session_policy_for_flash_run,
         session_policy_for_mutating_command, session_policy_for_read_only_command,
         start_force_fastboot_session, store_flash_plan, update_overall_progress, AppState,
-        DeviceSessionPolicy, FastbootProbeFailure, FlashRunControl, ForceFastbootState,
-        StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
+        DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashRunControl,
+        ForceFastbootState, StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
     };
     use fastboot_flasher::gsi::{
         detect_fastboot_mode as shared_detect_fastboot_mode,
@@ -2386,6 +2543,28 @@ mod tests {
         assert!(open_failed.contains("access denied"));
         assert!(read_failed.contains("did not respond to fastboot variables"));
         assert!(read_failed.contains("transport stalled"));
+    }
+
+    #[test]
+    fn device_check_diagnostic_events_capture_stage_and_level() {
+        let event = build_device_check_diagnostic("read_vars_failed", "error", "transport stalled");
+
+        assert_eq!(
+            event,
+            FlashEvent::DeviceCheckDiagnostic {
+                stage: "read_vars_failed".to_string(),
+                level: "error".to_string(),
+                message: "transport stalled".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn probe_stage_labels_are_human_readable() {
+        assert_eq!(describe_probe_stage("enumerating"), "Enumerating fastboot devices");
+        assert_eq!(describe_probe_stage("read_vars_failed"), "Reading fastboot variables failed");
+        assert_eq!(describe_probe_stage("mode_detected"), "Detected fastboot mode");
+        assert_eq!(describe_probe_stage("something_else"), "something_else");
     }
 
     #[test]

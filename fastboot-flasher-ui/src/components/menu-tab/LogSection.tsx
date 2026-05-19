@@ -18,6 +18,12 @@ function logLevel(entry: string): "info" | "success" | "warning" | "error" {
   if (entry.startsWith("PartitionFailed") || entry.startsWith("Error")) {
     return "error";
   }
+  if (entry.startsWith("DeviceProbeError")) {
+    return "error";
+  }
+  if (entry.startsWith("DeviceProbeWarning")) {
+    return "warning";
+  }
   if (entry.startsWith("PartitionSkipped")) {
     return "warning";
   }

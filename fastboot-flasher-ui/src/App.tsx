@@ -23,12 +23,10 @@ import { useDevice } from "@/hooks/useDevice";
 import { useFlashLog, useFlashProgress } from "@/hooks/useFlashProgress";
 import { useForceFastboot } from "@/hooks/useForceFastboot";
 import { defaultFlashMode, type FlashMode } from "@/lib/flash-mode";
-import type { FlashPlanDto, ParseScatterResponseDto, PartitionDto } from "@/types/api";
+import type { DeviceInfo, FlashPlanDto, ParseScatterResponseDto, PartitionDto } from "@/types/api";
 
 const SCATTER_STORAGE_KEY = "last-scatter-path";
 const GSI_STORAGE_KEY = "last-gsi-image-path";
-const DEVICE_CHECK_TIMEOUT_MS = 120_000;
-const DEVICE_CHECK_TIMEOUT_LABEL = "2 minutes";
 type AppTheme = "light" | "dark";
 
 function resolveInitialTheme(): AppTheme {
@@ -54,6 +52,43 @@ function partitionSortRank(partition: PartitionDto): number {
   }
 
   return partition.image_path ? 0 : 1;
+}
+
+function describeDeviceMode(info: DeviceInfo) {
+  return info.all_vars["is-userspace"] === "yes" ? "fastbootd" : "bootloader";
+}
+
+function buildDeviceSummary(info: DeviceInfo) {
+  return [
+    `serial=${info.serial || "unknown"}`,
+    `product=${info.product || "unknown"}`,
+    `slot=${info.slot || "unknown"}`,
+    `unlocked=${info.unlocked || "unknown"}`,
+    `mode=${describeDeviceMode(info)}`,
+  ].join(" ");
+}
+
+function appendParsedPlanLog(appendLog: (entry: string) => void, plan: FlashPlanDto) {
+  appendLog(
+    `ParseSummary mode=${plan.mode} storage=${plan.storage} slot=${plan.slot_policy} chipset=${plan.chipset ?? "unknown"}`,
+  );
+
+  plan.partitions.forEach((partition) => {
+    appendLog(
+      [
+        "ParsePartition",
+        `action=${partition.action}`,
+        `name=${partition.partition}`,
+        `size=${partition.size_human}`,
+        `image=${partition.image_name ?? partition.image_path ?? "unresolved"}`,
+        `source=${partition.source}`,
+        `selected=${partition.selected ? "yes" : "no"}`,
+      ].join(" "),
+    );
+  });
+
+  plan.warnings.forEach((warning) => appendLog(`ParseWarning ${warning}`));
+  plan.errors.forEach((error) => appendLog(`ParseError ${error}`));
 }
 
 export default function App() {
@@ -173,6 +208,7 @@ export default function App() {
           );
         });
         appendLog(`ParseComplete ${dto.partitions.length} partitions`);
+        appendParsedPlanLog(appendLog, dto);
         setPlanId(response.plan_id);
         setPlan(dto);
         setPartitions((prev) => {
@@ -440,15 +476,8 @@ export default function App() {
     appendLog("DeviceCheck Started");
 
     try {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(new Error(`Device check timed out after ${DEVICE_CHECK_TIMEOUT_LABEL}`)),
-          DEVICE_CHECK_TIMEOUT_MS,
-        )
-      );
-      const info = await Promise.race([device.check(), timeoutPromise]);
-      const summary = `serial=${info.serial || "unknown"} product=${info.product || "unknown"} slot=${info.slot || "unknown"} unlocked=${info.unlocked || "unknown"}`;
+      const info = await device.check();
+      const summary = buildDeviceSummary(info);
       appendLog(`DeviceCheck Connected ${summary}`);
       toast.success(`Connected: ${info.serial || info.product || "device"}`);
     } catch (error) {

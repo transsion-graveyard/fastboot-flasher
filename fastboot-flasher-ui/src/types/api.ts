@@ -51,6 +51,7 @@ export interface DeviceInfo {
 
 export type FlashEvent =
   | { event: "WaitingForDevice" }
+  | { event: "DeviceCheckDiagnostic"; data: { stage: string; level: string; message: string } }
   | { event: "GsiStatus"; data: { status: string } }
   | { event: "PlanBuilt"; data: { actions: number; total_bytes: number } }
   | { event: "PreparingImage"; data: { partition: string } }

@@ -40,10 +40,13 @@ export interface FlashLog {
 
 const FlashProgressContext = createContext<FlashProgress | null>(null);
 const FlashLogContext = createContext<FlashLog | null>(null);
+const LOG_RETENTION_LIMIT = 300;
+const PROGRESS_LOG_STEP = 10;
 
 export function FlashProgressProvider({ children }: { children: ReactNode }) {
   const runModeRef = useRef<FlashProgress["runMode"]>("");
   const isMinimizedRef = useRef(false);
+  const progressMilestonesRef = useRef<Record<string, number>>({});
   const [state, setState] = useState<Omit<FlashProgress, "reset" | "fail" | "setIsMinimized">>({
     phase: "idle",
     runMode: "",
@@ -61,7 +64,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
   const [logEntries, setLogEntries] = useState<string[]>([]);
 
   const appendLogEntry = useCallback((entry: string) => {
-    setLogEntries((prev) => [...prev, entry].slice(-100));
+    setLogEntries((prev) => [...prev, entry].slice(-LOG_RETENTION_LIMIT));
   }, []);
 
   useEffect(() => {
@@ -72,7 +75,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       try {
         const ev = evt.payload;
-        const logEntry = formatFlashEventForLog(ev);
+        const logEntry = formatFlashEventForLog(ev, runModeRef.current, progressMilestonesRef.current);
         if (logEntry) {
           appendLogEntry(logEntry);
         }
@@ -89,6 +92,8 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             }));
             toast.info("Waiting for device...");
             break;
+          case "DeviceCheckDiagnostic":
+            break;
           case "GsiStatus":
             setState((p) => ({
               ...p,
@@ -96,6 +101,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             }));
             break;
           case "PlanBuilt":
+            progressMilestonesRef.current = {};
             setState((p) => ({
               ...p,
               overallBytes: 0,
@@ -105,10 +111,16 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             toast.info(`${ev.data.actions} actions, ${(ev.data.total_bytes / 1e9).toFixed(2)} GiB`);
             break;
           case "PreparingImage":
-            runModeRef.current = "live";
+            progressMilestonesRef.current = clearProgressMilestonesForPartition(
+              progressMilestonesRef.current,
+              ev.data.partition,
+            );
+            if (runModeRef.current !== "dry_run") {
+              runModeRef.current = "live";
+            }
             setState((p) => ({
               ...p,
-              runMode: "live",
+              runMode: p.runMode || "live",
               operation: "flash",
               partition: ev.data.partition,
             }));
@@ -149,9 +161,17 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             }));
             break;
           case "PartitionFailed":
+            progressMilestonesRef.current = clearProgressMilestonesForPartition(
+              progressMilestonesRef.current,
+              ev.data.partition,
+            );
             toast.error(`${ev.data.partition}: ${ev.data.error}`);
             break;
           case "Erasing":
+            progressMilestonesRef.current = clearProgressMilestonesForPartition(
+              progressMilestonesRef.current,
+              ev.data.partition,
+            );
             runModeRef.current = "live";
             setState((p) => ({
               ...p,
@@ -164,6 +184,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             }));
             break;
           case "Complete":
+            progressMilestonesRef.current = {};
             setState((p) => ({
               ...p,
               phase: "complete",
@@ -182,6 +203,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             }
             break;
           case "Cancelled":
+            progressMilestonesRef.current = {};
             setState((p) => ({
               ...p,
               phase: "cancelled",
@@ -192,6 +214,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             tryNotify("Flash cancelled");
             break;
           case "Error":
+            progressMilestonesRef.current = {};
             setState((p) => ({
               ...p,
               phase: "error",
@@ -258,6 +281,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
 
   const reset = useCallback(() => {
     runModeRef.current = "";
+    progressMilestonesRef.current = {};
     setLogEntries([]);
     setState({
       phase: "idle",
@@ -276,7 +300,8 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const fail = useCallback((message: string) => {
-    setLogEntries((prev) => [...prev, `Error ${JSON.stringify({ message })}`].slice(-100));
+    progressMilestonesRef.current = {};
+    setLogEntries((prev) => [...prev, `Error ${JSON.stringify({ message })}`].slice(-LOG_RETENTION_LIMIT));
     setState((prev) => ({
       ...prev,
       phase: "error",
@@ -340,36 +365,186 @@ function preserveCompletionMessage(runMode: FlashProgress["runMode"]) {
   return runMode === "dry_run" ? "Dry run complete" : "Flash complete";
 }
 
-function formatFlashEventForLog(event: FlashEvent): string | null {
+function formatFlashEventForLog(
+  event: FlashEvent,
+  runMode: FlashProgress["runMode"],
+  progressMilestones: Record<string, number>,
+): string | null {
   switch (event.event) {
     case "WaitingForDevice":
-      return "WaitingForDevice";
+      return "WaitingForDevice Waiting for fastboot device";
+    case "DeviceCheckDiagnostic":
+      return formatDeviceCheckDiagnostic(event.data.stage, event.data.level, event.data.message);
     case "GsiStatus":
-      return `GsiStatus ${JSON.stringify(event.data)}`;
+      return `GsiPhase ${gsiStatusMessage(event.data.status)}`;
     case "PlanBuilt":
-      return `PlanBuilt ${JSON.stringify(event.data)}`;
+      return `PlanBuilt actions=${event.data.actions} total=${formatGiB(event.data.total_bytes)}`;
     case "PreparingImage":
-      return `PreparingImage ${JSON.stringify(event.data)}`;
-    case "PartitionComplete":
-      return `PartitionComplete ${JSON.stringify(event.data)}`;
-    case "PartitionSkipped":
-      return `PartitionSkipped ${JSON.stringify(event.data)}`;
-    case "PartitionFailed":
-      return `PartitionFailed ${JSON.stringify(event.data)}`;
-    case "Erasing":
-      return `Erasing ${JSON.stringify(event.data)}`;
-    case "EraseComplete":
-      return `EraseComplete ${JSON.stringify(event.data)}`;
-    case "Complete":
-      return `Complete ${JSON.stringify(event.data)}`;
-    case "Cancelled":
-      return `Cancelled ${JSON.stringify(event.data)}`;
-    case "Error":
-      return `Error ${JSON.stringify(event.data)}`;
+      return runMode === "dry_run"
+        ? `DryRunPrepare partition=${event.data.partition}`
+        : `FlashPrepare partition=${event.data.partition}`;
     case "Flashing":
-    case "Overall":
+      return formatProgressMilestone({
+        prefix: "FlashProgress",
+        label: "partition",
+        partition: event.data.partition,
+        bytes: event.data.bytes,
+        total: event.data.total,
+        speedBps: event.data.speed_bps,
+        progressMilestones,
+      });
     case "Simulating":
+      return formatProgressMilestone({
+        prefix: event.data.action === "wipe" ? "DryRunEraseProgress" : "DryRunProgress",
+        label: event.data.action,
+        partition: event.data.partition,
+        bytes: event.data.bytes,
+        total: event.data.total,
+        speedBps: event.data.speed_bps,
+        progressMilestones,
+      });
+    case "Overall":
       return null;
+    case "PartitionComplete":
+      return `PartitionComplete partition=${event.data.partition}`;
+    case "PartitionSkipped":
+      return `PartitionSkipped partition=${event.data.partition} reason=${event.data.reason}`;
+    case "PartitionFailed":
+      return `PartitionFailed partition=${event.data.partition} error=${event.data.error}`;
+    case "Erasing":
+      return runMode === "dry_run"
+        ? `DryRunEraseStart partition=${event.data.partition}`
+        : `Erasing partition=${event.data.partition}`;
+    case "EraseComplete":
+      return `EraseComplete partition=${event.data.partition}`;
+    case "Complete":
+      return `Complete flashed=${event.data.summary.flash_count} wiped=${event.data.summary.wipe_count} skipped=${event.data.summary.skipped_count} total=${formatGiB(event.data.summary.total_bytes)}`;
+    case "Cancelled":
+      return `Cancelled message=${event.data.message}`;
+    case "Error":
+      return `Error message=${event.data.message}`;
+  }
+}
+
+function formatProgressMilestone({
+  prefix,
+  label,
+  partition,
+  bytes,
+  total,
+  speedBps,
+  progressMilestones,
+}: {
+  prefix: string;
+  label: string;
+  partition: string;
+  bytes: number;
+  total: number;
+  speedBps: number;
+  progressMilestones: Record<string, number>;
+}) {
+  if (total <= 0) {
+    return null;
+  }
+
+  const key = `${prefix}:${partition}`;
+  const pct = Math.min(100, Math.floor((bytes / total) * 100));
+  const milestone = progressMilestoneBucket(pct);
+  if (milestone === null) {
+    return null;
+  }
+  if (progressMilestones[key] === milestone) {
+    return null;
+  }
+
+  progressMilestones[key] = milestone;
+  const parts = [
+    prefix,
+    `${label}=${partition}`,
+    `progress=${milestone}%`,
+    `${formatBytes(bytes)} / ${formatBytes(total)}`,
+  ];
+  if (speedBps > 0) {
+    parts.push(`speed=${formatBytes(speedBps)}/s`);
+  }
+  return parts.join(" ");
+}
+
+function progressMilestoneBucket(pct: number) {
+  if (pct <= 0) return 0;
+  if (pct >= 100) return 100;
+  return Math.floor(pct / PROGRESS_LOG_STEP) * PROGRESS_LOG_STEP;
+}
+
+function clearProgressMilestonesForPartition(
+  progressMilestones: Record<string, number>,
+  partition: string,
+) {
+  return Object.fromEntries(
+    Object.entries(progressMilestones).filter(([key]) => !key.endsWith(`:${partition}`)),
+  );
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = unitIndex === 0 ? 0 : value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function formatGiB(bytes: number) {
+  return `${(bytes / 1e9).toFixed(2)} GiB`;
+}
+
+function formatDeviceCheckDiagnostic(stage: string, level: string, message: string) {
+  const prefix = level === "error"
+    ? "DeviceProbeError"
+    : level === "warning"
+      ? "DeviceProbeWarning"
+      : "DeviceProbe";
+
+  return `${prefix} ${humanizeProbeStage(stage)} ${message}`;
+}
+
+function humanizeProbeStage(stage: string) {
+  switch (stage) {
+    case "using_cached_device":
+      return "Using cached fastboot device";
+    case "enumerating":
+      return "Enumerating fastboot devices";
+    case "candidate_found":
+      return "Found fastboot interface candidate";
+    case "open_ok":
+      return "Opened fastboot interface";
+    case "open_failed":
+      return "Opening fastboot interface failed";
+    case "no_interface_yet":
+      return "No fastboot interface detected yet";
+    case "retrying":
+      return "Waiting before next device probe";
+    case "reading_vars":
+      return "Reading fastboot variables";
+    case "read_vars_ok":
+      return "Read fastboot variables";
+    case "read_vars_failed":
+      return "Reading fastboot variables failed";
+    case "mode_detected":
+      return "Detected fastboot mode";
+    case "refreshing_connection":
+      return "Refreshing fastboot connection";
+    case "probe_failed":
+      return "Fastboot probe failed";
+    default:
+      return stage;
   }
 }
 
