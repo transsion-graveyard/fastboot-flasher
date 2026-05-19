@@ -192,21 +192,12 @@ pub enum GsiEvent {
 }
 
 /// Configuration options for a GSI flash operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GsiFlashOptions {
     /// Wipe-data options controlling userdata, metadata, and cache handling.
     pub wipe_data: WipeDataOptions,
     /// Optional cancellation token that aborts the flow when set to `true`.
     pub cancel_token: Option<Arc<AtomicBool>>,
-}
-
-impl Default for GsiFlashOptions {
-    fn default() -> Self {
-        Self {
-            wipe_data: WipeDataOptions::default(),
-            cancel_token: None,
-        }
-    }
 }
 
 /// Summary statistics for a completed GSI flash operation.
@@ -447,7 +438,7 @@ async fn try_partition_size(
     match read_variable(dev, &key).await {
         Ok(value) => {
             let size = parse_fastboot_u64(&value).with_context(|| format!("parse {key}"))?;
-            vars.insert(key, value.to_string());
+            vars.insert(key, value);
             Ok(Some(size))
         }
         Err(_) => Ok(None),

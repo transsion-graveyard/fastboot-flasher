@@ -35,11 +35,12 @@ pub fn compact_device_info(vars: &HashMap<String, String>) -> String {
 
 /// Return a mock device info block for dry-run mode.
 pub fn mock_device_info() -> String {
-    let mut lines = Vec::new();
-    lines.push(String::new());
-    lines.push(section_header("DEVICE"));
-    lines.push(String::new());
-    lines.push(status_line(Tone::Accent, "mode", "dry-run (no device)"));
-    lines.push(String::new());
+    let lines = [
+        String::new(),
+        section_header("DEVICE"),
+        String::new(),
+        status_line(Tone::Accent, "mode", "dry-run (no device)"),
+        String::new(),
+    ];
     lines.join("\n")
 }
