@@ -1,12 +1,12 @@
 [package]
-name = "fastboot-flasher-gui"
+name = "pawflash-gui"
 version = "0.1.0"
 edition = "2021"
 
 [workspace]
 
 [lib]
-name = "fastboot_flasher_gui_lib"
+name = "pawflash_gui_lib"
 crate-type = ["lib", "staticlib"]
 
 [build-dependencies]
@@ -18,7 +18,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
-fastboot-flasher-core = { path = "../../fastboot-flasher-core" }
+pawflash = { path = "../../pawflash" }
 fastboot-rs = { path = "../../fastboot-rs" }
 mtk-scatter-parser = { path = "../../mtk-scatter-parser" }
 serde = { version = "1", features = ["derive"] }

@@ -187,7 +187,7 @@ pub fn generate_userdata_image(
     tools.validate()?;
 
     let temp_dir = tempfile::Builder::new()
-        .prefix("fastboot-flasher-format-")
+        .prefix("pawflash-format-")
         .tempdir()
         .context("create temp directory for userdata image")?;
     let path = temp_dir.path().join("userdata.img");

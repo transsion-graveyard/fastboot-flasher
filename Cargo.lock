@@ -353,25 +353,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastboot-flasher-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "fastboot-rs",
- "force-fastboot",
- "indicatif",
- "inquire",
- "mtk-scatter-parser",
- "serde",
- "serde_json",
- "tempfile",
- "terminal-output",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "fastboot-rs"
 version = "0.1.0"
 dependencies = [
@@ -875,6 +856,25 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "pawflash"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fastboot-rs",
+ "force-fastboot",
+ "indicatif",
+ "inquire",
+ "mtk-scatter-parser",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "terminal-output",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

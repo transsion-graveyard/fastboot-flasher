@@ -35,7 +35,7 @@ pub async fn read_all_variables(
 ///
 /// ```
 /// use std::collections::HashMap;
-/// use fastboot_flasher_core::resolve_max_download_size_from_vars;
+/// use pawflash::resolve_max_download_size_from_vars;
 ///
 /// let vars = HashMap::from([("max-download-size".to_string(), "0x4000000".to_string())]);
 /// let max_download = resolve_max_download_size_from_vars(&vars).unwrap();

@@ -1,5 +1,5 @@
 {
-  "name": "fastboot-flasher-gui",
+  "name": "pawflash-gui",
   "private": true,
   "version": "0.0.0",
   "type": "module",

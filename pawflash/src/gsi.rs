@@ -362,7 +362,7 @@ pub fn generate_product_gsi_image(tools: &FormatTools) -> anyhow::Result<Generat
 
     let spec = fixed_product_gsi_spec();
     let temp_dir = tempfile::Builder::new()
-        .prefix("fastboot-flasher-gsi-")
+        .prefix("pawflash-gsi-")
         .tempdir()
         .context("create temp directory for product_gsi image")?;
     let path = temp_dir.path().join("product_gsi.img");

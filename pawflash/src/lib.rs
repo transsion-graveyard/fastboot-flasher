@@ -1,7 +1,7 @@
 #![cfg_attr(not(windows), deny(unsafe_code))]
 #![deny(missing_docs)]
 
-//! Shared business logic for `fastboot-flasher` CLI and `fastboot-flasher-gui`.
+//! Shared business logic for `pawflash` CLI and `pawflash-gui`.
 //!
 //! This crate contains all device operations, flash flows, GSI handling,
 //! and format/wipe logic. It has **zero** terminal or UI dependencies so

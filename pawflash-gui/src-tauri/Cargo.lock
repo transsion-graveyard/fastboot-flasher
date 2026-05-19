@@ -1101,45 +1101,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastboot-flasher-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "fastboot-rs",
- "force-fastboot",
- "indicatif",
- "inquire",
- "mtk-scatter-parser",
- "serde",
- "serde_json",
- "tempfile",
- "terminal-output",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "fastboot-flasher-gui"
-version = "0.1.0"
-dependencies = [
- "fastboot-flasher-core",
- "fastboot-rs",
- "mtk-scatter-parser",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-notification",
- "tauri-plugin-shell",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "fastboot-rs"
 version = "0.1.0"
 dependencies = [
@@ -2870,6 +2831,45 @@ name = "pathdiff"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
+
+[[package]]
+name = "pawflash"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fastboot-rs",
+ "force-fastboot",
+ "indicatif",
+ "inquire",
+ "mtk-scatter-parser",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "terminal-output",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "pawflash-gui"
+version = "0.1.0"
+dependencies = [
+ "fastboot-rs",
+ "mtk-scatter-parser",
+ "pawflash",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-notification",
+ "tauri-plugin-shell",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "percent-encoding"

@@ -81,7 +81,7 @@ export function AppLayout({
         )}
       >
         <div className={cn("flex items-center", sidebarOpen ? "justify-between px-3 py-3" : "justify-center px-2 py-3")}>
-          {sidebarOpen && <span className="text-sm font-semibold tracking-[0.16em] text-muted-foreground">FASTBOOT</span>}
+          {sidebarOpen && <span className="text-sm font-semibold tracking-[0.16em] text-muted-foreground">PAWFLASH</span>}
           <Button
             variant="ghost"
             size="icon-sm"

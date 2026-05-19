@@ -9,8 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 
-use fastboot_flasher_core as fastboot_flasher;
-use fastboot_flasher_core::{
+use pawflash::{
     format::{detect_userdata, FormatTools, WipeDataOptions},
     gsi::{
         build_gsi_execution_plan, detect_fastboot_mode, execute_gsi_flash_with_vars,
@@ -330,10 +329,10 @@ async fn execute_gsi_worker_request(
         sleep(startup_delay).await;
     }
 
-    let mut dev = fastboot_flasher::connect_fastboot()
+    let mut dev = pawflash::connect_fastboot()
         .await
         .map_err(|e| format!("connect: {e}"))?;
-    let vars = fastboot_flasher::read_all_variables(&mut dev)
+    let vars = pawflash::read_all_variables(&mut dev)
         .await
         .map_err(|e| format!("read vars: {e}"))?;
     let start_mode = detect_fastboot_mode(&vars);
@@ -452,7 +451,7 @@ fn gsi_step_status(step: GsiStep) -> &'static str {
 #[cfg(test)]
 mod tests {
     use crate::{FlashEvent, FlashSummaryDto};
-    use fastboot_flasher_core::gsi::{GsiEvent, GsiStep};
+    use pawflash::gsi::{GsiEvent, GsiStep};
     use tokio::time::Duration;
 
     use super::{

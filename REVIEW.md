@@ -1,4 +1,4 @@
-# Rust Best Practices Review - fastboot-flasher
+# Rust Best Practices Review - pawflash
 
 **Review Date:** 2026-05-19  
 **Scope:** Complete workspace review across 5 Rust crates + Tauri GUI  
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The fastboot-flasher project demonstrates **strong adherence to Rust best practices** overall. The codebase is well-structured, properly uses modern Rust features, and maintains consistent error handling patterns. The workspace lint configuration is excellent, and the project passes all clippy checks with the configured strict settings.
+The pawflash project demonstrates **strong adherence to Rust best practices** overall. The codebase is well-structured, properly uses modern Rust features, and maintains consistent error handling patterns. The workspace lint configuration is excellent, and the project passes all clippy checks with the configured strict settings.
 
 ### Overall Assessment: **A- (Excellent with Minor Improvements Possible)**
 
@@ -59,16 +59,16 @@ pub fn partition_with_slot(base: &str, suffix: &str) -> String {
 ```
 **Issue:** Unnecessary allocation when concatenating static strings. Could use `Cow` or return `String` only when needed.
 
-**fastboot-flasher-core/src/cli.rs:202-204:**
+**pawflash/src/cli.rs:202-204:**
 ```rust
 Err(format!(
-    "{} requires --flash <scatter>\nstandalone: fastboot-flasher disable-vbmeta\nexample: fastboot-flasher --flash <scatter.xml> --dry-run",
+    "{} requires --flash <scatter>\nstandalone: pawflash disable-vbmeta\nexample: pawflash --flash <scatter.xml> --dry-run",
     used.join(" ")
 ))
 ```
 **Issue:** Error message formatting allocates unnecessarily for error paths.
 
-**fastboot-flasher-gui/src-tauri/src/lib.rs:59-71:**
+**pawflash-gui/src-tauri/src/lib.rs:59-71:**
 ```rust
 fn build_format_tools(root: PathBuf, platform: &str) -> FormatTools {
     let dir = root.join(platform);
@@ -98,7 +98,7 @@ fn build_format_tools(root: PathBuf, platform: &str) -> FormatTools {
 
 #### 🚨 **Issues Found:**
 
-**fastboot-flasher-core/src/cli.rs:**
+**pawflash/src/cli.rs:**
 ```rust
 pub enum SlotArg {
     A, B, Active, Inactive, All,
@@ -139,7 +139,7 @@ pub fn is_permission_error(error: &anyhow::Error) -> bool {
 
 #### 🚨 **Issues Found:**
 
-**fastboot-flasher-core/src/device.rs:30-40:**
+**pawflash/src/device.rs:30-40:**
 ```rust
 pub fn resolve_max_download_size_from_vars(vars: &HashMap<String, String>) -> anyhow::Result<u32> {
     let raw = vars
@@ -169,7 +169,7 @@ pub fn resolve_max_download_size_from_vars(vars: &HashMap<String, String>) -> an
 
 #### 🚨 **Issues Found:**
 
-**fastboot-flasher-core/src/cli.rs:194-197:**
+**pawflash/src/cli.rs:194-197:**
 ```rust
 let used = modifiers
     .iter()
@@ -247,7 +247,7 @@ let hex = hex.strip_prefix("0x").unwrap_or("invalid");
 
 #### 🚨 **Issues Found:**
 
-**fastboot-flasher-core/src/flash.rs:84-89:**
+**pawflash/src/flash.rs:84-89:**
 ```rust
 eprintln!(
     "[flash-lib] flash_one_partition start partition={} image={} max_download=0x{:x}",
@@ -276,9 +276,9 @@ eprintln!(
 
 #### 🚨 **Minor Issues:**
 
-**fastboot-flasher-gui/src-tauri/src/lib.rs:**
+**pawflash-gui/src-tauri/src/lib.rs:**
 ```rust
-use fastboot_flasher_core as fastboot_flasher;
+use pawflash as pawflash;
 ```
 **Issue:** Alias creates unnecessary naming complexity. Could use direct import or more descriptive alias.
 
@@ -381,7 +381,7 @@ panic = "abort"
 
 #### 🚨 **Opportunities:**
 
-**fastboot-flasher-core/src/flash.rs:**
+**pawflash/src/flash.rs:**
 - Some error handling could avoid String allocations
 - Progress callbacks could use more efficient types
 
@@ -398,7 +398,7 @@ panic = "abort"
 
 #### 🚨 **Potential Issues:**
 
-**fastboot-flasher-gui/src-tauri/src/lib.rs:73-79:**
+**pawflash-gui/src-tauri/src/lib.rs:73-79:**
 ```rust
 struct AppState {
     device: DeviceCache,
@@ -485,7 +485,7 @@ pub enum ForceFastbootError {
 
 #### ✅ **Appropriate Use:**
 
-**fastboot-flasher-core:**
+**pawflash:**
 - Uses `anyhow` appropriately for application-level error handling
 - Proper use of `.context()` for adding error context
 - Good balance between specific errors and ergonomic error handling
@@ -592,7 +592,7 @@ fn handshake_sends_only_fastboot_after_start_byte() {
 
 #### 🚨 **Potential Issues:**
 
-**fastboot-flasher-gui/src-tauri/src/lib.rs:**
+**pawflash-gui/src-tauri/src/lib.rs:**
 - Some uses of `dyn` traits could potentially use generics
 - However, appropriate for the plugin architecture
 
@@ -693,7 +693,7 @@ pub mod image;
 - Proper use of trait objects for abstraction
 - Appropriate use of `dyn` for test doubles
 
-**fastboot-flasher-gui:**
+**pawflash-gui:**
 - Proper use of `Arc<Mutex<T>>` for shared state
 - Appropriate use of `AtomicBool` for synchronization
 
@@ -701,7 +701,7 @@ pub mod image;
 
 #### ✅ **Correct Thread Safety:**
 
-**fastboot-flasher-gui/src-tauri/src/lib.rs:**
+**pawflash-gui/src-tauri/src/lib.rs:**
 ```rust
 struct AppState {
     device: DeviceCache,           // Mutex<Option<FastbootDevice>>
@@ -751,7 +751,7 @@ struct AppState {
 - Consider type state for port discovery
 - Add doc tests for public APIs
 
-### fastboot-flasher-core
+### pawflash
 
 **Grade: B+**
 
@@ -796,7 +796,7 @@ struct AppState {
 - Add more examples in documentation
 - Consider adding more utility functions
 
-### fastboot-flasher-gui (Tauri)
+### pawflash-gui (Tauri)
 
 **Grade: B+**
 
@@ -841,7 +841,7 @@ struct AppState {
 
 ## Conclusion
 
-The fastboot-flasher project demonstrates **excellent Rust practices** overall. The workspace configuration is exemplary, error handling is consistent and proper, and the codebase maintains high quality throughout. The main areas for improvement are around documentation completeness, reduction of unnecessary allocations, and increased test coverage.
+The pawflash project demonstrates **excellent Rust practices** overall. The workspace configuration is exemplary, error handling is consistent and proper, and the codebase maintains high quality throughout. The main areas for improvement are around documentation completeness, reduction of unnecessary allocations, and increased test coverage.
 
 The project would benefit from:
 1. More comprehensive documentation with executable examples

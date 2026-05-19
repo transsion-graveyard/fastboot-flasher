@@ -32,7 +32,7 @@ pub enum SlotArg {
     All,
 }
 
-/// Fastboot-flasher subcommands.
+/// PawFlash subcommands.
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum Command {
     /// Flash the bundled empty vbmeta image to vbmeta_a and vbmeta_b.
@@ -205,7 +205,7 @@ pub fn flash_modifier_without_flash(args: &Args) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "{used} requires --flash <scatter>\nstandalone: fastboot-flasher disable-vbmeta\nexample: fastboot-flasher --flash <scatter.xml> --dry-run"
+            "{used} requires --flash <scatter>\nstandalone: pawflash disable-vbmeta\nexample: pawflash --flash <scatter.xml> --dry-run"
         ))
     }
 }

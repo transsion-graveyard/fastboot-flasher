@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicolas-chaulet/tauri-v2-schemas/main/schema.json",
-  "productName": "fastboot-flasher-gui",
+  "productName": "pawflash-gui",
   "version": "0.1.0",
-  "identifier": "com.fastboot-flasher.gui",
+  "identifier": "com.pawflash.gui",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Fastboot Flasher",
+        "title": "PawFlash",
         "width": 1024,
         "height": 720,
         "resizable": true,

@@ -11,8 +11,8 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, warn};
 
-use fastboot_flasher_core as fastboot_flasher;
-use fastboot_flasher_core::{
+use pawflash as pawflash;
+use pawflash::{
     cli::{FlashMode, SlotArg},
     format::{
         detect_userdata, erase_optional_partition, generate_userdata_image, FormatTools,
@@ -330,7 +330,7 @@ fn invalidate_cached_device(state: &AppState) -> Result<(), String> {
 async fn take_or_connect_device(state: &AppState) -> Result<FastbootDevice, String> {
     match take_device(state)? {
         Some(dev) => Ok(dev),
-        None => fastboot_flasher::connect_fastboot()
+        None => pawflash::connect_fastboot()
             .await
             .map_err(|e| format!("connect: {e}")),
     }
@@ -625,7 +625,7 @@ async fn connect_device_for_run(
     app.emit("flash-progress", FlashEvent::WaitingForDevice)
         .map_err(|e| format!("emit: {e}"))?;
     tokio::select! {
-        device = fastboot_flasher::connect_fastboot() => device.map_err(|e| format!("connect: {e}")),
+        device = pawflash::connect_fastboot() => device.map_err(|e| format!("connect: {e}")),
         cancelled = wait_for_cancel(control) => Err(cancelled),
     }
 }
@@ -638,7 +638,7 @@ async fn connect_device_with_policy(
         DeviceSessionPolicy::ReuseCached => take_or_connect_device(state).await,
         DeviceSessionPolicy::Fresh => {
             invalidate_cached_device(state)?;
-            fastboot_flasher::connect_fastboot()
+            pawflash::connect_fastboot()
                 .await
                 .map_err(|e| format!("connect: {e}"))
         }
@@ -731,7 +731,7 @@ async fn read_device_info_with_diagnostics(
         "info",
         format!("Read {} fastboot variables", info.all_vars.len()),
     );
-    let mode = fastboot_flasher::gsi::detect_fastboot_mode(&info.all_vars);
+    let mode = pawflash::gsi::detect_fastboot_mode(&info.all_vars);
     let _ = emit_device_check_diagnostic(
         app,
         "mode_detected",
@@ -870,7 +870,7 @@ impl<'a> FlashProgressContext<'a> {
             .map_err(|e| format!("emit: {e}"))?;
         emit_overall_progress(self.app, completed_before, 0, self.overall_total)?;
 
-        match fastboot_flasher::erase_one_partition(self.dev, partition).await {
+        match pawflash::erase_one_partition(self.dev, partition).await {
             Ok(()) => {
                 self.summary.wipe_count += 1;
                 emit_overall_progress(self.app, completed_before, bytes, self.overall_total)?;
@@ -969,7 +969,7 @@ impl<'a> FlashProgressContext<'a> {
         let mut bytes_flashed: u64 = 0;
         let start = std::time::Instant::now();
 
-        fastboot_flasher::flash_one_partition(self.dev, &p2, image, self.max_download_size, move |event| {
+        pawflash::flash_one_partition(self.dev, &p2, image, self.max_download_size, move |event| {
             if let FlashProgress::DownloadBytes { bytes, .. } = event {
                 bytes_flashed += bytes;
                 let speed_bps = {
@@ -1062,7 +1062,7 @@ async fn check_device(
 async fn get_variable(state: tauri::State<'_, AppState>, var: String) -> Result<String, String> {
     let mut dev =
         connect_device_with_policy(&state, session_policy_for_read_only_command()).await?;
-    let result = fastboot_flasher::read_variable(&mut dev, &var)
+    let result = pawflash::read_variable(&mut dev, &var)
         .await
         .map_err(|e| format!("getvar: {e}"));
     let _ = put_device(&state, dev);
@@ -1075,7 +1075,7 @@ async fn get_all_variables(
 ) -> Result<HashMap<String, String>, String> {
     let mut dev =
         connect_device_with_policy(&state, session_policy_for_read_only_command()).await?;
-    let result = fastboot_flasher::read_all_variables(&mut dev)
+    let result = pawflash::read_all_variables(&mut dev)
         .await
         .map_err(|e| format!("getvars: {e}"));
     let _ = put_device(&state, dev);
@@ -1083,7 +1083,7 @@ async fn get_all_variables(
 }
 
 async fn read_device_info(dev: &mut FastbootDevice) -> Result<DeviceInfo, String> {
-    let vars = fastboot_flasher::read_all_variables(dev)
+    let vars = pawflash::read_all_variables(dev)
         .await
         .map_err(|e| format!("read vars: {e}"))?;
     Ok(DeviceInfo {
@@ -1119,7 +1119,7 @@ async fn parse_scatter(
     let request = parse_plan_request(&mode, slot.as_deref())?;
     let scatter = mtk_scatter_parser::parse_scatter(&path)
         .map_err(|e| format!("parse scatter metadata: {e}"))?;
-    let plan = fastboot_flasher::build_flash_plan(
+    let plan = pawflash::build_flash_plan(
         &PathBuf::from(&path),
         request.mode,
         request.slot,
@@ -1182,7 +1182,7 @@ async fn start_force_fastboot(
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let result = fastboot_flasher::force_fastboot();
+        let result = pawflash::force_fastboot();
         let app_state = app_handle.state::<AppState>();
         if !force_fastboot_session_is_active(&app_state, session_id) {
             return;
@@ -1265,7 +1265,7 @@ async fn start_flash_inner(
 
     let mut dev =
         ensure_device_with_policy(&state, &app, &control, session_policy_for_flash_run()).await?;
-    let vars = fastboot_flasher::read_all_variables(&mut dev)
+    let vars = pawflash::read_all_variables(&mut dev)
         .await
         .map_err(|e| format!("read vars: {e}"))?;
     let max_download_size = resolve_max_download_size_from_vars(&vars)
@@ -1282,7 +1282,7 @@ async fn start_flash_inner(
     flash.execute_plan_actions(&filtered, &image_overrides).await?;
 
     if reboot {
-        fastboot_flasher::reboot_device(&mut dev)
+        pawflash::reboot_device(&mut dev)
             .await
             .map_err(|e| format!("reboot: {e}"))?;
     }
@@ -1439,7 +1439,7 @@ async fn manual_flash_inner(
 ) -> Result<FlashSummaryDto, String> {
     let slot = parse_slot(slot.as_deref());
     let actions =
-        fastboot_flasher::manual::manual_flash_actions(&partition, PathBuf::from(&image), slot)
+        pawflash::manual::manual_flash_actions(&partition, PathBuf::from(&image), slot)
             .map_err(|e| format!("manual flash: {e}"))?;
     execute_manual_actions(state, app, &actions).await
 }
@@ -1492,12 +1492,12 @@ fn resolve_format_tools(app: &tauri::AppHandle) -> Result<FormatTools, String> {
     let bundled = app
         .path()
         .resolve(
-            "../../fastboot-flasher-core/assets/bin",
+            "../../pawflash/assets/bin",
             BaseDirectory::Resource,
         )
         .ok();
     let dev =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fastboot-flasher-core/assets/bin");
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../pawflash/assets/bin");
 
     let root = bundled.filter(|path| path.exists()).unwrap_or(dev);
     let platform = format_tools_platform()?;
@@ -1735,7 +1735,7 @@ async fn wipe_data_inner(
 async fn execute_manual_actions(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
-    actions: &[fastboot_flasher::manual::ManualFlashAction],
+    actions: &[pawflash::manual::ManualFlashAction],
 ) -> Result<FlashSummaryDto, String> {
     let _guard = FlashGuard::new(&state)?;
     let control = begin_flash_run(&state);
@@ -1752,7 +1752,7 @@ async fn execute_manual_actions(
 
     let mut dev =
         ensure_device_with_policy(&state, &app, &control, session_policy_for_flash_run()).await?;
-    let vars = fastboot_flasher::read_all_variables(&mut dev)
+    let vars = pawflash::read_all_variables(&mut dev)
         .await
         .map_err(|e| format!("read vars: {e}"))?;
     let max_download_size = resolve_max_download_size_from_vars(&vars)
@@ -1789,7 +1789,7 @@ async fn execute_manual_actions(
 }
 
 async fn execute_manual_flash(
-    actions: &[fastboot_flasher::manual::ManualFlashAction],
+    actions: &[pawflash::manual::ManualFlashAction],
     dev: &mut FastbootDevice,
     max_download_size: u32,
     app: &tauri::AppHandle,
@@ -1824,7 +1824,7 @@ async fn execute_manual_flash(
 #[tauri::command]
 async fn set_active_slot(state: tauri::State<'_, AppState>, slot: String) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = fastboot_flasher::set_fastboot_active_slot(&mut dev, &slot)
+    let result = pawflash::set_fastboot_active_slot(&mut dev, &slot)
         .await
         .map_err(|e| format!("set active: {e}"));
     drop(dev);
@@ -1834,7 +1834,7 @@ async fn set_active_slot(state: tauri::State<'_, AppState>, slot: String) -> Res
 #[tauri::command]
 async fn reboot_device(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = fastboot_flasher::reboot_device(&mut dev)
+    let result = pawflash::reboot_device(&mut dev)
         .await
         .map_err(|e| format!("reboot: {e}"));
     // Device is gone after reboot — don't put it back
@@ -1845,7 +1845,7 @@ async fn reboot_device(state: tauri::State<'_, AppState>) -> Result<(), String> 
 #[tauri::command]
 async fn reboot_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = fastboot_flasher::reboot_device_bootloader(&mut dev)
+    let result = pawflash::reboot_device_bootloader(&mut dev)
         .await
         .map_err(|e| format!("reboot bootloader: {e}"));
     drop(dev);
@@ -1855,7 +1855,7 @@ async fn reboot_bootloader(state: tauri::State<'_, AppState>) -> Result<(), Stri
 #[tauri::command]
 async fn reboot_fastboot(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = fastboot_flasher::reboot_device_fastboot(&mut dev)
+    let result = pawflash::reboot_device_fastboot(&mut dev)
         .await
         .map_err(|e| format!("reboot fastboot: {e}"));
     drop(dev);
@@ -1876,7 +1876,7 @@ async fn reboot_recovery(state: tauri::State<'_, AppState>) -> Result<(), String
 #[tauri::command]
 async fn power_off_device(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = fastboot_flasher::power_off_device(&mut dev)
+    let result = pawflash::power_off_device(&mut dev)
         .await
         .map_err(|e| normalize_power_off_error(&format!("power off: {e}")));
     drop(dev);
@@ -1886,7 +1886,7 @@ async fn power_off_device(state: tauri::State<'_, AppState>) -> Result<(), Strin
 #[tauri::command]
 async fn unlock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = fastboot_flasher::send_flashing_unlock(&mut dev)
+    let result = pawflash::send_flashing_unlock(&mut dev)
         .await
         .map_err(|e| format!("unlock: {e}"));
     drop(dev);
@@ -1896,7 +1896,7 @@ async fn unlock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), Stri
 #[tauri::command]
 async fn lock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = fastboot_flasher::send_flashing_lock(&mut dev)
+    let result = pawflash::send_flashing_lock(&mut dev)
         .await
         .map_err(|e| format!("lock: {e}"));
     drop(dev);
@@ -2141,10 +2141,10 @@ mod tests {
         DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashRunControl, ForceFastbootState,
         StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
     };
-    use fastboot_flasher_core::gsi::{
+    use pawflash::gsi::{
         detect_fastboot_mode as shared_detect_fastboot_mode, FastbootMode as SharedFastbootMode,
     };
-    use fastboot_flasher_core::plan::slot_to_scatter;
+    use pawflash::plan::slot_to_scatter;
     use mtk_scatter_parser::{FlashAction, FlashPlan, FlashPlanSummary};
     use serde_json::json;
     use std::collections::BTreeMap;

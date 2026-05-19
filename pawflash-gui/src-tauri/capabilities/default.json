@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicolas-chaulet/tauri-v2-schemas/main/capability-schema.json",
   "identifier": "default",
-  "description": "Default capability for fastboot-flasher-gui",
+  "description": "Default capability for pawflash-gui",
   "windows": ["main"],
   "permissions": [
     "core:default",
