@@ -71,12 +71,14 @@ fn build_format_tools(root: PathBuf, platform: &str) -> FormatTools {
 }
 
 struct AppState {
-    device: Mutex<Option<FastbootDevice>>,
+    device: DeviceCache,
     flash_plans: Mutex<StoredPlans>,
     flash_control: FlashRunControl,
     force_fastboot: Mutex<ForceFastbootState>,
     flash_in_progress: AtomicBool,
 }
+
+type DeviceCache = Mutex<Option<FastbootDevice>>;
 
 struct StoredPlans {
     next_id: u64,
@@ -247,6 +249,10 @@ fn lock_device(state: &AppState) -> Result<std::sync::MutexGuard<'_, Option<Fast
     }
 }
 
+fn new_device_cache() -> DeviceCache {
+    Mutex::new(None)
+}
+
 fn lock_flash_plans(state: &AppState) -> Result<std::sync::MutexGuard<'_, StoredPlans>, String> {
     match state.flash_plans.lock() {
         Ok(guard) => Ok(guard),
@@ -321,7 +327,11 @@ fn session_policy_for_flash_run() -> DeviceSessionPolicy {
 }
 
 fn session_policy_for_read_only_command() -> DeviceSessionPolicy {
-    DeviceSessionPolicy::ReuseCached
+    if cfg!(windows) {
+        DeviceSessionPolicy::Fresh
+    } else {
+        DeviceSessionPolicy::ReuseCached
+    }
 }
 
 fn session_policy_for_mutating_command() -> DeviceSessionPolicy {
@@ -937,7 +947,7 @@ async fn connect_device(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<DeviceInfo, String> {
-    check_device_with_diagnostics(&state, &app).await
+    check_device_with_diagnostics(state.inner(), &app).await
 }
 
 #[tauri::command]
@@ -945,7 +955,7 @@ async fn check_device(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<DeviceInfo, String> {
-    check_device_with_diagnostics(&state, &app).await
+    check_device_with_diagnostics(state.inner(), &app).await
 }
 
 #[tauri::command]
@@ -2075,7 +2085,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             app.manage(AppState {
-                device: Mutex::new(None),
+                device: new_device_cache(),
                 flash_plans: Mutex::new(StoredPlans {
                     next_id: 1,
                     plans: HashMap::new(),
@@ -2151,7 +2161,7 @@ mod tests {
     use super::{
         build_device_check_diagnostic, cancel_force_fastboot_session,
         describe_fastboot_probe_failure, describe_probe_stage, display_safety_class,
-        filter_actions, load_flash_plan, normalize_power_off_error, normalize_slot,
+        filter_actions, load_flash_plan, new_device_cache, normalize_power_off_error, normalize_slot,
         normalize_storage_label, parse_flash_mode, parse_plan_request,
         plan_requires_connected_device, plan_to_dto, prepare_for_gsi_worker_launch,
         resolve_image_path_for_action, session_policy_for_flash_run,
@@ -2225,7 +2235,7 @@ mod tests {
 
     fn test_state() -> AppState {
         AppState {
-            device: Mutex::new(None),
+            device: new_device_cache(),
             flash_plans: Mutex::new(StoredPlans {
                 next_id: 1,
                 plans: HashMap::new(),
@@ -2315,9 +2325,14 @@ mod tests {
 
     #[test]
     fn read_only_commands_may_reuse_cached_device_sessions() {
+        let expected = if cfg!(windows) {
+            DeviceSessionPolicy::Fresh
+        } else {
+            DeviceSessionPolicy::ReuseCached
+        };
         assert_eq!(
             session_policy_for_read_only_command(),
-            DeviceSessionPolicy::ReuseCached
+            expected
         );
     }
 
