@@ -1100,6 +1100,7 @@ fn interface_name_from_entry(entry: &[u8]) -> Result<String, String> {
     Err("unterminated UTF-16 interface name".to_string())
 }
 
+#[allow(dead_code)]
 fn wide_slice_to_string(words: &[u16]) -> Result<String, String> {
     let Some(len) = words.iter().position(|word| *word == 0) else {
         return Err("unterminated UTF-16 string".to_string());
