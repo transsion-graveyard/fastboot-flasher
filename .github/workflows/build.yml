@@ -132,7 +132,8 @@ jobs:
           if [ -z "$PREV" ]; then
             BODY="$BODY\n\nInitial release."
           else
-            BODY="$BODY\n\n$(git log "$PREV..HEAD" --oneline --no-merges --pretty=format:'- %s')"
+            ENTRIES=$(git log "$PREV..HEAD" --no-merges --format='### %s%n%b' | sed '/^[[:space:]]*$/d')
+            BODY="$BODY\n\n$ENTRIES"
           fi
           {
             echo 'body<<EOF'
