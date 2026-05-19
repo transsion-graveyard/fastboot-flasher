@@ -4,7 +4,6 @@ import {
   Minus,
   X,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
@@ -31,7 +30,6 @@ export function FlashDialog({
 }: FlashDialogProps) {
   const {
     phase,
-    runMode,
     operation,
     partition,
     bytes,
@@ -66,13 +64,13 @@ export function FlashDialog({
           data-slot="flash-dialog"
           className={cn(
             "fixed top-1/2 left-1/2 z-50 flex w-[min(48rem,calc(100vw-1rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md border border-border bg-background shadow-[var(--overlay-shadow)] pointer-events-auto outline-none transition-all duration-150 data-closed:scale-[0.99] data-closed:opacity-0 data-open:scale-100 data-open:opacity-100",
-            !isFinished && "min-h-[19rem]",
+            !isFinished && "min-h-[15rem]",
           )}
         >
           <div className="grid gap-3 border-b border-border px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div className="min-w-0">
               <DialogPrimitive.Title className={cn("truncate text-base font-semibold", tone.title)}>
-                {compactTitle(phase, runMode, operation)}
+                {compactTitle(phase, operation)}
               </DialogPrimitive.Title>
             </div>
             <div className="relative z-10 flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -130,29 +128,22 @@ export function FlashDialog({
 
             <div className={cn("grid gap-3", showCurrentCard ? "xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]" : "grid-cols-1")}>
               {showCurrentCard && (
-                <section className="status-shell space-y-4 px-4 py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="panel-meta">Current transfer</p>
-                      <p className="mt-1 text-sm font-semibold leading-5">{currentSectionTitle(phase, operation)}</p>
-                    </div>
-                    <Badge variant="outline" className="shrink-0">
-                      {phaseBadge(phase, runMode, operation)}
-                    </Badge>
+                <section className="status-shell grid gap-4 px-4 py-4">
+                  <div className="min-w-0">
+                    <ProgressBlock
+                      label={currentProgressLabel(phase, operation)}
+                      value={phase === "waiting" ? 0 : imagePct}
+                      toneClass={tone.bar}
+                      caption={currentProgressCaption(phase, operation, partition, statusText)}
+                      amount={phase === "waiting" ? "" : formatBytesProgress(bytes, total)}
+                    />
                   </div>
 
-                  <ProgressBlock
-                    label={currentProgressLabel(phase, operation)}
-                    value={phase === "waiting" ? 0 : imagePct}
-                    toneClass={tone.bar}
-                    caption={currentProgressCaption(phase, operation, partition, statusText)}
-                    amount={phase === "waiting" ? "" : formatBytesProgress(bytes, total)}
+                  <Metric
+                    className="w-fit justify-self-end text-right"
+                    label="Transfer speed"
+                    value={phase === "flashing" && speedBps > 0 ? formatSpeed(speedBps) : "—"}
                   />
-
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Metric label="Partition" value={currentPartitionValue(phase, operation, partition, statusText)} />
-                    <Metric label="Transfer speed" value={phase === "flashing" && speedBps > 0 ? formatSpeed(speedBps) : "—"} />
-                  </div>
                 </section>
               )}
 
@@ -224,9 +215,17 @@ function ProgressBlock({
   );
 }
 
-function Metric({ label, value }: { label: string; value: number | string }) {
+function Metric({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: number | string;
+  className?: string;
+}) {
   return (
-    <div className="status-shell px-3 py-2">
+    <div className={cn("status-shell px-3 py-2", className)}>
       <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
       <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
     </div>
@@ -263,45 +262,18 @@ function phaseTone(phase: "idle" | "waiting" | "flashing" | "complete" | "cancel
   }
 }
 
-function phaseBadge(
-  phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
-  runMode: "" | "live" | "dry_run",
-  operation: "" | "flash" | "erase",
-) {
-  if (phase === "waiting") return "Waiting";
-  if (phase === "flashing" && runMode === "dry_run") return operation === "erase" ? "Dry erase" : "Dry run";
-  if (phase === "flashing") return operation === "erase" ? "Erasing" : "Flashing";
-  if (phase === "complete") return runMode === "dry_run" ? "Dry complete" : "Complete";
-  if (phase === "cancelled") return "Cancelled";
-  if (phase === "error") return "Error";
-  return "Preparing";
-}
-
 function compactTitle(
   phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
-  runMode: "" | "live" | "dry_run",
   operation: "" | "flash" | "erase",
 ) {
   if (phase === "waiting") return "Waiting for device...";
-  if (phase === "flashing" && runMode === "dry_run") {
-    return "Dry run progress";
-  }
   if (phase === "flashing") {
     return operation === "erase" ? "Erase progress" : "Flash progress";
   }
-  if (phase === "complete") return runMode === "dry_run" ? "Dry run complete" : "Flash complete";
+  if (phase === "complete") return "Flash complete";
   if (phase === "cancelled") return "Cancelled";
   if (phase === "error") return "Flash failed";
   return "Preparing...";
-}
-
-function currentSectionTitle(
-  phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
-  operation: "" | "flash" | "erase",
-) {
-  if (phase === "waiting") return "Waiting for device";
-  if (phase === "complete") return "Transfer complete";
-  return operation === "erase" ? "Erase operation" : "Flash operation";
 }
 
 function currentProgressLabel(
@@ -321,17 +293,6 @@ function currentProgressCaption(
   if (phase === "waiting") return statusText || "No device connected";
   if (partition) return partition;
   return operation === "erase" ? "Preparing erase" : "Preparing partition";
-}
-
-function currentPartitionValue(
-  phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
-  operation: "" | "flash" | "erase",
-  partition: string,
-  statusText = "",
-) {
-  if (phase === "waiting") return statusText || "No device connected";
-  if (partition) return partition;
-  return operation === "erase" ? "Erase step" : "Preparing image";
 }
 
 function overallCaption(

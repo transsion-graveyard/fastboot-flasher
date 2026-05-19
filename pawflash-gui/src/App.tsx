@@ -795,7 +795,6 @@ export default function App() {
         }}
         plan={plan}
         selectedPartitions={selectedPartitions}
-        rebootAfter={rebootAfter}
         isPending={isStartingFlash || isParsingPlan || flash.phase === "waiting" || forceFastboot.phase === "waiting"}
       />
       <FlashDialog
