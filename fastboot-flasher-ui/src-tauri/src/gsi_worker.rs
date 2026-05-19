@@ -302,11 +302,27 @@ pub(crate) async fn run_gsi_worker_and_emit(
     Ok(summary)
 }
 
+pub(crate) fn gsi_worker_connect_retry_delay() -> Duration {
+    #[cfg(target_os = "windows")]
+    {
+        Duration::from_millis(250)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Duration::ZERO
+    }
+}
+
 async fn execute_gsi_worker_request(
     request: GsiWorkerRequest,
     mut emit: impl FnMut(GsiWorkerMessage) -> Result<(), String>,
 ) -> Result<FlashSummaryDto, String> {
     emit(GsiWorkerMessage::Event(FlashEvent::WaitingForDevice))?;
+
+    let startup_delay = gsi_worker_connect_retry_delay();
+    if !startup_delay.is_zero() {
+        sleep(startup_delay).await;
+    }
 
     let mut dev = fastboot_flasher::connect_fastboot()
         .await
@@ -440,9 +456,11 @@ fn gsi_step_status(step: GsiStep) -> &'static str {
 mod tests {
     use crate::{FlashEvent, FlashSummaryDto};
     use fastboot_flasher::gsi::{GsiEvent, GsiStep};
+    use tokio::time::Duration;
 
     use super::{
-        GsiWorkerMessage, GsiWorkerProgressMapper, GsiWorkerRequest, GsiWorkerResult,
+        gsi_worker_connect_retry_delay, GsiWorkerMessage, GsiWorkerProgressMapper,
+        GsiWorkerRequest, GsiWorkerResult,
     };
 
     #[test]
@@ -553,5 +571,14 @@ mod tests {
                 status: "flashing_system_gsi".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn gsi_worker_connect_retry_delay_matches_platform_policy() {
+        #[cfg(target_os = "windows")]
+        assert_eq!(gsi_worker_connect_retry_delay(), Duration::from_millis(250));
+
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(gsi_worker_connect_retry_delay(), Duration::ZERO);
     }
 }

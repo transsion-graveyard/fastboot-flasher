@@ -968,7 +968,15 @@ async fn start_gsi_flash_inner(
 ) -> Result<FlashSummaryDto, String> {
     let _guard = FlashGuard::new(&state)?;
     let control = begin_flash_run(&state);
+    prepare_for_gsi_worker_launch(&state).await?;
     gsi_worker::run_gsi_worker_and_emit(&state, &app, &control, image).await
+}
+
+async fn prepare_for_gsi_worker_launch(state: &AppState) -> Result<(), String> {
+    // The GSI worker opens its own fresh USB session in a child process.
+    // Release any cached parent-process handle first so Windows can reopen it reliably.
+    invalidate_cached_device(state)?;
+    Ok(())
 }
 
 async fn simulate_dry_run_actions(
@@ -1909,6 +1917,7 @@ pub fn run() {
 mod tests {
     use super::{
         cancel_force_fastboot_session, display_safety_class, filter_actions, load_flash_plan,
+        prepare_for_gsi_worker_launch,
         normalize_slot, normalize_storage_label, parse_flash_mode, parse_plan_request,
         plan_requires_connected_device, plan_to_dto, resolve_image_path_for_action,
         session_policy_for_flash_run, session_policy_for_mutating_command,
@@ -2229,5 +2238,14 @@ mod tests {
         assert!(!cancel_force_fastboot_session(&state, first));
         assert!(cancel_force_fastboot_session(&state, second));
         assert!(!cancel_force_fastboot_session(&state, second));
+    }
+
+    #[tokio::test]
+    async fn preparing_for_gsi_worker_launch_is_a_safe_no_op_without_cached_device() {
+        let state = test_state();
+
+        prepare_for_gsi_worker_launch(&state).await.unwrap();
+
+        assert!(state.device.lock().unwrap().is_none());
     }
 }
