@@ -11,6 +11,7 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 serialport = "4"
 terminal-output = { path = "../terminal-output" }
+thiserror = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

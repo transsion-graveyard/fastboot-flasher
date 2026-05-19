@@ -5,6 +5,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
+use tauri::{path::BaseDirectory, Emitter, Manager};
+use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration, Instant};
+
 use fastboot_flasher::{
     self,
     cli::{FlashMode, SlotArg},
@@ -20,10 +25,6 @@ use fastboot_rs::{
     open_fastboot_with_observer, BackendKind, FlashProgress, ProbeLogLevel,
 };
 use mtk_scatter_parser::FlashPlan;
-use serde::{Deserialize, Serialize};
-use tauri::{path::BaseDirectory, Emitter, Manager};
-use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration, Instant};
 
 const CANCELLED_MESSAGE: &str = "cancelled by user";
 const DEVICE_CHECK_TIMEOUT_MS: u64 = 120_000;
@@ -1401,7 +1402,7 @@ async fn manual_flash_inner(
     let actions =
         fastboot_flasher::manual::manual_flash_actions(&partition, &PathBuf::from(&image), slot)
             .map_err(|e| format!("manual flash: {e}"))?;
-    execute_manual_actions(state, app, actions).await
+    execute_manual_actions(state, app, &actions).await
 }
 
 #[tauri::command]
@@ -1421,7 +1422,7 @@ async fn disable_vbmeta_inner(
     let empty_vbmeta = standalone_disable_vbmeta_path().map_err(|e| format!("vbmeta path: {e}"))?;
     let actions =
         disable_vbmeta_actions(&empty_vbmeta).map_err(|e| format!("vbmeta actions: {e}"))?;
-    execute_manual_actions(state, app, actions).await
+    execute_manual_actions(state, app, &actions).await
 }
 
 #[tauri::command]
@@ -1695,7 +1696,7 @@ async fn wipe_data_inner(
 async fn execute_manual_actions(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
-    actions: Vec<fastboot_flasher::manual::ManualFlashAction>,
+    actions: &[fastboot_flasher::manual::ManualFlashAction],
 ) -> Result<FlashSummaryDto, String> {
     let _guard = FlashGuard::new(&state)?;
     let control = begin_flash_run(&state);
@@ -1787,7 +1788,7 @@ async fn flash_one_partition_evented(
     app: &tauri::AppHandle,
     completed_before: u64,
     overall_total: u64,
-) -> anyhow::Result<()> {
+) -> Result<(), String> {
     let app = app.clone();
     let p = partition.to_string();
     let p2 = p.clone();
@@ -1827,12 +1828,13 @@ async fn flash_one_partition_evented(
             let _ = callback_tx.send((bytes_flashed, speed_bps));
         }
     })
-    .await?;
+    .await
+    .map_err(|e| format!("{e:#}"))?;
     drop(progress_tx);
     emit_task
         .await
-        .map_err(|e| anyhow::anyhow!("join flash emitter task: {e}"))?
-        .map_err(anyhow::Error::msg)
+        .map_err(|e| format!("join flash emitter task: {e}"))?
+        ?
 }
 
 #[tauri::command]

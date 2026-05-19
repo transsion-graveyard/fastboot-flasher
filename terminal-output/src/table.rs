@@ -1,8 +1,9 @@
+use std::fmt;
+
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL_CONDENSED, Attribute, Cell,
     ContentArrangement, Table,
 };
-use std::fmt;
 
 use crate::chrome::center_block;
 

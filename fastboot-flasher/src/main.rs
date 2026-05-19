@@ -1796,7 +1796,7 @@ fn print_completion_with_elapsed(title: &str, summary: ActionSummary, elapsed: D
     );
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn _mode_for_docs(mode: FlashMode) -> mtk_scatter_parser::Mode {
     mode_to_scatter(mode)
 }

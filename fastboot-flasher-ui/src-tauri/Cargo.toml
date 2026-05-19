@@ -24,7 +24,6 @@ mtk-scatter-parser = { path = "../../mtk-scatter-parser" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "io-util", "process", "sync"] }
-anyhow = "1"
 
 [profile.release]
 lto = "fat"

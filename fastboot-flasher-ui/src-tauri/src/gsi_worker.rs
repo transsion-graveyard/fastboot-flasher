@@ -3,6 +3,12 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
 
+use serde::{Deserialize, Serialize};
+use tauri::Emitter;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
+use tokio::time::{sleep, Duration};
+
 use fastboot_flasher::{
     self,
     format::{detect_userdata, FormatTools, WipeDataOptions},
@@ -13,11 +19,6 @@ use fastboot_flasher::{
     },
     manual::resolved_disable_vbmeta_image_path,
 };
-use serde::{Deserialize, Serialize};
-use tauri::Emitter;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
-use tokio::time::{sleep, Duration};
 
 use crate::{
     build_format_tools, format_tools_platform, resolve_format_tools, AppState, FlashEvent,

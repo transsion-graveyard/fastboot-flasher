@@ -12,7 +12,7 @@ pub mod nusb;
 use self::adbwinapi::{
     AdbWinApiFastboot, AdbWinApiFastbootError, AdbWinApiFastbootOpenError, AdbWinApiProbeDetail,
 };
-use self::nusb::{DataDownload as NusbDataDownload, NusbFastBoot, NusbFastBootError};
+use self::nusb::{DataDownload as NusbDataDownload, NusbFastBoot, NusbFastBootError, NusbFastBootOpenError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
@@ -60,10 +60,10 @@ pub enum FastbootError {
 #[derive(Debug, Error)]
 pub enum FastbootOpenError {
     #[error("nusb: {0}")]
-    Nusb(String),
+    Nusb(#[from] NusbFastBootOpenError),
     #[cfg(windows)]
     #[error("adbwinapi: {0}")]
-    AdbWinApi(String),
+    AdbWinApi(#[from] AdbWinApiFastbootOpenError),
     #[cfg(windows)]
     #[error("no usable fastboot backend found (nusb: {nusb}; adbwinapi: {adbwinapi})")]
     Combined { nusb: String, adbwinapi: String },
@@ -416,7 +416,7 @@ pub async fn open_fastboot_with_observer(
                 message: error.to_string(),
             });
             #[cfg(not(windows))]
-            return Err(FastbootOpenError::Nusb(error.to_string()));
+            return Err(FastbootOpenError::Nusb(error));
             #[cfg(windows)]
             {
                 observer(ProbeEvent {

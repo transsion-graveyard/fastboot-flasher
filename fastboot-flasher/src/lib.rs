@@ -261,6 +261,7 @@ pub fn build_flash_plan(
 
 pub fn force_fastboot() -> anyhow::Result<()> {
     force_fastboot::run_force_fastboot(&force_fastboot::ForceFastbootOptions::default())
+        .map_err(anyhow::Error::from)
 }
 
 #[cfg(test)]

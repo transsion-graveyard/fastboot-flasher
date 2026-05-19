@@ -1,9 +1,10 @@
-use crate::chrome::{status_line, Tone};
-use indicatif::ProgressBar;
 use std::{io::IsTerminal, time::Duration};
 
+use indicatif::ProgressBar;
+
+use crate::chrome::{status_line, Tone};
+
 pub struct StatusSpinner {
-    #[allow(dead_code)]
     pb: Option<ProgressBar>,
 }
 

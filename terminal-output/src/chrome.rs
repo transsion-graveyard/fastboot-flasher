@@ -1,7 +1,8 @@
+use std::fmt::Write as _;
+
 use console::measure_text_width;
 use crossterm::style::{Color, Stylize};
 use crossterm::terminal::size;
-use std::fmt::Write as _;
 use textwrap::{wrap, Options};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

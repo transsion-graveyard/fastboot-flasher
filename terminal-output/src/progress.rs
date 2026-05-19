@@ -1,6 +1,7 @@
+use std::{fmt::Write, time::Duration};
+
 use console::measure_text_width;
 use indicatif::{ProgressState, ProgressStyle};
-use std::{fmt::Write, time::Duration};
 
 const BYTE_PAIR_WIDTH: usize = 21;
 
