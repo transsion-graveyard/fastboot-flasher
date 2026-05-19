@@ -214,7 +214,6 @@ impl NusbFastBoot {
         Ok(FastBootResponse::from_bytes(&resp)?)
     }
 
-    #[tracing::instrument(skip_all, err)]
     async fn handle_responses(&mut self) -> Result<String, NusbFastBootError> {
         loop {
             let resp = self.read_response().await?;
@@ -259,6 +258,34 @@ impl NusbFastBoot {
         match &result {
             Ok(value) => trace!(var, value, "get_var ok"),
             Err(error) => trace!(var, error = %error, "get_var err"),
+        }
+        result
+    }
+
+    /// Get the named variable if the device exposes it.
+    ///
+    /// Missing variables are treated as `Ok(None)` instead of an error.
+    pub async fn get_var_optional(
+        &mut self,
+        var: &str,
+    ) -> Result<Option<String>, NusbFastBootError> {
+        trace!(var, "get_var_optional start");
+        let cmd = FastBootCommand::GetVar(var);
+        self.send_command(cmd).await?;
+        let result = match self.handle_responses().await {
+            Ok(value) => Ok(Some(value)),
+            Err(NusbFastBootError::FastbootFailed(message))
+                if super::is_missing_variable_message(&message) =>
+            {
+                trace!(var, "get_var_optional missing");
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        };
+        match &result {
+            Ok(Some(value)) => trace!(var, value, "get_var_optional ok"),
+            Ok(None) => (),
+            Err(error) => trace!(var, error = %error, "get_var_optional err"),
         }
         result
     }
@@ -327,15 +354,9 @@ impl NusbFastBoot {
     /// Return whether the given partition is logical.
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool, NusbFastBootError> {
         trace!(partition, "is_logical start");
-        let value = match self.get_var(&format!("is-logical:{partition}")).await {
-            Ok(value) => value,
-            Err(NusbFastBootError::FastbootFailed(message))
-                if message.to_ascii_lowercase().contains("variable not found") =>
-            {
-                trace!(partition, "is_logical missing-var default=false");
-                return Ok(false);
-            }
-            Err(error) => return Err(error),
+        let Some(value) = self.get_var_optional(&format!("is-logical:{partition}")).await? else {
+            trace!(partition, "is_logical missing-var default=false");
+            return Ok(false);
         };
         let parsed = Self::parse_is_logical_value(&value).map_err(|reason| {
             NusbFastBootError::InvalidVariable {
@@ -472,6 +493,7 @@ impl NusbFastBoot {
 #[cfg(test)]
 mod tests {
     use super::NusbFastBoot;
+    use crate::transport::is_missing_variable_message;
 
     #[test]
     fn parse_is_logical_value_accepts_yes_and_no() {
@@ -484,6 +506,13 @@ mod tests {
     fn parse_is_logical_value_rejects_unknown_values() {
         let error = NusbFastBoot::parse_is_logical_value("maybe").unwrap_err();
         assert!(error.contains("unsupported logical partition value"));
+    }
+
+    #[test]
+    fn missing_variable_detection_is_case_insensitive() {
+        assert!(is_missing_variable_message("Variable Not Found"));
+        assert!(is_missing_variable_message("FASTBOOT client failure: variable not found"));
+        assert!(!is_missing_variable_message("bootloader rejected flash"));
     }
 }
 

@@ -661,6 +661,26 @@ impl AdbWinApiFastboot {
         self.execute_sync(FastBootCommand::GetVar(var))
     }
 
+    /// Read a fastboot variable if the device exposes it.
+    ///
+    /// Missing variables are treated as `Ok(None)` instead of an error.
+    pub async fn get_var_optional(
+        &mut self,
+        var: &str,
+    ) -> Result<Option<String>, AdbWinApiFastbootError> {
+        self.send_command_sync(FastBootCommand::GetVar(var))?;
+        let result = match self.handle_responses_sync() {
+            Ok(value) => Ok(Some(value)),
+            Err(AdbWinApiFastbootError::FastbootFailed(message))
+                if crate::transport::is_missing_variable_message(&message) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        };
+        result
+    }
+
     /// Read and parse `max-download-size`.
     pub async fn max_download_size(&mut self) -> Result<u32, AdbWinApiFastbootError> {
         let value = self.get_var("max-download-size").await?;
@@ -721,14 +741,8 @@ impl AdbWinApiFastboot {
 
     /// Return whether the named partition is logical.
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool, AdbWinApiFastbootError> {
-        let value = match self.get_var(&format!("is-logical:{partition}")).await {
-            Ok(value) => value,
-            Err(AdbWinApiFastbootError::FastbootFailed(message))
-                if message.to_ascii_lowercase().contains("variable not found") =>
-            {
-                return Ok(false)
-            }
-            Err(error) => return Err(error),
+        let Some(value) = self.get_var_optional(&format!("is-logical:{partition}")).await? else {
+            return Ok(false);
         };
         Self::parse_is_logical_value(&value).map_err(|reason| {
             AdbWinApiFastbootError::InvalidVariable {

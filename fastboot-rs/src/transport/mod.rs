@@ -74,6 +74,10 @@ pub enum FastbootError {
     AdbWinApi(#[from] AdbWinApiFastbootError),
 }
 
+pub(crate) fn is_missing_variable_message(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("variable not found")
+}
+
 /// Errors when opening a fastboot device.
 #[derive(Debug, Error)]
 pub enum FastbootOpenError {
@@ -187,6 +191,12 @@ impl FastbootDevice {
     /// Query a fastboot variable by name.
     pub async fn get_var(&mut self, var: &str) -> Result<String, FastbootError> {
         delegate_device_backend!(&mut self.backend, get_var, var)
+    }
+
+    /// Query a fastboot variable by name, returning `Ok(None)` when the
+    /// device reports that the variable does not exist.
+    pub async fn get_var_optional(&mut self, var: &str) -> Result<Option<String>, FastbootError> {
+        delegate_device_backend!(&mut self.backend, get_var_optional, var)
     }
 
     /// Retrieve all fastboot variables (`getvar:all`).

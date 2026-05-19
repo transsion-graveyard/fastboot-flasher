@@ -135,9 +135,10 @@ pub fn parse_fastboot_u64(value: &str) -> anyhow::Result<u64> {
 }
 
 async fn get_var_optional(dev: &mut FastbootDevice, name: &str) -> Option<String> {
-    dev.get_var(name)
+    dev.get_var_optional(name)
         .await
         .ok()
+        .flatten()
         .map(|value| value.trim().to_string())
 }
 

@@ -22,7 +22,7 @@ use crate::{
         FormatTools, FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
     },
     manual::resolved_disable_vbmeta_image_path,
-    read_all_variables, read_variable, reboot_device_bootloader, reboot_device_fastboot,
+    read_all_variables, reboot_device_bootloader, reboot_device_fastboot,
     resolve_max_download_size_from_vars, FastbootDevice,
 };
 use fastboot_rs::alternate_backend_kind;
@@ -451,13 +451,13 @@ async fn try_partition_size(
             .with_context(|| format!("parse {key}"));
     }
 
-    match read_variable(dev, &key).await {
-        Ok(value) => {
+    match dev.get_var_optional(&key).await {
+        Ok(Some(value)) => {
             let size = parse_fastboot_u64(&value).with_context(|| format!("parse {key}"))?;
             vars.insert(key, value);
             Ok(Some(size))
         }
-        Err(_) => Ok(None),
+        Ok(None) | Err(_) => Ok(None),
     }
 }
 
