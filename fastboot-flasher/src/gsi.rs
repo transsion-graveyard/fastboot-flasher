@@ -431,7 +431,7 @@ pub async fn maybe_needs_product_gsi(
     }
 }
 
-const MODE_TRANSITION_TIMEOUT_SECS: u64 = 30;
+const MODE_TRANSITION_TIMEOUT_SECS: u64 = 120;
 
 async fn transition_mode(
     mut dev: NusbFastBoot,
@@ -888,8 +888,8 @@ mod tests {
     use super::{
         build_gsi_execution_plan, detect_fastboot_mode, fixed_product_gsi_spec, normalize_slot,
         resolve_target_partition, should_flash_product_gsi, FastbootMode, GsiFlashOptions,
-        PRODUCT_GSI_BLOCKS, PRODUCT_GSI_BLOCK_SIZE, PRODUCT_GSI_LABEL, PRODUCT_GSI_SIZE_BYTES,
-        PRODUCT_GSI_UUID,
+        MODE_TRANSITION_TIMEOUT_SECS, PRODUCT_GSI_BLOCKS, PRODUCT_GSI_BLOCK_SIZE,
+        PRODUCT_GSI_LABEL, PRODUCT_GSI_SIZE_BYTES, PRODUCT_GSI_UUID,
     };
     use crate::format::{UserdataInfo, WipeDataOptions};
     use std::collections::{HashMap, HashSet};
@@ -1007,5 +1007,10 @@ mod tests {
         assert_eq!(plan.summary.wipe_count, 3);
         assert_eq!(plan.summary.skipped_count, 0);
         assert_eq!(plan.summary.total_bytes, 2_048 + 8 + 1 + 1 + 1);
+    }
+
+    #[test]
+    fn mode_transition_timeout_is_two_minutes() {
+        assert_eq!(MODE_TRANSITION_TIMEOUT_SECS, 120);
     }
 }

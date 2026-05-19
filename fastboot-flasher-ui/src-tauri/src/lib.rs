@@ -16,14 +16,23 @@ use fastboot_flasher::{
     progress::dry_run_steps,
     resolve_max_download_size_from_vars, NusbFastBoot,
 };
-use fastboot_rs::FlashProgress;
+use fastboot_rs::{
+    transport::nusb::{devices as list_fastboot_devices, NusbFastBootOpenError},
+    FlashProgress,
+};
 use mtk_scatter_parser::FlashPlan;
 use serde::{Deserialize, Serialize};
 use tauri::{path::BaseDirectory, Emitter, Manager};
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration, Instant};
 
 const CANCELLED_MESSAGE: &str = "cancelled by user";
+const DEVICE_CHECK_TIMEOUT_MS: u64 = 120_000;
+const DEVICE_RETRY_DELAY_MS: u64 = 250;
+const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
+    "On Windows, fastbootd may need a different USB driver than bootloader mode.";
+const POWER_OFF_UNSUPPORTED_MESSAGE: &str =
+    "Power off is not supported by this device in the current fastboot mode.";
 
 pub fn is_gsi_worker_invocation(args: &[String]) -> bool {
     gsi_worker::is_gsi_worker_invocation(args)
@@ -90,6 +99,13 @@ struct ForceFastbootState {
 enum DeviceSessionPolicy {
     ReuseCached,
     Fresh,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FastbootProbeFailure {
+    NoFastbootInterface,
+    OpenFailed(String),
+    ReadVariablesFailed(String),
 }
 
 #[derive(Clone, Serialize)]
@@ -306,6 +322,32 @@ fn session_policy_for_read_only_command() -> DeviceSessionPolicy {
 
 fn session_policy_for_mutating_command() -> DeviceSessionPolicy {
     DeviceSessionPolicy::Fresh
+}
+
+fn describe_fastboot_probe_failure(failure: &FastbootProbeFailure) -> String {
+    match failure {
+        FastbootProbeFailure::NoFastbootInterface => format!(
+            "No fastboot device detected. {WINDOWS_FASTBOOTD_DRIVER_HINT}"
+        ),
+        FastbootProbeFailure::OpenFailed(error) => format!(
+            "Fastboot device detected but could not be opened: {error}. {WINDOWS_FASTBOOTD_DRIVER_HINT}"
+        ),
+        FastbootProbeFailure::ReadVariablesFailed(error) => format!(
+            "Fastboot device opened but did not respond to fastboot variables: {error}. {WINDOWS_FASTBOOTD_DRIVER_HINT}"
+        ),
+    }
+}
+
+fn normalize_power_off_error(message: &str) -> String {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("unknown command")
+        || lower.contains("unsupported command")
+        || lower.contains("not supported")
+        || lower.contains("not support")
+    {
+        return POWER_OFF_UNSUPPORTED_MESSAGE.to_string();
+    }
+    message.to_string()
 }
 
 fn emit_flash_error(app: &tauri::AppHandle, message: impl Into<String>) -> String {
@@ -535,6 +577,88 @@ async fn connect_device_with_policy(
     }
 }
 
+async fn connect_fastboot_for_device_check() -> Result<NusbFastBoot, FastbootProbeFailure> {
+    let deadline = Instant::now() + Duration::from_millis(DEVICE_CHECK_TIMEOUT_MS);
+    let mut last_open_error = None;
+
+    loop {
+        let mut infos = list_fastboot_devices()
+            .await
+            .map_err(|error| FastbootProbeFailure::OpenFailed(format!("enumerate fastboot devices: {error}")))?;
+        let mut saw_candidate = false;
+
+        for info in infos.by_ref() {
+            saw_candidate = true;
+            match NusbFastBoot::from_info(&info).await {
+                Ok(dev) => {
+                    eprintln!("[device-check] opened fastboot interface");
+                    return Ok(dev);
+                }
+                Err(error) => {
+                    eprintln!("[device-check] failed to open fastboot interface: {error}");
+                    last_open_error = Some(match error {
+                        NusbFastBootOpenError::Device(inner) => format!("open device: {inner}"),
+                        NusbFastBootOpenError::Interface(inner) => {
+                            format!("claim fastboot interface: {inner}")
+                        }
+                        other => other.to_string(),
+                    });
+                }
+            }
+        }
+
+        if !saw_candidate {
+            eprintln!("[device-check] no fastboot interface detected");
+        }
+
+        if Instant::now() >= deadline {
+            break;
+        }
+
+        sleep(Duration::from_millis(DEVICE_RETRY_DELAY_MS)).await;
+    }
+
+    Err(match last_open_error {
+        Some(error) => FastbootProbeFailure::OpenFailed(error),
+        None => FastbootProbeFailure::NoFastbootInterface,
+    })
+}
+
+async fn connect_or_reconnect_device_for_check(state: &AppState) -> Result<NusbFastBoot, String> {
+    if let Some(dev) = take_device(state)? {
+        return Ok(dev);
+    }
+
+    connect_fastboot_for_device_check()
+        .await
+        .map_err(|failure| describe_fastboot_probe_failure(&failure))
+}
+
+async fn check_device_with_diagnostics(state: &AppState) -> Result<DeviceInfo, String> {
+    let mut dev = connect_or_reconnect_device_for_check(state).await?;
+
+    match read_device_info(&mut dev).await {
+        Ok(info) => {
+            put_device(state, dev)?;
+            Ok(info)
+        }
+        Err(error) => {
+            eprintln!("[device-check] cached-or-fresh device read failed: {error}");
+            invalidate_cached_device(state)?;
+            let mut fresh = connect_fastboot_for_device_check()
+                .await
+                .map_err(|failure| describe_fastboot_probe_failure(&failure))?;
+            let info = read_device_info(&mut fresh)
+                .await
+                .map_err(|error| {
+                    describe_fastboot_probe_failure(&FastbootProbeFailure::ReadVariablesFailed(error))
+                })?;
+            put_device(state, fresh)?;
+            Ok(info)
+        }
+    }
+}
+
 async fn flash_partition_and_emit(
     dev: &mut NusbFastBoot,
     app: &tauri::AppHandle,
@@ -699,20 +823,12 @@ async fn erase_optional_partition_and_emit(
 
 #[tauri::command]
 async fn connect_device(state: tauri::State<'_, AppState>) -> Result<DeviceInfo, String> {
-    let mut dev = fastboot_flasher::connect_fastboot()
-        .await
-        .map_err(|e| format!("connect: {e}"))?;
-    let info = read_device_info(&mut dev).await?;
-    put_device(&state, dev)?;
-    Ok(info)
+    check_device_with_diagnostics(&state).await
 }
 
 #[tauri::command]
 async fn check_device(state: tauri::State<'_, AppState>) -> Result<DeviceInfo, String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_read_only_command()).await?;
-    let info = read_device_info(&mut dev).await?;
-    put_device(&state, dev)?;
-    Ok(info)
+    check_device_with_diagnostics(&state).await
 }
 
 #[tauri::command]
@@ -1662,7 +1778,7 @@ async fn power_off_device(state: tauri::State<'_, AppState>) -> Result<(), Strin
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::power_off_device(&mut dev)
         .await
-        .map_err(|e| format!("power off: {e}"));
+        .map_err(|e| normalize_power_off_error(&format!("power off: {e}")));
     drop(dev);
     Ok(result?)
 }
@@ -1916,14 +2032,15 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        cancel_force_fastboot_session, display_safety_class, filter_actions, load_flash_plan,
-        prepare_for_gsi_worker_launch,
-        normalize_slot, normalize_storage_label, parse_flash_mode, parse_plan_request,
-        plan_requires_connected_device, plan_to_dto, resolve_image_path_for_action,
-        session_policy_for_flash_run, session_policy_for_mutating_command,
-        session_policy_for_read_only_command, start_force_fastboot_session, store_flash_plan,
-        update_overall_progress, AppState, DeviceSessionPolicy, FlashRunControl,
-        ForceFastbootState, StoredPlans,
+        cancel_force_fastboot_session, describe_fastboot_probe_failure, display_safety_class,
+        filter_actions, load_flash_plan, normalize_power_off_error, normalize_slot,
+        normalize_storage_label, parse_flash_mode, parse_plan_request,
+        plan_requires_connected_device, plan_to_dto, prepare_for_gsi_worker_launch,
+        resolve_image_path_for_action, session_policy_for_flash_run,
+        session_policy_for_mutating_command, session_policy_for_read_only_command,
+        start_force_fastboot_session, store_flash_plan, update_overall_progress, AppState,
+        DeviceSessionPolicy, FastbootProbeFailure, FlashRunControl, ForceFastbootState,
+        StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
     };
     use fastboot_flasher::gsi::{
         detect_fastboot_mode as shared_detect_fastboot_mode,
@@ -2247,5 +2364,39 @@ mod tests {
         prepare_for_gsi_worker_launch(&state).await.unwrap();
 
         assert!(state.device.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn device_check_timeout_is_two_minutes() {
+        assert_eq!(DEVICE_CHECK_TIMEOUT_MS, 120_000);
+    }
+
+    #[test]
+    fn fastboot_probe_failure_messages_include_windows_driver_hint() {
+        let no_interface = describe_fastboot_probe_failure(&FastbootProbeFailure::NoFastbootInterface);
+        let open_failed =
+            describe_fastboot_probe_failure(&FastbootProbeFailure::OpenFailed("access denied".to_string()));
+        let read_failed = describe_fastboot_probe_failure(&FastbootProbeFailure::ReadVariablesFailed(
+            "read vars: transport stalled".to_string(),
+        ));
+
+        assert!(no_interface.contains("No fastboot device detected"));
+        assert!(no_interface.contains("Windows"));
+        assert!(open_failed.contains("could not be opened"));
+        assert!(open_failed.contains("access denied"));
+        assert!(read_failed.contains("did not respond to fastboot variables"));
+        assert!(read_failed.contains("transport stalled"));
+    }
+
+    #[test]
+    fn normalize_power_off_error_maps_unsupported_command_failures() {
+        let normalized = normalize_power_off_error(
+            "power off: Fastboot client failure: unknown command powerdown",
+        );
+
+        assert_eq!(
+            normalized,
+            "Power off is not supported by this device in the current fastboot mode."
+        );
     }
 }

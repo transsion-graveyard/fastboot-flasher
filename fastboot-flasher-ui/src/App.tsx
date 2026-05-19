@@ -27,6 +27,8 @@ import type { FlashPlanDto, ParseScatterResponseDto, PartitionDto } from "@/type
 
 const SCATTER_STORAGE_KEY = "last-scatter-path";
 const GSI_STORAGE_KEY = "last-gsi-image-path";
+const DEVICE_CHECK_TIMEOUT_MS = 120_000;
+const DEVICE_CHECK_TIMEOUT_LABEL = "2 minutes";
 type AppTheme = "light" | "dark";
 
 function resolveInitialTheme(): AppTheme {
@@ -439,7 +441,11 @@ export default function App() {
 
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Device check timed out after 30 seconds")), 30000)
+        setTimeout(
+          () =>
+            reject(new Error(`Device check timed out after ${DEVICE_CHECK_TIMEOUT_LABEL}`)),
+          DEVICE_CHECK_TIMEOUT_MS,
+        )
       );
       const info = await Promise.race([device.check(), timeoutPromise]);
       const summary = `serial=${info.serial || "unknown"} product=${info.product || "unknown"} slot=${info.slot || "unknown"} unlocked=${info.unlocked || "unknown"}`;
