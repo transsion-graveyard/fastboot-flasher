@@ -253,12 +253,12 @@ impl NusbFastBoot {
     ///
     /// The "all" variable is special; For that [Self::get_all_vars] should be used instead
     pub async fn get_var(&mut self, var: &str) -> Result<String, NusbFastBootError> {
-        eprintln!("[nusb-fastboot] get_var start var={var}");
+        trace!(var, "get_var start");
         let cmd = FastBootCommand::GetVar(var);
         let result = self.execute(cmd).await;
         match &result {
-            Ok(value) => eprintln!("[nusb-fastboot] get_var ok var={} value={}", var, value),
-            Err(error) => eprintln!("[nusb-fastboot] get_var err var={} error={}", var, error),
+            Ok(value) => trace!(var, value, "get_var ok"),
+            Err(error) => trace!(var, error = %error, "get_var err"),
         }
         result
     }
@@ -293,7 +293,7 @@ impl NusbFastBoot {
     ///
     /// When successful the [DataDownload] helper should be used to actually send the data
     pub async fn download(&'_ mut self, size: u32) -> Result<DataDownload<'_>, NusbFastBootError> {
-        eprintln!("[nusb-fastboot] download start size=0x{size:08x}");
+        trace!(size = %format!("0x{size:08x}"), "download start");
         let cmd = FastBootCommand::<&str>::Download(size);
         self.send_command(cmd).await?;
         loop {
@@ -302,7 +302,7 @@ impl NusbFastBoot {
                 FastBootResponse::Info(i) => info!("info: {i}"),
                 FastBootResponse::Text(t) => info!("Text: {}", t),
                 FastBootResponse::Data(size) => {
-                    eprintln!("[nusb-fastboot] download ready size=0x{size:08x}");
+                    trace!(size = %format!("0x{size:08x}"), "download ready");
                     return Ok(DataDownload::new(self, size));
                 }
                 FastBootResponse::Okay(_) => {
@@ -317,26 +317,22 @@ impl NusbFastBoot {
 
     /// Flash downloaded data to a given target partition
     pub async fn flash(&mut self, target: &str) -> Result<(), NusbFastBootError> {
-        eprintln!("[nusb-fastboot] flash start target={target}");
+        trace!(target, "flash start");
         let cmd = FastBootCommand::Flash(target);
         self.execute(cmd).await.map(|v| {
-            eprintln!("[nusb-fastboot] flash ok target={} value={}", target, v);
-            trace!("Flash ok: {v}");
+            trace!(target, value = %v, "flash ok");
         })
     }
 
     /// Return whether the given partition is logical.
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool, NusbFastBootError> {
-        eprintln!("[nusb-fastboot] is_logical start partition={partition}");
+        trace!(partition, "is_logical start");
         let value = match self.get_var(&format!("is-logical:{partition}")).await {
             Ok(value) => value,
             Err(NusbFastBootError::FastbootFailed(message))
                 if message.to_ascii_lowercase().contains("variable not found") =>
             {
-                eprintln!(
-                    "[nusb-fastboot] is_logical missing-var partition={} default=false",
-                    partition
-                );
+                trace!(partition, "is_logical missing-var default=false");
                 return Ok(false);
             }
             Err(error) => return Err(error),
@@ -348,10 +344,7 @@ impl NusbFastBoot {
                 reason,
             }
         })?;
-        eprintln!(
-            "[nusb-fastboot] is_logical ok partition={} value={}",
-            partition, parsed
-        );
+        trace!(partition, value = parsed, "is_logical ok");
         Ok(parsed)
     }
 
@@ -361,17 +354,10 @@ impl NusbFastBoot {
         partition: &str,
         size: u64,
     ) -> Result<(), NusbFastBootError> {
-        eprintln!(
-            "[nusb-fastboot] resize_logical_partition start partition={} size={}",
-            partition, size
-        );
+        trace!(partition, size, "resize_logical_partition start");
         let cmd = FastBootCommand::ResizeLogicalPartition { partition, size };
         self.execute(cmd).await.map(|v| {
-            eprintln!(
-                "[nusb-fastboot] resize_logical_partition ok partition={} value={}",
-                partition, v
-            );
-            trace!("Resize logical partition ok: {v}");
+            trace!(partition, value = %v, "resize_logical_partition ok");
         })
     }
 

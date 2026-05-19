@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{path::BaseDirectory, Emitter, Manager};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
+use tracing::{debug, warn};
 
 use fastboot_flasher_core as fastboot_flasher;
 use fastboot_flasher_core::{
@@ -21,9 +22,7 @@ use fastboot_flasher_core::{
     progress::dry_run_steps,
     resolve_max_download_size_from_vars, FastbootDevice, FlashPlan,
 };
-use fastboot_rs::{
-    open_fastboot_with_observer, BackendKind, FlashProgress, ProbeLogLevel,
-};
+use fastboot_rs::{open_fastboot_with_observer, BackendKind, FlashProgress, ProbeLogLevel};
 
 const CANCELLED_MESSAGE: &str = "cancelled by user";
 const DEVICE_CHECK_TIMEOUT_MS: u64 = 120_000;
@@ -39,6 +38,17 @@ pub fn is_gsi_worker_invocation(args: &[String]) -> bool {
 
 pub fn run_gsi_worker_stdio() -> Result<(), String> {
     gsi_worker::run_gsi_worker_stdio()
+}
+
+/// Initialize a default tracing subscriber for both the Tauri app and the
+/// GSI worker process.
+pub fn init_logging() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .try_init();
 }
 
 fn format_tools_platform() -> Result<&'static str, String> {
@@ -61,12 +71,12 @@ fn build_format_tools(root: PathBuf, platform: &str) -> FormatTools {
     let exe = if platform == "windows" { ".exe" } else { "" };
 
     FormatTools {
-        root,
-        dir: dir.clone(),
         mke2fs: dir.join(format!("mke2fs{exe}")),
         make_f2fs: dir.join(format!("make_f2fs{exe}")),
         make_f2fs_casefold: dir.join(format!("make_f2fs_casefold{exe}")),
         mke2fs_conf: dir.join("mke2fs.conf"),
+        dir,
+        root,
     }
 }
 
@@ -245,7 +255,7 @@ fn lock_device(
     match state.device.lock() {
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
-            eprintln!("device lock was poisoned, recovering");
+            warn!("device lock was poisoned, recovering");
             Ok(poisoned.into_inner())
         }
     }
@@ -259,7 +269,7 @@ fn lock_flash_plans(state: &AppState) -> Result<std::sync::MutexGuard<'_, Stored
     match state.flash_plans.lock() {
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
-            eprintln!("flash_plans lock was poisoned, recovering");
+            warn!("flash_plans lock was poisoned, recovering");
             Ok(poisoned.into_inner())
         }
     }
@@ -271,7 +281,7 @@ fn lock_force_fastboot(
     match state.force_fastboot.lock() {
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
-            eprintln!("force_fastboot lock was poisoned, recovering");
+            warn!("force_fastboot lock was poisoned, recovering");
             Ok(poisoned.into_inner())
         }
     }
@@ -551,7 +561,7 @@ fn cancel_force_fastboot_session(state: &AppState, session_id: u64) -> bool {
             }
         })
         .unwrap_or_else(|e| {
-            eprintln!("[force-fastboot] cancel_session lock failed: {e}");
+            warn!(error = %e, "force-fastboot cancel_session lock failed");
             false
         })
 }
@@ -560,7 +570,7 @@ fn force_fastboot_session_is_active(state: &AppState, session_id: u64) -> bool {
     lock_force_fastboot(state)
         .map(|force| force.active_session_id == Some(session_id))
         .unwrap_or_else(|e| {
-            eprintln!("[force-fastboot] session_is_active lock failed: {e}");
+            warn!(error = %e, "force-fastboot session_is_active lock failed");
             false
         })
 }
@@ -743,7 +753,7 @@ async fn check_device_with_diagnostics(
             Ok(info)
         }
         Err(error) => {
-            eprintln!("[device-check] cached-or-fresh device read failed: {error}");
+            debug!(error = %error, "cached-or-fresh device read failed");
             let _ = emit_device_check_diagnostic(
                 app,
                 "read_vars_failed",
@@ -780,6 +790,7 @@ async fn check_device_with_diagnostics(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn flash_partition_and_emit(
     dev: &mut FastbootDevice,
     app: &tauri::AppHandle,
@@ -843,6 +854,7 @@ async fn flash_partition_and_emit(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn erase_partition_and_emit(
     dev: &mut FastbootDevice,
     app: &tauri::AppHandle,
@@ -959,10 +971,7 @@ async fn check_device(
 }
 
 #[tauri::command]
-async fn get_variable(
-    state: tauri::State<'_, AppState>,
-    var: String,
-) -> Result<String, String> {
+async fn get_variable(state: tauri::State<'_, AppState>, var: String) -> Result<String, String> {
     let mut dev =
         connect_device_with_policy(&state, session_policy_for_read_only_command()).await?;
     let result = fastboot_flasher::read_variable(&mut dev, &var)
@@ -1322,6 +1331,7 @@ async fn simulate_dry_run_actions(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_plan_actions(
     actions: &[&mtk_scatter_parser::FlashAction],
     image_overrides: &HashMap<String, String>,
@@ -1399,7 +1409,7 @@ async fn manual_flash_inner(
 ) -> Result<FlashSummaryDto, String> {
     let slot = parse_slot(slot.as_deref());
     let actions =
-        fastboot_flasher::manual::manual_flash_actions(&partition, &PathBuf::from(&image), slot)
+        fastboot_flasher::manual::manual_flash_actions(&partition, PathBuf::from(&image), slot)
             .map_err(|e| format!("manual flash: {e}"))?;
     execute_manual_actions(state, app, &actions).await
 }
@@ -1451,10 +1461,13 @@ async fn wipe_data(
 fn resolve_format_tools(app: &tauri::AppHandle) -> Result<FormatTools, String> {
     let bundled = app
         .path()
-        .resolve("../../fastboot-flasher-core/assets/bin", BaseDirectory::Resource)
+        .resolve(
+            "../../fastboot-flasher-core/assets/bin",
+            BaseDirectory::Resource,
+        )
         .ok();
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fastboot-flasher-core/assets/bin");
+    let dev =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fastboot-flasher-core/assets/bin");
 
     let root = bundled.filter(|path| path.exists()).unwrap_or(dev);
     let platform = format_tools_platform()?;
@@ -1727,7 +1740,7 @@ async fn execute_manual_actions(
     };
 
     execute_manual_flash(
-        &actions,
+        actions,
         &mut dev,
         max_download_size,
         &app,
@@ -1779,6 +1792,7 @@ async fn execute_manual_flash(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn flash_one_partition_evented(
     dev: &mut FastbootDevice,
     max_download_size: u32,
@@ -1838,12 +1852,8 @@ async fn flash_one_partition_evented(
 }
 
 #[tauri::command]
-async fn set_active_slot(
-    state: tauri::State<'_, AppState>,
-    slot: String,
-) -> Result<(), String> {
-    let mut dev =
-        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn set_active_slot(state: tauri::State<'_, AppState>, slot: String) -> Result<(), String> {
+    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::set_fastboot_active_slot(&mut dev, &slot)
         .await
         .map_err(|e| format!("set active: {e}"));
@@ -1852,78 +1862,60 @@ async fn set_active_slot(
 }
 
 #[tauri::command]
-async fn reboot_device(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut dev =
-        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn reboot_device(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::reboot_device(&mut dev)
         .await
         .map_err(|e| format!("reboot: {e}"));
     // Device is gone after reboot — don't put it back
     drop(dev);
-    Ok(result?)
+    result
 }
 
 #[tauri::command]
-async fn reboot_bootloader(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut dev =
-        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn reboot_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::reboot_device_bootloader(&mut dev)
         .await
         .map_err(|e| format!("reboot bootloader: {e}"));
     drop(dev);
-    Ok(result?)
+    result
 }
 
 #[tauri::command]
-async fn reboot_fastboot(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut dev =
-        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn reboot_fastboot(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::reboot_device_fastboot(&mut dev)
         .await
         .map_err(|e| format!("reboot fastboot: {e}"));
     drop(dev);
-    Ok(result?)
+    result
 }
 
 #[tauri::command]
-async fn reboot_recovery(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut dev =
-        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn reboot_recovery(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = dev
         .reboot_to("recovery")
         .await
         .map_err(|e| format!("reboot recovery: {e}"));
     drop(dev);
-    Ok(result?)
+    result
 }
 
 #[tauri::command]
-async fn power_off_device(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut dev =
-        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn power_off_device(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::power_off_device(&mut dev)
         .await
         .map_err(|e| normalize_power_off_error(&format!("power off: {e}")));
     drop(dev);
-    Ok(result?)
+    result
 }
 
 #[tauri::command]
-async fn unlock_bootloader(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut dev =
-        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn unlock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::send_flashing_unlock(&mut dev)
         .await
         .map_err(|e| format!("unlock: {e}"));
@@ -1932,11 +1924,8 @@ async fn unlock_bootloader(
 }
 
 #[tauri::command]
-async fn lock_bootloader(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut dev =
-        connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
+async fn lock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = fastboot_flasher::send_flashing_lock(&mut dev)
         .await
         .map_err(|e| format!("lock: {e}"));
@@ -2083,13 +2072,14 @@ fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_logging();
     std::panic::set_hook(Box::new(|info| {
-        eprintln!("[tauri-panic] {info}");
+        warn!(panic = %info, "tauri panic");
         let location = info
             .location()
             .map(|location| format!("{}:{}", location.file(), location.line()))
             .unwrap_or_else(|| "<unknown>".to_string());
-        eprintln!("[tauri-panic] location={location}");
+        warn!(location, "tauri panic location");
     }));
 
     let app = tauri::Builder::default()
@@ -2142,27 +2132,24 @@ pub fn run() {
 
     app.run(|app_handle, event| match event {
         tauri::RunEvent::ExitRequested { code, api, .. } => {
-            eprintln!("[tauri-run] ExitRequested code={code:?}");
+            debug!(?code, "ExitRequested");
             let _ = api;
             if let Some(window) = app_handle.get_webview_window("main") {
-                eprintln!(
-                    "[tauri-run] main window still present visible={:?}",
-                    window.is_visible().ok()
-                );
+                debug!(visible = ?window.is_visible().ok(), "main window still present");
             } else {
-                eprintln!("[tauri-run] main window missing at ExitRequested");
+                debug!("main window missing at ExitRequested");
             }
         }
         tauri::RunEvent::WindowEvent { label, event, .. } => match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                eprintln!("[tauri-run] WindowEvent CloseRequested label={label}");
+                debug!(label, "WindowEvent CloseRequested");
                 let _ = api;
             }
             tauri::WindowEvent::Destroyed => {
-                eprintln!("[tauri-run] WindowEvent Destroyed label={label}");
+                debug!(label, "WindowEvent Destroyed");
             }
             tauri::WindowEvent::Focused(focused) => {
-                eprintln!("[tauri-run] WindowEvent Focused label={label} focused={focused}");
+                debug!(label, focused, "WindowEvent Focused");
             }
             _ => {}
         },
@@ -2184,10 +2171,10 @@ mod tests {
         DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashRunControl, ForceFastbootState,
         StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
     };
-    use fastboot_flasher::gsi::{
+    use fastboot_flasher_core::gsi::{
         detect_fastboot_mode as shared_detect_fastboot_mode, FastbootMode as SharedFastbootMode,
     };
-    use fastboot_flasher::plan::slot_to_scatter;
+    use fastboot_flasher_core::plan::slot_to_scatter;
     use mtk_scatter_parser::{FlashAction, FlashPlan, FlashPlanSummary};
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -2540,8 +2527,9 @@ mod tests {
     fn fastboot_probe_failure_messages_include_windows_driver_hint() {
         let no_interface =
             describe_fastboot_probe_failure(&FastbootProbeFailure::NoFastbootInterface);
-        let open_failed =
-            describe_fastboot_probe_failure(&FastbootProbeFailure::OpenFailed("access denied".to_string()));
+        let open_failed = describe_fastboot_probe_failure(&FastbootProbeFailure::OpenFailed(
+            "access denied".to_string(),
+        ));
         let read_failed = describe_fastboot_probe_failure(
             &FastbootProbeFailure::ReadVariablesFailed("read vars: transport stalled".to_string()),
         );

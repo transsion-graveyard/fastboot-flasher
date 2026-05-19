@@ -368,6 +368,7 @@ dependencies = [
  "tempfile",
  "terminal-output",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

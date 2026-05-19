@@ -4,9 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Context;
-use fastboot_rs::{
-    parse_max_download_size, FastbootDevice,
-};
+use fastboot_rs::{parse_max_download_size, FastbootDevice};
 
 /// Read a single fastboot variable from the device.
 pub async fn read_variable(dev: &mut FastbootDevice, var: &str) -> anyhow::Result<String> {
@@ -27,10 +25,26 @@ pub async fn read_all_variables(
 }
 
 /// Read the `max-download-size` variable from a variables map and parse it.
+///
+/// # Errors
+///
+/// Returns an error if the variable is missing, cannot be parsed, or the
+/// device reports a zero-sized download limit.
+///
+/// # Examples
+///
+/// ```
+/// use std::collections::HashMap;
+/// use fastboot_flasher_core::resolve_max_download_size_from_vars;
+///
+/// let vars = HashMap::from([("max-download-size".to_string(), "0x4000000".to_string())]);
+/// let max_download = resolve_max_download_size_from_vars(&vars).unwrap();
+/// assert_eq!(max_download, 0x4000000);
+/// ```
 pub fn resolve_max_download_size_from_vars(vars: &HashMap<String, String>) -> anyhow::Result<u32> {
-    let raw = vars
-        .get("max-download-size")
-        .context("missing fastboot variable max-download-size")?;
+    let Some(raw) = vars.get("max-download-size") else {
+        anyhow::bail!("missing fastboot variable max-download-size");
+    };
     let max_download =
         parse_max_download_size(raw).with_context(|| format!("parse max-download-size `{raw}`"))?;
     if max_download == 0 {
@@ -97,6 +111,11 @@ pub async fn send_flashing_lock(dev: &mut FastbootDevice) -> anyhow::Result<()> 
 
 /// Build a flash plan by parsing a scatter file with the given mode, slot,
 /// preloader, and partition filters.
+///
+/// # Errors
+///
+/// Returns an error when the scatter file cannot be parsed or the derived
+/// flash plan fails validation.
 pub fn build_flash_plan(
     scatter_path: &Path,
     mode: crate::cli::FlashMode,

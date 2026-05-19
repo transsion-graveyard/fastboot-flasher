@@ -151,6 +151,15 @@ pub enum SlotResolutionError {
 }
 
 /// Parse `max-download-size` from a fastboot variable value.
+///
+/// # Examples
+///
+/// ```
+/// use fastboot_rs::parse_max_download_size;
+///
+/// assert_eq!(parse_max_download_size("0x1000").unwrap(), 4096);
+/// assert_eq!(parse_max_download_size("4096").unwrap(), 4096);
+/// ```
 pub fn parse_max_download_size(value: &str) -> Result<u32, std::num::ParseIntError> {
     parse_u32(value)
 }
@@ -184,6 +193,14 @@ pub fn resolve_slot_suffix(
 }
 
 /// Apply a resolved slot suffix to a base partition name.
+///
+/// # Examples
+///
+/// ```
+/// use fastboot_rs::partition_with_slot;
+///
+/// assert_eq!(partition_with_slot("boot", "a"), "boot_a");
+/// ```
 pub fn partition_with_slot(base: &str, suffix: &str) -> String {
     format!("{base}_{suffix}")
 }

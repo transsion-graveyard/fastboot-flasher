@@ -452,7 +452,7 @@ fn gsi_step_status(step: GsiStep) -> &'static str {
 #[cfg(test)]
 mod tests {
     use crate::{FlashEvent, FlashSummaryDto};
-    use fastboot_flasher::gsi::{GsiEvent, GsiStep};
+    use fastboot_flasher_core::gsi::{GsiEvent, GsiStep};
     use tokio::time::Duration;
 
     use super::{

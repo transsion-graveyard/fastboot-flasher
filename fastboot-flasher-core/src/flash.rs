@@ -7,6 +7,7 @@ use fastboot_rs::{
     flash_prepared_image, prepare_image, FastbootDevice, FastbootError, FastbootExecutionError,
     FlashProgress,
 };
+use tracing::{debug, warn};
 
 /// Check whether a [`FastbootExecutionError`] represents a "fastboot
 /// command failed" response that the caller can safely skip.
@@ -40,15 +41,15 @@ pub fn handle_failed_partition(
     if !should_skip_failed_partition(err) {
         return Ok(false);
     }
-    eprintln!(
-        "fastboot flash failed: {partition}: {err}"
-    );
+    warn!(partition, error = %err, "fastboot flash failed");
     if yes {
         return Ok(true);
     }
-    Ok(inquire::Confirm::new(&format!("Skip {partition} and continue?"))
-        .with_default(true)
-        .prompt()?)
+    Ok(
+        inquire::Confirm::new(&format!("Skip {partition} and continue?"))
+            .with_default(true)
+            .prompt()?,
+    )
 }
 
 /// Prompt the user (or auto-accept when `yes` is set) whether to skip a
@@ -61,15 +62,15 @@ pub fn handle_failed_erase(
     if !is_fastboot_failed(err) {
         return Ok(false);
     }
-    eprintln!(
-        "fastboot erase failed: {partition}: {err}"
-    );
+    warn!(partition, error = %err, "fastboot erase failed");
     if yes {
         return Ok(true);
     }
-    Ok(inquire::Confirm::new(&format!("Skip {partition} and continue?"))
-        .with_default(true)
-        .prompt()?)
+    Ok(
+        inquire::Confirm::new(&format!("Skip {partition} and continue?"))
+            .with_default(true)
+            .prompt()?,
+    )
 }
 
 /// Prepare and flash a single image to a single partition.
@@ -81,34 +82,35 @@ pub async fn flash_one_partition(
     max_download: u32,
     on_progress: impl FnMut(FlashProgress),
 ) -> anyhow::Result<()> {
-    eprintln!(
-        "[flash-lib] flash_one_partition start partition={} image={} max_download=0x{:x}",
+    debug!(
         partition,
-        image.display(),
-        max_download
+        image = %image.display(),
+        max_download = %format!("0x{max_download:x}"),
+        "flash_one_partition start"
     );
     if max_download == 0 {
         anyhow::bail!("device reported max-download-size=0, cannot flash {partition}");
     }
     let prepared = prepare_image(image, max_download)
         .with_context(|| format!("prepare image for {partition}"))?;
-    eprintln!(
-        "[flash-lib] prepared partition={} transfers={} expanded_size={} file_size={}",
+    debug!(
         partition,
-        prepared.transfer_count(),
-        prepared.expanded_size,
-        prepared.file_size
+        transfers = prepared.transfer_count(),
+        expanded_size = prepared.expanded_size,
+        file_size = prepared.file_size,
+        "prepared image"
     );
-    eprintln!("[flash-lib] querying is-logical for partition={partition}");
+    debug!(partition, "querying logical partition state");
     if dev
         .is_logical(partition)
         .await
         .map_err(anyhow::Error::from)
         .with_context(|| format!("query logical partition state for {partition}"))?
     {
-        eprintln!(
-            "[flash-lib] resizing logical partition={} expanded_size={}",
-            partition, prepared.expanded_size
+        debug!(
+            partition,
+            expanded_size = prepared.expanded_size,
+            "resizing logical partition"
         );
         dev.resize_logical_partition(partition, prepared.expanded_size)
             .await
@@ -120,7 +122,7 @@ pub async fn flash_one_partition(
                 )
             })?;
     }
-    eprintln!("[flash-lib] starting flash_prepared_image partition={partition}");
+    debug!(partition, "starting flash_prepared_image");
     flash_prepared_image(dev, partition, &prepared, on_progress)
         .await
         .with_context(|| format!("flash {partition}"))

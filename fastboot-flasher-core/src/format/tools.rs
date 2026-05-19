@@ -22,6 +22,10 @@ pub struct FormatTools {
 impl FormatTools {
     /// Build [`FormatTools`] from a bin root directory, auto-detecting the
     /// platform subdirectory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on unsupported hosts.
     pub fn from_bin_root(root: &Path) -> anyhow::Result<Self> {
         #[cfg(target_os = "windows")]
         let platform = "windows";
@@ -34,6 +38,10 @@ impl FormatTools {
     }
 
     /// Build [`FormatTools`] pointing at the crate's built-in asset binaries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the host platform is unsupported.
     pub fn from_cli_assets() -> anyhow::Result<Self> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("assets")
@@ -55,6 +63,10 @@ impl FormatTools {
     }
 
     /// Check that all required tool binaries and config files exist on disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any required binary or config file is missing.
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.mke2fs.is_file(),

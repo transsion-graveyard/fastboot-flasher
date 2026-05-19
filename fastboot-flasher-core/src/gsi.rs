@@ -13,6 +13,7 @@ use anyhow::Context;
 use fastboot_rs::{prepare_image, PreparedImage};
 use tempfile::TempDir;
 use tokio::time::{sleep, timeout, Duration as TokioDuration};
+use tracing::debug;
 
 use crate::{
     connect_fastboot, flash_one_partition,
@@ -495,7 +496,10 @@ fn resolve_fastboot_capabilities(
     vars: &HashMap<String, String>,
 ) -> anyhow::Result<FastbootCapabilities> {
     let max_download_size = resolve_max_download_size_from_vars(vars)?;
-    eprintln!("[gsi-shared] resolved max-download-size=0x{max_download_size:x}");
+    debug!(
+        max_download_size = %format!("0x{max_download_size:x}"),
+        "resolved max-download-size"
+    );
     Ok(FastbootCapabilities { max_download_size })
 }
 
@@ -647,8 +651,12 @@ async fn flash_fastbootd_gsi_logged(
             .with_context(|| format!("read image metadata for {}", product_image.path().display()))?
             .len();
         report(GsiEvent::Step(GsiStep::FlashingProductGsi));
-        eprintln!("[gsi-shared] after step flashing_product_gsi");
-        eprintln!("[gsi-shared] before create flash_partition_logged future partition={} image={} size_bytes={}", product_partition, product_image.path().display(), product_size);
+        debug!(
+            partition = %product_partition,
+            image = %product_image.path().display(),
+            size_bytes = product_size,
+            "before create flash_partition_logged future"
+        );
         let flash_future = flash_partition_logged(
             dev,
             &product_partition,
@@ -659,9 +667,10 @@ async fn flash_fastbootd_gsi_logged(
             report,
             options,
         );
-        eprintln!(
-            "[gsi-shared] after create flash_partition_logged future partition={} size_bytes={}",
-            product_partition, product_size
+        debug!(
+            partition = %product_partition,
+            size_bytes = product_size,
+            "after create flash_partition_logged future"
         );
         flash_future.await?;
     } else {
@@ -695,21 +704,18 @@ async fn flash_partition_logged(
     options: &GsiFlashOptions,
 ) -> anyhow::Result<()> {
     check_cancelled(&options.cancel_token)?;
-    eprintln!(
-        "[gsi-shared] before report Flushing-like event partition={} image={} size_bytes={}",
+    debug!(
         partition,
-        image.display(),
-        size_bytes
+        image = %image.display(),
+        size_bytes,
+        "before report flashing-like event"
     );
     report(GsiEvent::Flashing {
         partition: partition.to_string(),
         image: image.to_path_buf(),
         size_bytes,
     });
-    eprintln!(
-        "[gsi-shared] after report Flashing partition={} size_bytes={}",
-        partition, size_bytes
-    );
+    debug!(partition, size_bytes, "after report Flashing");
     let partition_name = partition.to_string();
     let mut bytes_flashed = 0_u64;
     let started = std::time::Instant::now();

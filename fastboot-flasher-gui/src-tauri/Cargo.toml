@@ -23,6 +23,8 @@ fastboot-rs = { path = "../../fastboot-rs" }
 mtk-scatter-parser = { path = "../../mtk-scatter-parser" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["fmt", "env-filter"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "io-util", "process", "sync"] }
 
 [profile.release]

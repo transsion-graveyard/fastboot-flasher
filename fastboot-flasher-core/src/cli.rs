@@ -194,13 +194,18 @@ pub fn flash_modifier_without_flash(args: &Args) -> Result<(), String> {
     let used = modifiers
         .iter()
         .filter_map(|(used, flag)| used.then_some(*flag))
-        .collect::<Vec<_>>();
+        .fold(String::new(), |mut acc, flag| {
+            if !acc.is_empty() {
+                acc.push(' ');
+            }
+            acc.push_str(flag);
+            acc
+        });
     if used.is_empty() {
         Ok(())
     } else {
         Err(format!(
-            "{} requires --flash <scatter>\nstandalone: fastboot-flasher disable-vbmeta\nexample: fastboot-flasher --flash <scatter.xml> --dry-run",
-            used.join(" ")
+            "{used} requires --flash <scatter>\nstandalone: fastboot-flasher disable-vbmeta\nexample: fastboot-flasher --flash <scatter.xml> --dry-run"
         ))
     }
 }
