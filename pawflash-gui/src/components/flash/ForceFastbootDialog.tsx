@@ -3,10 +3,14 @@ import { CheckCircle2, LoaderCircle, Minus, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useForceFastboot } from "@/hooks/useForceFastboot";
+import {
+  createDismissibleDialogRootHandler,
+  type DialogChangeReason,
+} from "@/components/shared/dialogBehavior";
 
 interface ForceFastbootDialogProps {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, reason?: DialogChangeReason) => void;
   onHide: () => void;
   onCancel: () => void | Promise<void>;
 }
@@ -24,13 +28,7 @@ export function ForceFastbootDialog({
   return (
     <DialogPrimitive.Root
       open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
-          onOpenChange(false);
-          return;
-        }
-        onOpenChange(true);
-      }}
+      onOpenChange={createDismissibleDialogRootHandler(onOpenChange)}
     >
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-stone-950/18 backdrop-blur-sm transition-opacity duration-150 data-closed:opacity-0 data-open:opacity-100" />

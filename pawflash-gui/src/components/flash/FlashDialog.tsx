@@ -8,10 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { useFlashProgress } from "@/hooks/useFlashProgress";
+import {
+  createDismissibleDialogRootHandler,
+  type DialogChangeReason,
+} from "@/components/shared/dialogBehavior";
 
 interface FlashDialogProps {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, reason?: DialogChangeReason) => void;
   onMinimize: () => void;
   onCancel: () => void | Promise<void>;
   canCancel: boolean;
@@ -52,13 +56,7 @@ export function FlashDialog({
   return (
     <DialogPrimitive.Root
       open={open}
-      onOpenChange={(nextOpen, details) => {
-        if (!nextOpen && details.reason === "outside-press") {
-          details.cancel();
-          return;
-        }
-        onOpenChange(nextOpen);
-      }}
+      onOpenChange={createDismissibleDialogRootHandler(onOpenChange)}
     >
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-stone-950/18 backdrop-blur-sm transition-opacity duration-150 data-closed:opacity-0 data-open:opacity-100" />

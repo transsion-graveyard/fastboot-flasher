@@ -22,6 +22,7 @@ import { SlotSection } from "@/components/menu-tab/SlotSection";
 import { useDevice } from "@/hooks/useDevice";
 import { useFlashLog, useFlashProgress } from "@/hooks/useFlashProgress";
 import { useForceFastboot } from "@/hooks/useForceFastboot";
+import { applyDismissibleDialogChange } from "@/components/shared/dialogBehavior";
 import { defaultFlashMode, type FlashMode } from "@/lib/flash-mode";
 import type { DeviceInfo, FlashPlanDto, ParseScatterResponseDto, PartitionDto } from "@/types/api";
 
@@ -762,12 +763,8 @@ export default function App() {
       </AppLayout>
       <FlashDialog
         open={flashOpen}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) {
-            hideFlashDialog();
-            return;
-          }
-          setFlashOpen(true);
+        onOpenChange={(nextOpen, reason) => {
+          applyDismissibleDialogChange(nextOpen, reason, hideFlashDialog, () => setFlashOpen(true));
         }}
         onMinimize={hideFlashDialog}
         onCancel={cancelFlash}
@@ -775,12 +772,8 @@ export default function App() {
       />
       <ForceFastbootDialog
         open={forceOpen}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) {
-            hideForceDialog();
-            return;
-          }
-          setForceOpen(true);
+        onOpenChange={(nextOpen, reason) => {
+          applyDismissibleDialogChange(nextOpen, reason, hideForceDialog, () => setForceOpen(true));
         }}
         onHide={hideForceDialog}
         onCancel={cancelForceFastboot}
