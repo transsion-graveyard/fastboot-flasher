@@ -134,6 +134,110 @@ fn build_flash_plan_should_inherit_slot_a_image_for_slot_b_mode() {
 }
 
 #[test]
+fn dry_run_auto_slot_policy_should_match_clean_flash_image_synthesis() {
+    let temp = write_minimal_xml_fixture(true);
+    let scatter = parse_scatter(temp.path().join("minimal-scatter.xml")).unwrap();
+    let base_options = FlashPlanOptions {
+        slot_policy: SlotPolicy::Auto,
+        firmware_dir: Some(temp.path().to_path_buf()),
+        ..FlashPlanOptions::default()
+    };
+
+    let dry_run = build_flash_plan(
+        &scatter,
+        FlashPlanOptions {
+            mode: Mode::DryRun,
+            ..base_options.clone()
+        },
+    );
+    let clean_flash = build_flash_plan(
+        &scatter,
+        FlashPlanOptions {
+            mode: Mode::CleanFlash,
+            ..base_options
+        },
+    );
+
+    let dry_run_flash_paths = dry_run
+        .actions
+        .iter()
+        .filter(|action| action.action == "flash")
+        .map(|action| {
+            (
+                action.partition.clone(),
+                action.image_resolved_path().map(ToOwned::to_owned),
+            )
+        })
+        .collect::<Vec<_>>();
+    let clean_flash_paths = clean_flash
+        .actions
+        .iter()
+        .filter(|action| action.action == "flash")
+        .map(|action| {
+            (
+                action.partition.clone(),
+                action.image_resolved_path().map(ToOwned::to_owned),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(dry_run_flash_paths, clean_flash_paths);
+}
+
+#[test]
+fn dry_run_should_normalize_userdata_to_wipe_action() {
+    let temp = tempfile::tempdir().unwrap();
+    let scatter = synthetic_userdata_scatter(temp.path().join("scatter.xml"));
+
+    let plan = build_flash_plan(
+        &scatter,
+        FlashPlanOptions {
+            mode: Mode::DryRun,
+            firmware_dir: Some(temp.path().to_path_buf()),
+            ..FlashPlanOptions::default()
+        },
+    );
+
+    assert_eq!(
+        plan.actions
+            .iter()
+            .map(|action| (action.partition.as_str(), action.action.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("userdata", "wipe")]
+    );
+}
+
+#[test]
+fn clean_flash_userdata_wipe_should_keep_source_file_metadata() {
+    let temp = tempfile::tempdir().unwrap();
+    let scatter = synthetic_userdata_scatter(temp.path().join("scatter.xml"));
+
+    let plan = build_flash_plan(
+        &scatter,
+        FlashPlanOptions {
+            mode: Mode::CleanFlash,
+            firmware_dir: Some(temp.path().to_path_buf()),
+            ..FlashPlanOptions::default()
+        },
+    );
+
+    let userdata_wipe = plan
+        .actions
+        .iter()
+        .find(|action| action.action == "wipe" && action.partition == "userdata")
+        .unwrap();
+
+    assert_eq!(
+        userdata_wipe
+            .image
+            .as_ref()
+            .and_then(|image| image.get("file_name"))
+            .and_then(|value| value.as_str()),
+        Some("userdata.img")
+    );
+}
+
+#[test]
 fn synthesized_slot_action_should_recheck_image_against_target_partition_size() {
     let temp = tempfile::tempdir().unwrap();
     let image_path = temp.path().join("boot.img");
@@ -421,6 +525,25 @@ fn synthetic_ab_scatter(path: PathBuf) -> ScatterFile {
                 synthetic_part("boot_a", Some("boot.img"), true, 4096),
                 synthetic_part("boot_b", None, false, 1024),
             ],
+        )]
+        .into_iter()
+        .collect(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    }
+}
+
+fn synthetic_userdata_scatter(path: PathBuf) -> ScatterFile {
+    ScatterFile {
+        path,
+        format: "test".to_string(),
+        text_hash: String::new(),
+        platform: None,
+        project: None,
+        general: json!({}),
+        layouts: [(
+            "UFS".to_string(),
+            vec![synthetic_part("userdata", Some("userdata.img"), true, 4096)],
         )]
         .into_iter()
         .collect(),

@@ -3,9 +3,8 @@ mod gsi_worker;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
-use serde::{Deserialize, Serialize};
 use tauri::{path::BaseDirectory, Emitter, Manager};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
@@ -68,161 +67,15 @@ struct StoredPlans {
     plans: HashMap<u64, FlashPlan>,
 }
 
-#[derive(Clone, Default)]
-struct FlashRunControl {
-    cancel_requested: Arc<AtomicBool>,
-}
-
 #[derive(Default)]
 struct ForceFastbootState {
     next_session_id: u64,
     active_session_id: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DeviceSessionPolicy {
-    ReuseCached,
-    Fresh,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum FastbootProbeFailure {
-    NoFastbootInterface,
-    OpenFailed(String),
-    ReadVariablesFailed(String),
-}
-
-#[derive(Clone, Serialize)]
-pub struct DeviceInfo {
-    serial: String,
-    product: String,
-    slot: String,
-    secure: String,
-    unlocked: String,
-    version: String,
-    mode: String,
-    all_vars: HashMap<String, String>,
-}
-
-#[derive(Clone, Serialize)]
-pub struct PartitionDto {
-    index: usize,
-    action: String,
-    partition: String,
-    size_human: String,
-    size_bytes: u64,
-    safety_class: String,
-    image_type: Option<String>,
-    source: String,
-    image_path: Option<String>,
-    image_name: Option<String>,
-    selected: bool,
-}
-
-#[derive(Clone, Serialize)]
-pub struct FlashPlanDto {
-    mode: String,
-    storage: String,
-    slot_policy: String,
-    chipset: Option<String>,
-    summary: FlashSummaryDto,
-    partitions: Vec<PartitionDto>,
-    warnings: Vec<String>,
-    errors: Vec<String>,
-}
-
-#[derive(Clone, Serialize)]
-pub struct ParseScatterResponseDto {
-    plan_id: u64,
-    plan: FlashPlanDto,
-}
-
-#[derive(Clone, Serialize)]
-pub struct ForceFastbootStartDto {
-    session_id: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct FlashSummaryDto {
-    flash_count: usize,
-    wipe_count: usize,
-    skipped_count: usize,
-    total_bytes: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "event", content = "data")]
-pub enum FlashEvent {
-    WaitingForDevice,
-    DeviceCheckDiagnostic {
-        stage: String,
-        level: String,
-        message: String,
-    },
-    GsiStatus {
-        status: String,
-    },
-    PlanBuilt {
-        actions: usize,
-        total_bytes: u64,
-    },
-    PreparingImage {
-        partition: String,
-    },
-    Flashing {
-        partition: String,
-        bytes: u64,
-        total: u64,
-        speed_bps: u64,
-    },
-    Simulating {
-        partition: String,
-        action: String,
-        bytes: u64,
-        total: u64,
-        speed_bps: u64,
-    },
-    PartitionComplete {
-        partition: String,
-    },
-    PartitionSkipped {
-        partition: String,
-        reason: String,
-    },
-    PartitionFailed {
-        partition: String,
-        error: String,
-    },
-    Erasing {
-        partition: String,
-    },
-    EraseComplete {
-        partition: String,
-    },
-    Overall {
-        bytes: u64,
-        total: u64,
-    },
-    Complete {
-        summary: FlashSummaryDto,
-    },
-    Cancelled {
-        message: String,
-    },
-    Error {
-        message: String,
-    },
-}
-
-#[derive(Clone, Serialize)]
-#[serde(tag = "event", content = "data")]
-pub enum ForceFastbootEvent {
-    Started { session_id: u64 },
-    WaitingForPreloader { session_id: u64 },
-    Complete { session_id: u64 },
-    Cancelled { session_id: u64 },
-    Error { session_id: u64, message: String },
-}
+pub use pawflash::{DeviceInfo, DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashPlanDto,
+    FlashRunControl, FlashSummaryDto, ForceFastbootEvent, ForceFastbootStartDto,
+    ParseScatterResponseDto, PartitionDto};
 
 fn lock_device(
     state: &AppState,

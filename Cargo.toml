@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "pawflash-cli",
     "force-fastboot",
     "mtk-scatter-parser",
     "fastboot-rs",

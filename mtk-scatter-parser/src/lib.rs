@@ -870,11 +870,12 @@ fn record_unknown_groups(groups: &[String], errors: &mut Vec<String>) {
 }
 
 fn resolve_effective_slot_policy(mode: Mode, requested: SlotPolicy) -> SlotPolicy {
+    // Dry-run is a preview of the same flash plan, so keep slot synthesis
+    // aligned with live flashing modes. Only selective mode preserves the
+    // scatter-defined slot set.
     match requested {
-        SlotPolicy::Auto if matches!(mode, Mode::FirmwareUpgrade | Mode::CleanFlash) => {
-            SlotPolicy::Both
-        }
-        SlotPolicy::Auto => SlotPolicy::AllFromScatter,
+        SlotPolicy::Auto if matches!(mode, Mode::Selective) => SlotPolicy::AllFromScatter,
+        SlotPolicy::Auto => SlotPolicy::Both,
         other => other,
     }
 }
@@ -1005,15 +1006,19 @@ fn append_clean_flash_wipes(
     mode: Mode,
     actions: &mut Vec<FlashAction>,
 ) {
-    if mode != Mode::CleanFlash {
+    if !matches!(mode, Mode::CleanFlash | Mode::DryRun) {
         return;
     }
     for part in selected_parts {
         if WIPE_CANONICAL.contains(&part.canonical().as_str()) {
+            let image = part
+                .file_name
+                .as_ref()
+                .map(|file_name| json!({ "file_name": file_name }));
             actions.push(flash_action(
                 "wipe",
                 part,
-                None,
+                image,
                 "clean-flash wipes user state",
                 Vec::new(),
             ));
@@ -2423,6 +2428,9 @@ fn mode_allows_partition(
     }
     match mode {
         Mode::DryRun => {
+            if WIPE_CANONICAL.contains(&canonical.as_str()) {
+                return (false, "normalized as wipe-only in dry run".to_string());
+            }
             if flashable {
                 (true, "scatter profile selected".to_string())
             } else {

@@ -2833,7 +2833,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
-name = "pawflash"
+name = "pawflash-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2858,7 +2858,7 @@ dependencies = [
  "anyhow",
  "fastboot-rs",
  "mtk-scatter-parser",
- "pawflash",
+ "pawflash-core",
  "serde",
  "serde_json",
  "tauri",

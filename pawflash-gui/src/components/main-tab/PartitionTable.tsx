@@ -27,6 +27,14 @@ interface PartitionTableProps {
   className?: string;
 }
 
+function partitionImageLabel(partition: PartitionDto) {
+  return partition.image_name ?? partition.image_path ?? "—";
+}
+
+function partitionImageHint(partition: PartitionDto) {
+  return partition.image_path ?? partition.image_name ?? "No image resolved";
+}
+
 export const PartitionTable = memo(function PartitionTable({
   partitions,
   isParsingPlan = false,
@@ -125,30 +133,42 @@ export const PartitionTable = memo(function PartitionTable({
                 <TableCell className="text-left">
                   {partition.action === "flash" ? (
                     <Tooltip>
-                      <TooltipTrigger render={
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className={cn(
-                            "h-auto w-full min-w-0 justify-start gap-2 px-0 py-1 text-left hover:bg-transparent",
-                            partition.image_overridden && "text-accent-brand",
-                          )}
-                          onClick={() => onPickImage(partition)}
-                        >
-                          <FilePenLine className="h-4 w-4" />
-                          <span className="min-w-0 truncate">
-                            {partition.image_name ?? "Choose image"}
-                          </span>
-                        </Button>
-                      }>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "h-auto w-full min-w-0 justify-start gap-2 px-0 py-1 text-left hover:bg-transparent",
+                              partition.image_overridden && "text-accent-brand",
+                            )}
+                            onClick={() => onPickImage(partition)}
+                          >
+                            <FilePenLine className="h-4 w-4" />
+                            <span className="min-w-0 truncate">
+                              {partition.image_name ?? "Choose image"}
+                            </span>
+                          </Button>
+                        }
+                      >
                       </TooltipTrigger>
                       <TooltipContent side="top" align="start" className="max-w-sm break-all">
-                        {partition.image_path ?? "No image resolved"}
+                        {partitionImageHint(partition)}
                       </TooltipContent>
                     </Tooltip>
                   ) : (
-                    <span className="text-muted-foreground">—</span>
+                    <span
+                      className={cn(
+                        "block min-w-0 truncate",
+                        partitionImageLabel(partition) === "—"
+                          ? "text-muted-foreground"
+                          : "font-mono",
+                      )}
+                      title={partitionImageHint(partition)}
+                    >
+                      {partitionImageLabel(partition)}
+                    </span>
                   )}
                 </TableCell>
               </TableRow>
