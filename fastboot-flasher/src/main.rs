@@ -44,8 +44,8 @@ use force_fastboot::{run_force_fastboot, ForceFastbootOptions};
 use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressState, ProgressStyle};
 use inquire::{Confirm, MultiSelect};
 use mtk_scatter_parser::FlashPlan;
-use terminal_output::chrome::{simple_banner, simple_notice_box, simple_section_header, simple_status_line, Tone};
-use terminal_output::table::simple_kv_table;
+use terminal_output::chrome::{banner, notice_box, section_header, status_line, Tone};
+use terminal_output::table::kv_table;
 use tokio::time::sleep;
 
 const DRY_RUN_SPEED_MIB: u64 = 1024;
@@ -90,7 +90,7 @@ async fn main() {
     let code = match run().await {
         Ok(()) => 0,
         Err(err) => {
-            eprintln!("{}", simple_notice_box(Tone::Error, "fatal", &format!("{err:#}")));
+            eprintln!("{}", notice_box(Tone::Error, "fatal", &format!("{err:#}")));
             1
         }
     };
@@ -127,14 +127,14 @@ async fn run() -> anyhow::Result<()> {
                 fastboot.set_active(slot).await?;
                 println!(
                     "{}",
-                    simple_status_line(Tone::Success, "slot", &format!("active slot set to {slot}"))
+                    status_line(Tone::Success, "slot", &format!("active slot set to {slot}"))
                 );
             }
             Action::GetVar(var) => {
                 let mut fastboot = wait_for_fastboot().await?;
                 println!(
                     "{}",
-                    simple_status_line(
+                    status_line(
                         Tone::Info,
                         "getvar",
                         &format!("{var}: {}", fastboot.get_var(&var).await?)
@@ -150,7 +150,7 @@ async fn run() -> anyhow::Result<()> {
                     .collect::<Vec<_>>();
                 vars.sort_by(|a, b| a.0.cmp(&b.0));
                 for (key, value) in vars {
-                    println!("{}", simple_status_line(Tone::Info, &key, &value));
+                    println!("{}", status_line(Tone::Info, &key, &value));
                 }
             }
             Action::Scatter {
@@ -429,7 +429,7 @@ async fn gsi_flow(dry_run: bool, yes: bool, image: &Path) -> anyhow::Result<()> 
     );
     println!(
         "{}",
-simple_status_line(
+status_line(
             Tone::Info,
             "gsi",
             &format!("system image {}", image.display())
@@ -437,7 +437,7 @@ simple_status_line(
     );
     println!(
         "{}",
-simple_status_line(
+status_line(
             Tone::Info,
             "gsi",
             &format!("using bundled formatter root {}", tools.root.display())
@@ -711,7 +711,7 @@ async fn bootloader_state_flow(dry_run: bool, yes: bool, verb: &str) -> anyhow::
         println!("{}", mock_device_info());
         println!(
             "{}",
-    simple_status_line(
+    status_line(
                 Tone::Info,
                 "dry-run",
                 &format!("would send `flashing {verb}`")
@@ -740,7 +740,7 @@ async fn bootloader_state_flow(dry_run: bool, yes: bool, verb: &str) -> anyhow::
 
     println!(
         "{}",
-simple_status_line(
+status_line(
             Tone::Success,
             "bootloader",
             &format!("sent `flashing {verb}`")
@@ -773,7 +773,7 @@ async fn format_userdata_flow(yes: bool, erase_fallback: bool) -> anyhow::Result
 
     println!(
         "{}",
-simple_status_line(
+status_line(
             Tone::Info,
             "format",
             &format!("using bundled formatter root {}", tools.root.display())
@@ -781,7 +781,7 @@ simple_status_line(
     );
     println!(
         "{}",
-simple_status_line(
+status_line(
             Tone::Info,
             "format",
             &format!("generating {} userdata image", info.fs_type)
@@ -803,7 +803,7 @@ simple_status_line(
     if outcome.used_erase_fallback {
         println!(
             "{}",
-    simple_status_line(
+    status_line(
                 Tone::Warning,
                 "format",
                 "formatter failed; used erase fallback"
@@ -812,7 +812,7 @@ simple_status_line(
     } else {
         println!(
             "{}",
-    simple_status_line(Tone::Success, "done", "userdata format completed")
+    status_line(Tone::Success, "done", "userdata format completed")
         );
     }
 
@@ -847,7 +847,7 @@ async fn wipe_data_flow(
 
     println!(
         "{}",
-simple_status_line(
+status_line(
             Tone::Info,
             "format",
             &format!("using bundled formatter root {}", tools.root.display())
@@ -855,7 +855,7 @@ simple_status_line(
     );
     println!(
         "{}",
-simple_status_line(
+status_line(
             Tone::Info,
             "format",
             &format!("generating {} userdata image", info.fs_type)
@@ -879,7 +879,7 @@ simple_status_line(
     if outcome.format.used_erase_fallback {
         println!(
             "{}",
-    simple_status_line(
+    status_line(
                 Tone::Warning,
                 "format",
                 "formatter failed; used erase fallback"
@@ -888,7 +888,7 @@ simple_status_line(
     }
     println!(
         "{}",
-simple_status_line(
+status_line(
             if !no_metadata && outcome.metadata_erased {
                 Tone::Success
             } else if no_metadata {
@@ -908,7 +908,7 @@ simple_status_line(
     );
     println!(
         "{}",
-simple_status_line(
+status_line(
             if !no_cache && outcome.cache_erased {
                 Tone::Success
             } else if no_cache {
@@ -928,7 +928,7 @@ simple_status_line(
     );
     println!(
         "{}",
-simple_status_line(Tone::Success, "done", "data wipe completed")
+status_line(Tone::Success, "done", "data wipe completed")
     );
 
     Ok(())
@@ -937,7 +937,7 @@ simple_status_line(Tone::Success, "done", "data wipe completed")
 fn print_userdata_info(info: &fastboot_flasher::format::UserdataInfo) {
     println!(
         "{}",
-simple_status_line(
+status_line(
             Tone::Info,
             "fastboot",
             &format!("partition-type:userdata = {}", info.fs_type)
@@ -945,7 +945,7 @@ simple_status_line(
     );
     println!(
         "{}",
-simple_status_line(
+status_line(
             Tone::Info,
             "fastboot",
             &format!("partition-size:userdata = 0x{:x}", info.size)
@@ -954,7 +954,7 @@ simple_status_line(
     if let Some(max) = info.max_download_size {
         println!(
             "{}",
-    simple_status_line(
+    status_line(
                 Tone::Info,
                 "fastboot",
                 &format!("max-download-size = 0x{max:x}")
@@ -964,7 +964,7 @@ simple_status_line(
 }
 
 fn print_destruction_warning(title: &str, detail: &str) {
-    eprintln!("{}", simple_notice_box(Tone::Warning, title, detail));
+    eprintln!("{}", notice_box(Tone::Warning, title, detail));
 }
 
 fn select_partitions(
@@ -1008,7 +1008,7 @@ fn select_partitions(
 
 fn print_plan(plan: &FlashPlan) {
     println!();
-    println!("{}", simple_banner("PLAN SUMMARY"));
+    println!("{}", banner("PLAN SUMMARY"));
     println!();
     let summary_pairs = vec![
         ("Mode", plan.mode.to_string()),
@@ -1020,9 +1020,9 @@ fn print_plan(plan: &FlashPlan) {
         ("Warnings", (plan.summary.warning_count + plan.summary.action_warning_count).to_string()),
         ("Errors", plan.summary.error_count.to_string()),
     ];
-    println!("{}", simple_kv_table(&summary_pairs));
+    println!("{}", kv_table(&summary_pairs));
     println!();
-    println!("{}", simple_section_header("FLASH PLAN"));
+    println!("{}", section_header("FLASH PLAN"));
     println!();
     for (index, action) in plan.actions.iter().enumerate() {
         println!(
@@ -1039,17 +1039,17 @@ fn print_plan(plan: &FlashPlan) {
     for warning in plan.warnings.iter().take(10) {
         eprintln!(
             "{}",
-            simple_notice_box(Tone::Warning, "plan warning", warning.as_str())
+            notice_box(Tone::Warning, "plan warning", warning.as_str())
         );
     }
     for error in plan.errors.iter().take(10) {
-        eprintln!("{}", simple_notice_box(Tone::Error, "plan error", error.as_str()));
+        eprintln!("{}", notice_box(Tone::Error, "plan error", error.as_str()));
     }
 }
 
 fn print_manual_plan(title: &str, actions: &[ManualFlashAction]) {
     println!();
-    println!("{}", simple_banner(title));
+    println!("{}", banner(title));
     println!();
     let total_bytes = actions.iter().map(|action| action.size).sum::<u64>();
     let summary_pairs = vec![
@@ -1059,9 +1059,9 @@ fn print_manual_plan(title: &str, actions: &[ManualFlashAction]) {
         ("Skipped", "0".to_string()),
         ("Bytes", HumanBytes(total_bytes).to_string()),
     ];
-    println!("{}", simple_kv_table(&summary_pairs));
+    println!("{}", kv_table(&summary_pairs));
     println!();
-    println!("{}", simple_section_header("FLASH PLAN"));
+    println!("{}", section_header("FLASH PLAN"));
     println!();
     for (index, action) in actions.iter().enumerate() {
         println!(
@@ -1697,7 +1697,7 @@ fn manual_action_summary(actions: &[ManualFlashAction]) -> ActionSummary {
 
 fn print_completion(title: &str, summary: ActionSummary) {
     println!();
-    println!("{}", simple_banner(title));
+    println!("{}", banner(title));
     println!();
     let pairs = vec![
         ("Actions", summary.action_count().to_string()),
@@ -1706,7 +1706,7 @@ fn print_completion(title: &str, summary: ActionSummary) {
         ("Skipped", summary.skipped_count.to_string()),
         ("Bytes", HumanBytes(summary.total_bytes).to_string()),
     ];
-    println!("{}", simple_kv_table(&pairs));
+    println!("{}", kv_table(&pairs));
 }
 
 fn print_completion_with_elapsed(title: &str, summary: ActionSummary, elapsed: Duration) {
@@ -1714,7 +1714,7 @@ fn print_completion_with_elapsed(title: &str, summary: ActionSummary, elapsed: D
     println!();
     println!(
         "{}",
-simple_status_line(Tone::Accent, "elapsed", &format_mm_ss(elapsed))
+status_line(Tone::Accent, "elapsed", &format_mm_ss(elapsed))
     );
 }
 

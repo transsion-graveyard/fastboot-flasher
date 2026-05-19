@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use terminal_output::chrome::simple_banner;
-use terminal_output::table::simple_kv_table_colored;
+use terminal_output::chrome::banner;
+use terminal_output::table::kv_table_colored;
 use crossterm::style::Color;
 
 const SUMMARY_KEYS: &[(&str, &str)] = &[
@@ -51,8 +51,8 @@ pub fn compact_device_info(vars: &HashMap<String, String>) -> String {
 
     format!(
         "\n{}\n\n{}\n",
-        simple_banner("FASTBOOT DEVICE"),
-        simple_kv_table_colored(&pairs_refs)
+        banner("FASTBOOT DEVICE"),
+        kv_table_colored(&pairs_refs)
     )
 }
 

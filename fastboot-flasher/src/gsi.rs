@@ -200,7 +200,6 @@ pub struct GsiFlashOptions {
     pub cancel_token: Option<Arc<AtomicBool>>,
 }
 
-#[allow(clippy::derivable_impls)]
 impl Default for GsiFlashOptions {
     fn default() -> Self {
         Self {

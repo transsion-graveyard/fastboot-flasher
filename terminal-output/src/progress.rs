@@ -17,7 +17,7 @@ pub fn fixed_bar_width(terminal_columns: u16) -> usize {
 }
 
 /// Compute a simplified progress-bar width for small screens (5–10 columns).
-pub fn simple_bar_width(terminal_columns: u16) -> usize {
+pub fn bar_width(terminal_columns: u16) -> usize {
     const OVERHEAD: usize = 30;
     usize::from(terminal_columns)
         .saturating_sub(OVERHEAD)
@@ -72,7 +72,7 @@ pub fn format_byte_pair(bytes: u64, total_bytes: u64) -> String {
 }
 
 /// Format a byte-count pair with variable width for small screens (no padding).
-pub fn simple_byte_pair(bytes: u64, total_bytes: u64) -> String {
+pub fn byte_pair(bytes: u64, total_bytes: u64) -> String {
     format!(
         "{}/{}",
         indicatif::HumanBytes(bytes),
@@ -102,13 +102,13 @@ pub fn timed_style(template: &str) -> ProgressStyle {
 }
 
 /// Construct a simplified [`ProgressStyle`] for small screens with minimal overhead.
-/// Uses simple byte pair formatting and removes ETA for space savings.
-pub fn simple_progress_style(template: &str) -> ProgressStyle {
+/// Uses byte pair formatting and removes ETA for space savings.
+pub fn progress_style(template: &str) -> ProgressStyle {
     ProgressStyle::with_template(template)
         .unwrap_or_else(|_| ProgressStyle::with_template("{spinner:.green} {wide_msg}").expect("fallback template is valid"))
-        .with_key("simple_byte_pair", |state: &ProgressState, out: &mut dyn Write| {
+        .with_key("byte_pair", |state: &ProgressState, out: &mut dyn Write| {
             let total = state.len().unwrap_or_else(|| state.pos());
-            let _ = write!(out, "{}", simple_byte_pair(state.pos(), total));
+            let _ = write!(out, "{}", byte_pair(state.pos(), total));
         })
         .progress_chars("=> ")
 }

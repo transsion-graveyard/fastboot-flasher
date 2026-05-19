@@ -8,8 +8,8 @@ use mtk_scatter_parser::{
     build_flash_plan, parse_scatter, version, FlashPlanOptions, Mode, SlotPolicy, StorageSelect,
 };
 use serde_json::json;
-use terminal_output::chrome::{simple_banner, simple_notice_box, simple_section_header, Tone};
-use terminal_output::table::simple_kv_table;
+use terminal_output::chrome::{banner, notice_box, section_header, Tone};
+use terminal_output::table::kv_table;
 
 #[derive(Debug, Parser)]
 #[command(about = "Parse one MediaTek scatter file and generate a safe flash plan.")]
@@ -138,7 +138,7 @@ fn run() -> anyhow::Result<i32> {
                     .context("serialize fatal JSON")?
                 );
             } else {
-                eprintln!("{}", simple_notice_box(Tone::Error, "fatal", &err.to_string()));
+                eprintln!("{}", notice_box(Tone::Error, "fatal", &err.to_string()));
             }
             return Ok(1);
         }
@@ -202,9 +202,9 @@ fn print_summary(
     } else {
         "ERR"
     };
-    println!("{}", simple_banner("MTK SCATTER SUMMARY"));
+    println!("{}", banner("MTK SCATTER SUMMARY"));
     println!();
-    println!("{}", simple_section_header("Scatter Report"));
+    println!("{}", section_header("Scatter Report"));
     println!();
     let scatter_pairs = vec![
         ("Status", status.to_string()),
@@ -216,9 +216,9 @@ fn print_summary(
         ("Warnings", scatter.warnings.len().to_string()),
         ("Errors", scatter.errors.len().to_string()),
     ];
-    println!("{}", simple_kv_table(&scatter_pairs));
+    println!("{}", kv_table(&scatter_pairs));
     println!();
-    println!("{}", simple_section_header("Plan Report"));
+    println!("{}", section_header("Plan Report"));
     println!();
     let plan_pairs = vec![
         ("Mode", plan.mode.to_string()),
@@ -232,27 +232,27 @@ fn print_summary(
         ("Warnings", (plan.summary.warning_count + plan.summary.action_warning_count).to_string()),
         ("Errors", plan.summary.error_count.to_string()),
     ];
-    println!("{}", simple_kv_table(&plan_pairs));
+    println!("{}", kv_table(&plan_pairs));
     for warning in scatter.warnings.iter().take(20) {
         eprintln!(
             "{}",
-            simple_notice_box(Tone::Warning, "parser warning", warning.as_str())
+            notice_box(Tone::Warning, "parser warning", warning.as_str())
         );
     }
     for error in scatter.errors.iter().take(20) {
         eprintln!(
             "{}",
-            simple_notice_box(Tone::Error, "parser error", error.as_str())
+            notice_box(Tone::Error, "parser error", error.as_str())
         );
     }
     for warning in plan.warnings.iter().take(20) {
         eprintln!(
             "{}",
-            simple_notice_box(Tone::Warning, "plan warning", warning.as_str())
+            notice_box(Tone::Warning, "plan warning", warning.as_str())
         );
     }
     for error in plan.errors.iter().take(20) {
-        eprintln!("{}", simple_notice_box(Tone::Error, "plan error", error.as_str()));
+        eprintln!("{}", notice_box(Tone::Error, "plan error", error.as_str()));
     }
 }
 

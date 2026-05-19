@@ -1,8 +1,6 @@
 //! Terminal chrome — banners, section headers/footers, status lines, notice boxes,
 //! and centered block helpers for structured CLI output.
 
-use std::fmt::Write as _;
-
 use console::measure_text_width;
 use crossterm::style::{Color, Stylize};
 use crossterm::terminal::size;
@@ -55,28 +53,14 @@ pub fn terminal_width_from_size(columns: Option<u16>) -> usize {
     columns.map_or(100, usize::from)
 }
 
-/// Render a centered banner box with an uppercased title.
+/// Render a simple plain-text banner (no box, no centering).
 pub fn banner(title: &str) -> String {
-    let inner_width = terminal_width().saturating_sub(4).max(20);
-    let lines = vec![title.to_uppercase()];
-    center_block(&boxed_lines(
-        Tone::Accent,
-        &lines,
-        inner_width,
-        BoxAlignment::Center,
-    ))
+    format!("=== {} ===", title.to_uppercase())
 }
 
-/// Render a centered section-header box with the given title.
+/// Render a simple plain-text section header (no box, no centering).
 pub fn section_header(title: &str) -> String {
-    let inner_width = terminal_width().saturating_sub(4).max(20);
-    let lines = vec![title.to_string()];
-    center_block(&boxed_lines(
-        Tone::Accent,
-        &lines,
-        inner_width,
-        BoxAlignment::Center,
-    ))
+    format!("--- {} ---", title)
 }
 
 /// Render a centered footer separator line.
@@ -87,44 +71,17 @@ pub fn section_footer() -> String {
 
 /// Render a one-line status message with a styled label and detail text.
 pub fn status_line(tone: Tone, label: &str, detail: &str) -> String {
-    center_block(&format!(
-        "{} {}",
-        label.with(tone_color(tone)).bold(),
-        detail
-    ))
-}
-
-/// Render a boxed notice with a tone tag, title, and wrapped body text.
-pub fn notice_box(tone: Tone, title: &str, body: &str) -> String {
-    let inner_width = terminal_width().saturating_sub(4).max(20);
-    let mut lines = vec![format!("[{}] {}", tone_tag(tone), title)];
-    lines.extend(wrap_text(body, inner_width));
-    center_block(&boxed_lines(tone, &lines, inner_width, BoxAlignment::Left))
-}
-
-/// Render a simple plain-text banner (no box, no centering) for mobile/small screens.
-pub fn simple_banner(title: &str) -> String {
-    format!("=== {} ===", title.to_uppercase())
-}
-
-/// Render a simple plain-text section header (no box, no centering).
-pub fn simple_section_header(title: &str) -> String {
-    format!("--- {} ---", title)
+    format!("{}: {}", label.with(tone_color(tone)).bold(), detail)
 }
 
 /// Render a simple plain-text notice (no box, no centering) with tone tag.
-pub fn simple_notice_box(tone: Tone, title: &str, body: &str) -> String {
+pub fn notice_box(tone: Tone, title: &str, body: &str) -> String {
     let tag = tone_tag(tone);
     let mut out = format!("[{tag}] {title}\n");
     for line in wrap_text(body, 80) {
         out.push_str(&format!("  {line}\n"));
     }
     out.trim_end().to_string()
-}
-
-/// Render a simple left-aligned status line (no centering).
-pub fn simple_status_line(tone: Tone, label: &str, detail: &str) -> String {
-    format!("{}: {}", label.with(tone_color(tone)).bold(), detail)
 }
 
 /// Center a multi-line block within the current terminal width.
@@ -180,40 +137,6 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     out
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BoxAlignment {
-    Left,
-    Center,
-}
-
-fn boxed_lines(
-    tone: Tone,
-    lines: &[String],
-    inner_width: usize,
-    alignment: BoxAlignment,
-) -> String {
-    let color = tone_color(tone);
-    let border_top = format!("╭{}╮", "─".repeat(inner_width + 2));
-    let border_bottom = format!("╰{}╯", "─".repeat(inner_width + 2));
-    let mut out = String::new();
-    let _ = writeln!(out, "{}", border_top.as_str().with(color));
-    for line in lines {
-        let visible_len = measure_text_width(line).min(inner_width);
-        let padding = inner_width.saturating_sub(visible_len);
-        let rendered = match alignment {
-            BoxAlignment::Left => format!("{}{}", line, " ".repeat(padding)),
-            BoxAlignment::Center => {
-                let left = padding / 2;
-                let right = padding - left;
-                format!("{}{}{}", " ".repeat(left), line, " ".repeat(right))
-            }
-        };
-        let _ = writeln!(out, "│ {} │", rendered);
-    }
-    let _ = writeln!(out, "{}", border_bottom.as_str().with(color));
-    out.trim_end().to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,7 +151,6 @@ mod tests {
     #[test]
     fn center_block_with_width_should_pad_each_line_by_visible_width() {
         let out = center_block_with_width("abc\nＨ", 7);
-
         assert_eq!(out, "  abc\n  Ｈ");
     }
 
@@ -242,31 +164,12 @@ mod tests {
     #[test]
     fn section_header_should_be_title_only() {
         let out = section_header("FLASH PLAN");
-
         assert!(out.contains("FLASH PLAN"));
-        assert!(!out.contains("ACCENT"));
-        assert!(!out.contains("◆"));
-        assert!(!out.contains("planned write"));
-    }
-
-    #[test]
-    fn section_header_should_center_text_in_box() {
-        let out = boxed_lines(
-            Tone::Accent,
-            &[String::from("FLASH PLAN")],
-            20,
-            BoxAlignment::Center,
-        );
-
-        assert!(out.contains("FLASH PLAN"));
-        assert!(out.contains("╭"));
-        assert!(out.contains("╰"));
     }
 
     #[test]
     fn section_footer_should_be_border_only() {
         let out = section_footer();
-
         assert!(out.contains("╰"));
         assert!(out.contains("╯"));
         assert!(!out.contains("FLASH PLAN"));
@@ -276,7 +179,6 @@ mod tests {
     #[test]
     fn status_line_should_not_include_tone_tag() {
         let out = status_line(Tone::Success, "device", "ready");
-
         assert!(!out.contains("OK"));
         assert!(out.contains("device"));
         assert!(out.contains("ready"));
@@ -289,7 +191,6 @@ mod tests {
             "plan warning",
             "This is a long warning paragraph that should wrap rather than overflow the terminal width.",
         );
-
         assert!(out.contains("WARN"));
         assert!(out.contains("plan warning"));
         assert!(out.contains("wrap rather than overflow"));

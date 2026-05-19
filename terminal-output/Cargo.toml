@@ -7,7 +7,6 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-comfy-table = "7"
 crossterm = "0.29"
 console = "0.15"
 indicatif = "0.17"
