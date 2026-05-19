@@ -2025,6 +2025,11 @@ fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
                 PathBuf::from(path)
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
+            }).or_else(|| {
+                a.image
+                    .as_ref()
+                    .and_then(|image| image.pointer("/file_name").and_then(|value| value.as_str()))
+                    .map(ToOwned::to_owned)
             });
 
             PartitionDto {
@@ -2370,6 +2375,23 @@ mod tests {
         assert_eq!(partition.image_name.as_deref(), Some("boot.img"));
         assert_eq!(partition.image_type.as_deref(), Some("NORMAL_ROM"));
         assert_eq!(dto.chipset.as_deref(), Some("mt6789"));
+    }
+
+    #[test]
+    fn plan_to_dto_falls_back_to_scatter_file_name_when_image_is_unresolved() {
+        let mut action = flash_action("userdata", "flash");
+        action.image = Some(json!({
+            "file_name": "userdata.img",
+            "path": {
+                "resolved_path": null
+            }
+        }));
+
+        let dto = plan_to_dto(&flash_plan(vec![action]), None);
+        let partition = &dto.partitions[0];
+
+        assert_eq!(partition.image_path, None);
+        assert_eq!(partition.image_name.as_deref(), Some("userdata.img"));
     }
 
     #[test]
