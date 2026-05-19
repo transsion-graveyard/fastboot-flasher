@@ -18,6 +18,16 @@ pub fn should_skip_failed_partition(err: &FastbootExecutionError) -> bool {
     }
 }
 
+/// Check whether an [`anyhow::Error`] contains a fastboot `command failed`
+/// response that can be skipped safely.
+pub fn should_skip_failed_partition_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|source| {
+        source
+            .downcast_ref::<FastbootExecutionError>()
+            .is_some_and(should_skip_failed_partition)
+    })
+}
+
 fn is_fastboot_failed(err: &FastbootError) -> bool {
     match err {
         FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => {
@@ -134,4 +144,48 @@ pub async fn erase_one_partition(dev: &mut FastbootDevice, partition: &str) -> a
         .await
         .map_err(anyhow::Error::from)
         .with_context(|| format!("erase {partition}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use fastboot_rs::{
+        transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError,
+        ImagePayloadError,
+    };
+
+    use super::{should_skip_failed_partition, should_skip_failed_partition_error};
+
+    fn fastboot_failed_error() -> FastbootExecutionError {
+        FastbootExecutionError::Fastboot(FastbootError::Nusb(
+            NusbFastBootError::FastbootFailed("bootloader rejected flash".to_string()),
+        ))
+    }
+
+    fn non_skippable_error() -> FastbootExecutionError {
+        FastbootExecutionError::Payload(ImagePayloadError::SizeTooLarge(1024))
+    }
+
+    #[test]
+    fn should_skip_failed_partition_accepts_fastboot_failed_responses() {
+        assert!(should_skip_failed_partition(&fastboot_failed_error()));
+    }
+
+    #[test]
+    fn should_skip_failed_partition_rejects_non_fastboot_errors() {
+        assert!(!should_skip_failed_partition(&non_skippable_error()));
+    }
+
+    #[test]
+    fn should_skip_failed_partition_error_finds_wrapped_fastboot_failures() {
+        let err = anyhow::Error::new(fastboot_failed_error());
+
+        assert!(should_skip_failed_partition_error(&err));
+    }
+
+    #[test]
+    fn should_skip_failed_partition_error_rejects_wrapped_non_fastboot_errors() {
+        let err = anyhow::Error::new(non_skippable_error());
+
+        assert!(!should_skip_failed_partition_error(&err));
+    }
 }

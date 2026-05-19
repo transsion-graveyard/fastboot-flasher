@@ -2855,6 +2855,7 @@ dependencies = [
 name = "pawflash-gui"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "fastboot-rs",
  "mtk-scatter-parser",
  "pawflash",

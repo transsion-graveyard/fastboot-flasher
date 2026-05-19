@@ -799,6 +799,26 @@ struct FlashProgressContext<'a> {
     overall_total: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PartitionFlashOutcome {
+    Completed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PartitionFlashFailureDisposition {
+    Skip,
+    Fatal,
+}
+
+fn partition_flash_failure_disposition(error: &anyhow::Error) -> PartitionFlashFailureDisposition {
+    if pawflash::flash::should_skip_failed_partition_error(error) {
+        PartitionFlashFailureDisposition::Skip
+    } else {
+        PartitionFlashFailureDisposition::Fatal
+    }
+}
+
 impl<'a> FlashProgressContext<'a> {
     async fn flash_partition(
         &mut self,
@@ -806,7 +826,8 @@ impl<'a> FlashProgressContext<'a> {
         image_path: &Path,
         bytes: u64,
         completed_before: u64,
-    ) -> Result<(), String> {
+        allow_skip_failed_partition: bool,
+    ) -> Result<PartitionFlashOutcome, String> {
         ensure_not_cancelled(self.control)?;
         self.app
             .emit(
@@ -835,21 +856,41 @@ impl<'a> FlashProgressContext<'a> {
                         },
                     )
                     .map_err(|e| format!("emit: {e}"))?;
-                Ok(())
+                Ok(PartitionFlashOutcome::Completed)
             }
-            Err(e) => {
-                let msg = format!("{e:#}");
-                self.app
-                    .emit(
-                        "flash-progress",
-                        FlashEvent::PartitionFailed {
-                            partition: partition.to_string(),
-                            error: msg.clone(),
-                        },
-                    )
-                    .map_err(|e| format!("emit: {e}"))?;
-                Err(msg)
-            }
+            Err(error) => match (
+                allow_skip_failed_partition,
+                partition_flash_failure_disposition(&error),
+            ) {
+                (true, PartitionFlashFailureDisposition::Skip) => {
+                    let reason = format!("{error:#}");
+                    self.summary.skipped_count += 1;
+                    emit_overall_progress(self.app, completed_before, bytes, self.overall_total)?;
+                    self.app
+                        .emit(
+                            "flash-progress",
+                            FlashEvent::PartitionSkipped {
+                                partition: partition.to_string(),
+                                reason: reason.clone(),
+                            },
+                        )
+                        .map_err(|e| format!("emit: {e}"))?;
+                    Ok(PartitionFlashOutcome::Skipped)
+                }
+                _ => {
+                    let msg = format!("{error:#}");
+                    self.app
+                        .emit(
+                            "flash-progress",
+                            FlashEvent::PartitionFailed {
+                                partition: partition.to_string(),
+                                error: msg.clone(),
+                            },
+                        )
+                        .map_err(|e| format!("emit: {e}"))?;
+                    Err(msg)
+                }
+            },
         }
     }
 
@@ -914,11 +955,12 @@ impl<'a> FlashProgressContext<'a> {
                 "flash" => {
                     let image_path = resolve_image_path_for_action(action, image_overrides)?;
 
-                    self.flash_partition(
+                    let _outcome = self.flash_partition(
                         &action.partition,
                         &image_path,
                         action_bytes,
                         completed_before,
+                        true,
                     )
                     .await?;
                 }
@@ -942,7 +984,7 @@ impl<'a> FlashProgressContext<'a> {
         image: &Path,
         total_bytes: u64,
         completed_before: u64,
-    ) -> Result<(), String> {
+    ) -> Result<(), anyhow::Error> {
         let app = self.app.clone();
         let p = partition.to_string();
         let p2 = p.clone();
@@ -984,9 +1026,10 @@ impl<'a> FlashProgressContext<'a> {
             }
         })
         .await
-        .map_err(|e| format!("{e:#}"))?;
+        ?;
 
-        emit_task.await.map_err(|e| format!("join flash task: {e}"))??;
+        let emit_result = emit_task.await.map_err(anyhow::Error::from)?;
+        emit_result.map_err(anyhow::Error::msg)?;
         Ok(())
     }
 }
@@ -1568,7 +1611,7 @@ async fn format_userdata_inner(
                 overall_total: total_bytes,
             };
             flash
-                .flash_partition("userdata", image.path(), total_bytes, 0)
+                .flash_partition("userdata", image.path(), total_bytes, 0, false)
                 .await?;
         }
         Err(_error) if erase_fallback => {
@@ -1667,7 +1710,7 @@ async fn wipe_data_inner(
                 overall_total: total_bytes.max(1),
             };
             flash
-                .flash_partition("userdata", image.path(), base_bytes.max(1), 0)
+                .flash_partition("userdata", image.path(), base_bytes.max(1), 0, false)
                 .await?;
         }
         Err(_error) if erase_fallback => {
@@ -1814,6 +1857,7 @@ async fn execute_manual_flash(
                 &action.image,
                 action.size,
                 completed_before,
+                false,
             )
             .await?;
         completed_before = completed_before.saturating_add(action.size);
@@ -2134,12 +2178,16 @@ mod tests {
         describe_fastboot_probe_failure, describe_probe_stage, display_safety_class,
         filter_actions, load_flash_plan, new_device_cache, normalize_power_off_error,
         normalize_slot, normalize_storage_label, parse_flash_mode, parse_plan_request,
-        plan_requires_connected_device, plan_to_dto, prepare_for_gsi_worker_launch,
-        resolve_image_path_for_action, session_policy_for_flash_run,
+        partition_flash_failure_disposition, plan_requires_connected_device, plan_to_dto,
+        prepare_for_gsi_worker_launch, resolve_image_path_for_action, session_policy_for_flash_run,
         session_policy_for_mutating_command, session_policy_for_read_only_command,
         start_force_fastboot_session, store_flash_plan, update_overall_progress, AppState,
         DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashRunControl, ForceFastbootState,
-        StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
+        PartitionFlashFailureDisposition, StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
+    };
+    use fastboot_rs::{
+        transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError,
+        ImagePayloadError,
     };
     use pawflash::gsi::{
         detect_fastboot_mode as shared_detect_fastboot_mode, FastbootMode as SharedFastbootMode,
@@ -2214,6 +2262,16 @@ mod tests {
             force_fastboot: Mutex::new(ForceFastbootState::default()),
             flash_in_progress: AtomicBool::new(false),
         }
+    }
+
+    fn fastboot_failed_error() -> anyhow::Error {
+        anyhow::Error::new(FastbootExecutionError::Fastboot(FastbootError::Nusb(
+            NusbFastBootError::FastbootFailed("bootloader rejected flash".to_string()),
+        )))
+    }
+
+    fn non_skippable_error() -> anyhow::Error {
+        anyhow::Error::new(FastbootExecutionError::Payload(ImagePayloadError::SizeTooLarge(1024)))
     }
 
     #[test]
@@ -2402,6 +2460,22 @@ mod tests {
         control.cancel_requested.store(true, Ordering::SeqCst);
 
         assert!(control.cancel_requested.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn partition_flash_failure_disposition_skips_fastboot_failed_responses() {
+        assert_eq!(
+            partition_flash_failure_disposition(&fastboot_failed_error()),
+            PartitionFlashFailureDisposition::Skip
+        );
+    }
+
+    #[test]
+    fn partition_flash_failure_disposition_keeps_other_errors_fatal() {
+        assert_eq!(
+            partition_flash_failure_disposition(&non_skippable_error()),
+            PartitionFlashFailureDisposition::Fatal
+        );
     }
 
     #[test]
