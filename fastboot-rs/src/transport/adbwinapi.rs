@@ -212,6 +212,9 @@ pub struct DataDownload<'a> {
     current: Vec<u8>,
 }
 
+unsafe impl Send for AdbWinApiFastboot {}
+unsafe impl Sync for AdbWinApiFastboot {}
+
 impl AdbWinApiFastboot {
     pub fn open_first() -> Result<Self, AdbWinApiFastbootOpenError> {
         let discovery = discover_dlls()?;
