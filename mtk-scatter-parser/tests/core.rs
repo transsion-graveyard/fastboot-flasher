@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::{
     fs::{self, File},
     io::Write,

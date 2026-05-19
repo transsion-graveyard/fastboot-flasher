@@ -1,16 +1,27 @@
+//! Paths to bundled format tool binaries and helpers.
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Paths to the bundled filesystem-formatting tools.
 pub struct FormatTools {
+    /// Root directory containing platform-specific subdirectories.
     pub root: PathBuf,
+    /// Platform-specific directory with tool binaries.
     pub dir: PathBuf,
+    /// Path to the `mke2fs` binary.
     pub mke2fs: PathBuf,
+    /// Path to the `make_f2fs` binary.
     pub make_f2fs: PathBuf,
+    /// Path to the `make_f2fs_casefold` binary (optional).
     pub make_f2fs_casefold: PathBuf,
+    /// Path to the `mke2fs.conf` configuration file.
     pub mke2fs_conf: PathBuf,
 }
 
 impl FormatTools {
+    /// Build [`FormatTools`] from a bin root directory, auto-detecting the
+    /// platform subdirectory.
     pub fn from_bin_root(root: &Path) -> anyhow::Result<Self> {
         #[cfg(target_os = "windows")]
         let platform = "windows";
@@ -22,6 +33,7 @@ impl FormatTools {
         Ok(Self::from_platform_root(root, platform))
     }
 
+    /// Build [`FormatTools`] pointing at the crate's built-in asset binaries.
     pub fn from_cli_assets() -> anyhow::Result<Self> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("assets")
@@ -42,6 +54,7 @@ impl FormatTools {
         }
     }
 
+    /// Check that all required tool binaries and config files exist on disk.
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.mke2fs.is_file(),
@@ -61,6 +74,9 @@ impl FormatTools {
         Ok(())
     }
 
+    /// Set the working directory and any platform-specific environment
+    /// variables (e.g. `LD_LIBRARY_PATH` on Linux, `PATH` on Windows) so
+    /// that the tool binary can find its dependencies.
     pub fn apply_runtime_env(&self, cmd: &mut Command) -> anyhow::Result<()> {
         cmd.current_dir(&self.dir);
 

@@ -1,5 +1,13 @@
+//!
+//! Permission-checking helpers for serial port access.
+//!
+//! Determines whether an error is permission-related and detects root execution.
+
 use std::io;
 
+/// Returns `true` if `error` is (or wraps) a permission-denied error, either via
+/// [`std::io::ErrorKind::PermissionDenied`], a POSIX `EACCES`/`EPERM` OS error code,
+/// or a message containing "permission denied" or "access is denied".
 pub fn is_permission_error(error: &anyhow::Error) -> bool {
     if let Some(io_err) = error.downcast_ref::<io::Error>() {
         if io_err.kind() == io::ErrorKind::PermissionDenied {
@@ -22,6 +30,8 @@ pub fn is_permission_error(error: &anyhow::Error) -> bool {
         || msg.contains("access denied")
 }
 
+/// Returns `true` if the process is running as root (uid 0) on Unix.
+/// Always returns `false` on non-Unix platforms.
 #[cfg_attr(unix, expect(unsafe_code))]
 pub fn is_running_as_root() -> bool {
     #[cfg(unix)]

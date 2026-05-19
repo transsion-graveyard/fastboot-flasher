@@ -1,3 +1,5 @@
+//! Build an ext4 userdata image using `mke2fs`.
+
 use std::path::Path;
 use std::process::Command;
 
@@ -5,6 +7,7 @@ use anyhow::Context;
 
 use super::tools::FormatTools;
 
+/// Build an ext4 image for userdata using the bundled `mke2fs` binary.
 pub fn build_ext4_image(
     tools: &FormatTools,
     output_img: &Path,

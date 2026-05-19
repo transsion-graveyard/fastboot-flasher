@@ -1,3 +1,5 @@
+//! Pretty-print fastboot device information in a compact table format.
+
 use std::collections::HashMap;
 
 use terminal_output::chrome::banner;
@@ -18,6 +20,7 @@ const SUMMARY_KEYS: &[(&str, &str)] = &[
     ("version-baseband", "baseband"),
 ];
 
+/// Render a compact, color-coded summary table of fastboot device variables.
 pub fn compact_device_info(vars: &HashMap<String, String>) -> String {
     let mut table = compact_table();
     table.set_header(vec![header_cell("Field"), header_cell("Value")]);
@@ -38,9 +41,9 @@ pub fn compact_device_info(vars: &HashMap<String, String>) -> String {
                 label_cell(format!("slot {slot}")),
                 value_cell(format!(
                     "retry={} successful={} unbootable={}",
-                    retry.map(String::as_str).unwrap_or("?"),
-                    successful.map(String::as_str).unwrap_or("?"),
-                    unbootable.map(String::as_str).unwrap_or("?")
+                    retry.map_or("?", String::as_str),
+                    successful.map_or("?", String::as_str),
+                    unbootable.map_or("?", String::as_str)
                 )),
             ]);
         }
@@ -68,6 +71,7 @@ fn value_color(label: &str, value: &str) -> Color {
     }
 }
 
+/// Render device info with mock values for testing/preview purposes.
 pub fn mock_device_info() -> String {
     compact_device_info(&HashMap::from([
         ("serialno".to_string(), "mocked".to_string()),

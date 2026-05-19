@@ -30,18 +30,26 @@ pub async fn open_first_fastboot() -> Result<NusbFastBoot, NusbFastBootOpenError
 /// Fastboot communication errors
 #[derive(Debug, Error)]
 pub enum NusbFastBootError {
+    /// USB transfer error.
     #[error("Transfer error: {0}")]
     Transfer(#[from] TransferError),
+    /// Fastboot command returned a failure response.
     #[error("Fastboot client failure: {0}")]
     FastbootFailed(String),
+    /// Received an unexpected fastboot response.
     #[error("Unexpected fastboot response")]
     FastbootUnexpectedReply,
+    /// Failed to parse a fastboot response.
     #[error("Unknown fastboot response: {0}")]
     FastbootParseError(#[from] FastBootResponseParseError),
+    /// A fastboot variable had an unexpected value.
     #[error("Invalid fastboot variable {name}={value:?}: {reason}")]
     InvalidVariable {
+        /// Variable name.
         name: &'static str,
+        /// Raw value returned by the device.
         value: String,
+        /// Human-readable error reason.
         reason: String,
     },
 }
@@ -49,19 +57,25 @@ pub enum NusbFastBootError {
 /// Errors when opening the fastboot device
 #[derive(Debug, Error)]
 pub enum NusbFastBootOpenError {
+    /// Failed to open the USB device.
     #[error("Failed to open device: {0}")]
     Device(nusb::Error),
+    /// Failed to claim the USB interface.
     #[error("Failed to claim interface: {0}")]
     Interface(nusb::Error),
+    /// No fastboot USB interface found on the device.
     #[error("Failed to find interface for fastboot")]
     MissingInterface,
+    /// Required bulk IN/OUT endpoints not found.
     #[error("Failed to find required endpoints for fastboot")]
     MissingEndpoints,
+    /// Fastboot response parsing failed during open.
     #[error("Unknown fastboot response: {0}")]
     FastbootParseError(#[from] FastBootResponseParseError),
 }
 
 impl NusbFastBootOpenError {
+    /// Whether this error may resolve by retrying.
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
@@ -475,9 +489,9 @@ mod tests {
 
     #[test]
     fn parse_is_logical_value_accepts_yes_and_no() {
-        assert_eq!(NusbFastBoot::parse_is_logical_value("yes").unwrap(), true);
-        assert_eq!(NusbFastBoot::parse_is_logical_value("no").unwrap(), false);
-        assert_eq!(NusbFastBoot::parse_is_logical_value(" YES ").unwrap(), true);
+        assert!(NusbFastBoot::parse_is_logical_value("yes").unwrap());
+        assert!(!NusbFastBoot::parse_is_logical_value("no").unwrap());
+        assert!(NusbFastBoot::parse_is_logical_value(" YES ").unwrap());
     }
 
     #[test]
@@ -490,10 +504,18 @@ mod tests {
 /// Error during data download
 #[derive(Debug, Error)]
 pub enum DownloadError {
+    /// No data was queued before finishing.
     #[error("Trying to complete while nothing was Queued")]
     NothingQueued,
+    /// The amount of data sent does not match the expected size.
     #[error("Incorrect data length: expected {expected}, got {actual}")]
-    IncorrectDataLength { actual: u32, expected: u32 },
+    IncorrectDataLength {
+        /// Actual bytes sent.
+        actual: u32,
+        /// Expected bytes.
+        expected: u32,
+    },
+    /// Underlying nusb error.
     #[error(transparent)]
     Nusb(#[from] NusbFastBootError),
 }

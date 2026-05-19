@@ -1,3 +1,5 @@
+//! Build an f2fs userdata image using `make_f2fs`.
+
 use std::path::Path;
 use std::process::Command;
 
@@ -5,6 +7,7 @@ use anyhow::Context;
 
 use super::tools::FormatTools;
 
+/// Build an f2fs image for userdata using the bundled `make_f2fs` binary.
 pub fn build_f2fs_image(
     tools: &FormatTools,
     output_img: &Path,

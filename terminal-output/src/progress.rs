@@ -1,3 +1,6 @@
+//! Progress bar helpers — bar width calculations, text measuring, formatting for
+//! elapsed/remaining time and byte counts, and a pre-built `ProgressStyle` factory.
+
 use std::{fmt::Write, time::Duration};
 
 use console::measure_text_width;
@@ -5,6 +8,7 @@ use indicatif::{ProgressState, ProgressStyle};
 
 const BYTE_PAIR_WIDTH: usize = 21;
 
+/// Compute a clamped progress-bar width (10–15 columns) based on terminal width.
 pub fn fixed_bar_width(terminal_columns: u16) -> usize {
     const OVERHEAD: usize = 67;
     usize::from(terminal_columns)
@@ -12,10 +16,13 @@ pub fn fixed_bar_width(terminal_columns: u16) -> usize {
         .clamp(10, 15)
 }
 
+/// Return the visible (display) width of a string, accounting for wide Unicode.
 pub fn visible_width(text: &str) -> usize {
     measure_text_width(text)
 }
 
+/// Clamp `available_width` between `min_width` and `max_width`, preferring to
+/// shrink rather than grow when space is tight.
 pub fn fit_width(available_width: usize, min_width: usize, max_width: usize) -> usize {
     if available_width < min_width {
         available_width
@@ -24,10 +31,12 @@ pub fn fit_width(available_width: usize, min_width: usize, max_width: usize) -> 
     }
 }
 
+/// Compute left padding to center a `content_width`-wide block in the terminal.
 pub fn centered_padding(terminal_columns: usize, content_width: usize) -> usize {
     terminal_columns.saturating_sub(content_width) / 2
 }
 
+/// Build a prefix string with a label left-padded to center it in the terminal.
 pub fn centered_prefix(label: &str, content_width: usize, terminal_columns: usize) -> String {
     format!(
         "{}{}",
@@ -36,11 +45,13 @@ pub fn centered_prefix(label: &str, content_width: usize, terminal_columns: usiz
     )
 }
 
+/// Format a [`Duration`] as `MM:SS` (minutes and seconds only).
 pub fn format_mm_ss(duration: Duration) -> String {
     let total_seconds = duration.as_secs();
     format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
 }
 
+/// Format a byte-count pair (`pos / total`) with human-readable units at a fixed width.
 pub fn format_byte_pair(bytes: u64, total_bytes: u64) -> String {
     format!(
         "{:>BYTE_PAIR_WIDTH$}",
@@ -52,6 +63,8 @@ pub fn format_byte_pair(bytes: u64, total_bytes: u64) -> String {
     )
 }
 
+/// Construct a [`ProgressStyle`] from a template, injecting custom keys for
+/// `elapsed_mmss`, `eta_mmss`, and `byte_pair`.
 pub fn timed_style(template: &str) -> ProgressStyle {
     ProgressStyle::with_template(template)
         .unwrap_or_else(|_| ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {wide_msg}").expect("fallback template is valid"))

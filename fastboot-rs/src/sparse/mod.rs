@@ -14,19 +14,25 @@ pub const FILE_HEADER_BYTES_LEN: usize = 28;
 pub const CHUNK_HEADER_BYTES_LEN: usize = 12;
 /// File magic - This are the first 4 bytes in little-endian
 pub const HEADER_MAGIC: u32 = 0xed26ff3a;
+/// Default block size used for raw image splitting (4096 bytes).
 pub const DEFAULT_BLOCKSIZE: u32 = 4096;
 
 /// Byte parsing errors
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum ParseError {
+    /// The header magic value is not recognized.
     #[error("Header has an unknown magic value")]
     UnknownMagic,
+    /// The sparse image version is not supported.
     #[error("Header has an unknown version")]
     UnknownVersion,
+    /// Header or chunk header size does not match the expected value.
     #[error("Header has an unexpected header or chunk size")]
     UnexpectedSize,
+    /// A chunk type code is not recognized.
     #[error("Header has an unknown chunk type")]
     UnknownChunkType,
+    /// Chunk output size overflows `usize`.
     #[error("Chunk output size overflows usize")]
     ChunkOutputSizeOverflow,
 }
@@ -112,6 +118,7 @@ impl FileHeader {
         bytes
     }
 
+    /// Total expanded size in bytes (blocks × block_size).
     pub fn total_size(&self) -> usize {
         self.blocks as usize * self.block_size as usize
     }

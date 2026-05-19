@@ -1,3 +1,5 @@
+//! Userdata detection, formatted image generation, and wipe operations.
+
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -8,26 +10,40 @@ use crate::{erase_one_partition, flash_one_partition};
 
 use super::{ext4::build_ext4_image, f2fs::build_f2fs_image, tools::FormatTools};
 
+/// Information about the userdata partition on the device.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserdataInfo {
+    /// Filesystem type (e.g. "ext4", "f2fs", "raw").
     pub fs_type: String,
+    /// Partition size in bytes.
     pub size: u64,
+    /// Maximum download size reported by the device (optional).
     pub max_download_size: Option<u64>,
+    /// Erase block size (optional).
     pub erase_block_size: Option<u64>,
+    /// Logical block size (optional).
     pub logical_block_size: Option<u64>,
 }
 
+/// Options for formatting the userdata partition.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FormatUserdataOptions {
+    /// Fall back to `fastboot erase userdata` if image generation fails.
     pub erase_fallback: bool,
+    /// Enable f2fs casefolding support.
     pub casefold: bool,
 }
 
+/// Options for the full wipe-data flow (userdata + optional partitions).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WipeDataOptions {
+    /// Also erase the metadata partition.
     pub erase_metadata: bool,
+    /// Also erase the cache partition.
     pub erase_cache: bool,
+    /// Fall back to `fastboot erase` if image generation fails.
     pub erase_fallback: bool,
+    /// Enable f2fs casefolding when generating the userdata image.
     pub casefold: bool,
 }
 
@@ -42,6 +58,7 @@ impl Default for WipeDataOptions {
     }
 }
 
+/// A generated userdata filesystem image backed by a temporary directory.
 #[derive(Debug)]
 pub struct GeneratedUserdataImage {
     temp_dir: TempDir,
@@ -49,40 +66,58 @@ pub struct GeneratedUserdataImage {
 }
 
 impl GeneratedUserdataImage {
+    /// Path to the generated userdata image file.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Return the length of the generated image file in bytes.
     pub fn image_len(&self) -> anyhow::Result<u64> {
         Ok(std::fs::metadata(&self.path)
             .with_context(|| format!("read generated image metadata for {}", self.path.display()))?
             .len())
     }
 
+    /// Path to the temporary directory keeping the image alive.
     pub fn keepalive_dir(&self) -> &Path {
         self.temp_dir.path()
     }
 }
 
+/// Outcome of a `format_userdata` operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatUserdataOutcome {
+    /// The userdata partition info that was used.
     pub info: UserdataInfo,
+    /// Whether the operation fell back to `fastboot erase userdata`.
     pub used_erase_fallback: bool,
 }
 
+/// Outcome of a full wipe-data operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WipeDataOutcome {
+    /// The outcome of the userdata format.
     pub format: FormatUserdataOutcome,
+    /// Whether metadata was erased.
     pub metadata_erased: bool,
+    /// Whether cache was erased.
     pub cache_erased: bool,
 }
 
+/// Outcome of an optional partition erase (may be skipped on failure).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OptionalEraseOutcome {
+    /// The partition was successfully erased.
     Erased,
-    Skipped { reason: String },
+    /// The erase was skipped (e.g. partition does not exist).
+    Skipped {
+        /// Reason why the erase was skipped.
+        reason: String,
+    },
 }
 
+/// Parse a u64 from a fastboot variable string (decimal, `0x`-prefixed hex, or
+/// bare hex).
 pub fn parse_fastboot_u64(value: &str) -> anyhow::Result<u64> {
     let value = value.trim();
     if let Some(hex) = value
@@ -106,6 +141,8 @@ async fn get_var_optional(dev: &mut FastbootDevice, name: &str) -> Option<String
         .map(|value| value.trim().to_string())
 }
 
+/// Read userdata partition info (filesystem type, size, block sizes) from the
+/// device.
 pub async fn detect_userdata(dev: &mut FastbootDevice) -> anyhow::Result<UserdataInfo> {
     let fs_type = dev
         .get_var("partition-type:userdata")
@@ -140,6 +177,8 @@ pub async fn detect_userdata(dev: &mut FastbootDevice) -> anyhow::Result<Userdat
     })
 }
 
+/// Generate a formatted userdata image (ext4 or f2fs) in a temporary
+/// directory.
 pub fn generate_userdata_image(
     tools: &FormatTools,
     info: &UserdataInfo,
@@ -168,6 +207,8 @@ pub fn generate_userdata_image(
     Ok(GeneratedUserdataImage { temp_dir, path })
 }
 
+/// Detect userdata info, generate a formatted image, and flash it to the
+/// device.
 pub async fn format_userdata(
     dev: &mut FastbootDevice,
     tools: &FormatTools,
@@ -178,6 +219,8 @@ pub async fn format_userdata(
     format_userdata_with_info(dev, tools, info, options, on_progress).await
 }
 
+/// Format userdata using a pre-fetched [`UserdataInfo`], generating an image
+/// and flashing it.
 pub async fn format_userdata_with_info(
     dev: &mut FastbootDevice,
     tools: &FormatTools,
@@ -215,6 +258,8 @@ pub async fn format_userdata_with_info(
     })
 }
 
+/// Full wipe flow: detect userdata, format it, and optionally erase metadata
+/// and cache.
 pub async fn wipe_data(
     dev: &mut FastbootDevice,
     tools: &FormatTools,
@@ -225,6 +270,7 @@ pub async fn wipe_data(
     wipe_data_with_info(dev, tools, info, options, on_progress).await
 }
 
+/// Full wipe flow using a pre-fetched [`UserdataInfo`].
 pub async fn wipe_data_with_info(
     dev: &mut FastbootDevice,
     tools: &FormatTools,
@@ -268,6 +314,8 @@ pub async fn wipe_data_with_info(
     })
 }
 
+/// Erase a partition, treating "fastboot command failed" errors as
+/// skippable rather than fatal.
 pub async fn erase_optional_partition(
     dev: &mut FastbootDevice,
     partition: &str,

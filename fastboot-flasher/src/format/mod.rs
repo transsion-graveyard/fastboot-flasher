@@ -1,3 +1,5 @@
+//! Format-tool wrappers for building ext4/f2fs images and wiping userdata.
+
 pub mod ext4;
 pub mod f2fs;
 pub mod tools;

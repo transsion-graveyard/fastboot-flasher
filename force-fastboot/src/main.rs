@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use clap::Parser;
 use force_fastboot::{run_force_fastboot, ForceFastbootOptions};
 
@@ -24,8 +26,8 @@ fn main() {
 }
 
 fn run(args: &Args) -> anyhow::Result<()> {
-    run_force_fastboot(&ForceFastbootOptions {
+    Ok(run_force_fastboot(&ForceFastbootOptions {
         port: args.port.clone(),
         no_auto_udev: args.no_auto_udev,
-    })
+    })?)
 }

@@ -124,8 +124,10 @@ impl SplitBuilder {
     }
 }
 
+/// Errors when splitting an image for a given max download size.
 #[derive(Debug, Error)]
 pub enum SplitError {
+    /// The target split size is too small to fit the required headers and data.
     #[error("Size is too small to fit chunks")]
     TooSmall,
 }

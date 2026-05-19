@@ -14,14 +14,18 @@ use self::adbwinapi::{
 };
 use self::nusb::{DataDownload as NusbDataDownload, NusbFastBoot, NusbFastBootError, NusbFastBootOpenError};
 
+/// Fastboot transport backend kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
+    /// nusb (libusb) backend — cross-platform.
     Nusb,
+    /// Windows AdbWinApi backend.
     #[cfg(windows)]
     AdbWinApi,
 }
 
 impl BackendKind {
+    /// Human-readable backend name.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Nusb => "nusb",
@@ -31,52 +35,79 @@ impl BackendKind {
     }
 }
 
+/// Log severity for device probe events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeLogLevel {
+    /// Informational message.
     Info,
+    /// Non-fatal warning.
     Warning,
+    /// Error condition.
     Error,
 }
 
+/// A device probe event emitted during backend discovery.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeEvent {
+    /// The backend that produced this event.
     pub backend: BackendKind,
+    /// Severity level.
     pub level: ProbeLogLevel,
+    /// Probe stage identifier (e.g. `"backend_attempt"`, `"backend_success"`).
     pub stage: &'static str,
+    /// Human-readable event description.
     pub message: String,
 }
 
+/// Fastboot communication errors.
 #[derive(Debug, Error)]
 pub enum FastbootError {
+    /// nusb backend error.
     #[error(transparent)]
     Nusb(#[from] NusbFastBootError),
+    /// Download transfer error.
     #[error("Download error: {0}")]
     Download(String),
+    /// Windows AdbWinApi backend error.
     #[cfg(windows)]
     #[error(transparent)]
     AdbWinApi(#[from] AdbWinApiFastbootError),
 }
 
+/// Errors when opening a fastboot device.
 #[derive(Debug, Error)]
 pub enum FastbootOpenError {
+    /// nusb backend open error.
     #[error("nusb: {0}")]
     Nusb(#[from] NusbFastBootOpenError),
+    /// Windows AdbWinApi backend open error.
     #[cfg(windows)]
     #[error("adbwinapi: {0}")]
     AdbWinApi(#[from] AdbWinApiFastbootOpenError),
+    /// All backends failed (Windows only).
     #[cfg(windows)]
     #[error("no usable fastboot backend found (nusb: {nusb}; adbwinapi: {adbwinapi})")]
-    Combined { nusb: String, adbwinapi: String },
+    Combined {
+        /// nusb error description.
+        nusb: String,
+        /// AdbWinApi error description.
+        adbwinapi: String,
+    },
+    /// No fastboot backend available.
     #[error("no usable fastboot backend found ({0})")]
     Unavailable(String),
 }
 
+/// Paths discovered for AdbWinApi DLLs on Windows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdbWinApiDiscovery {
+    /// Path to `AdbWinApi.dll`.
     pub adb_win_api: PathBuf,
+    /// Optional path to `AdbWinUsbApi.dll`.
     pub adb_win_usb_api: Option<PathBuf>,
 }
 
+/// A connected fastboot device with an abstracted backend.
 pub struct FastbootDevice {
     backend: FastbootDeviceBackend,
 }
@@ -87,13 +118,17 @@ enum FastbootDeviceBackend {
     AdbWinApi(AdbWinApiFastboot),
 }
 
+/// A download handle for streaming data to a fastboot device.
 pub enum DataDownload<'a> {
+    /// nusb-based download.
     Nusb(NusbDataDownload<'a>),
+    /// Windows AdbWinApi-based download.
     #[cfg(windows)]
     AdbWinApi(adbwinapi::DataDownload<'a>),
 }
 
 impl FastbootDevice {
+    /// Return the active backend kind.
     pub fn backend_kind(&self) -> BackendKind {
         match &self.backend {
             FastbootDeviceBackend::Nusb(_) => BackendKind::Nusb,
@@ -102,6 +137,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Query a fastboot variable by name.
     pub async fn get_var(&mut self, var: &str) -> Result<String, FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => dev.get_var(var).await.map_err(FastbootError::from),
@@ -112,6 +148,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Retrieve all fastboot variables (`getvar:all`).
     pub async fn get_all_vars(
         &mut self,
     ) -> Result<std::collections::HashMap<String, String>, FastbootError> {
@@ -126,6 +163,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Return the device `max-download-size` as a parsed byte count.
     pub async fn max_download_size(&mut self) -> Result<u32, FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -138,6 +176,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Return the current A/B slot suffix.
     pub async fn current_slot(&mut self) -> Result<String, FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -150,6 +189,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Prepare a download of a given size.
     pub async fn download(&mut self, size: u32) -> Result<DataDownload<'_>, FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => dev
@@ -166,6 +206,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Flash downloaded data to a target partition.
     pub async fn flash(&mut self, target: &str) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -178,6 +219,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Return whether the given partition is logical.
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool, FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -190,6 +232,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Resize a logical partition to the given byte size.
     pub async fn resize_logical_partition(
         &mut self,
         partition: &str,
@@ -208,6 +251,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Continue booting the device.
     pub async fn continue_boot(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -220,6 +264,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Set the active A/B slot.
     pub async fn set_active(&mut self, slot: &str) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -232,6 +277,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Erase a target partition.
     pub async fn erase(&mut self, target: &str) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -244,6 +290,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Reboot the device.
     pub async fn reboot(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => dev.reboot().await.map_err(FastbootError::from),
@@ -254,6 +301,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Reboot the device into the bootloader.
     pub async fn reboot_bootloader(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -266,6 +314,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Power off the device.
     pub async fn power_down(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => dev.power_down().await.map_err(FastbootError::from),
@@ -276,6 +325,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Reboot the device into a specific mode.
     pub async fn reboot_to(&mut self, mode: &str) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -288,6 +338,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Reboot the device directly into fastboot mode.
     pub async fn reboot_fastboot(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -300,6 +351,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Unlock the bootloader via `flashing unlock`.
     pub async fn unlock_bootloader(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -312,6 +364,7 @@ impl FastbootDevice {
         }
     }
 
+    /// Lock the bootloader via `flashing lock`.
     pub async fn lock_bootloader(&mut self) -> Result<(), FastbootError> {
         match &mut self.backend {
             FastbootDeviceBackend::Nusb(dev) => {
@@ -326,6 +379,7 @@ impl FastbootDevice {
 }
 
 impl<'a> DataDownload<'a> {
+    /// Total size of the data transfer.
     pub fn size(&self) -> u32 {
         match self {
             Self::Nusb(download) => download.size(),
@@ -334,6 +388,7 @@ impl<'a> DataDownload<'a> {
         }
     }
 
+    /// Data left to be sent.
     pub fn left(&self) -> u32 {
         match self {
             Self::Nusb(download) => download.left(),
@@ -342,6 +397,7 @@ impl<'a> DataDownload<'a> {
         }
     }
 
+    /// Queue data from a slice for download.
     pub async fn extend_from_slice(&mut self, data: &[u8]) -> Result<(), FastbootError> {
         match self {
             Self::Nusb(download) => download
@@ -356,6 +412,7 @@ impl<'a> DataDownload<'a> {
         }
     }
 
+    /// Obtain a mutable buffer to fill with download data.
     pub async fn get_mut_data(&mut self, max: usize) -> Result<&mut [u8], FastbootError> {
         match self {
             Self::Nusb(download) => download
@@ -370,6 +427,7 @@ impl<'a> DataDownload<'a> {
         }
     }
 
+    /// Finish the download and validate the transfer.
     pub async fn finish(self) -> Result<(), FastbootError> {
         match self {
             Self::Nusb(download) => download
@@ -382,10 +440,12 @@ impl<'a> DataDownload<'a> {
     }
 }
 
+/// Open the first available fastboot device.
 pub async fn open_fastboot() -> Result<FastbootDevice, FastbootOpenError> {
     open_fastboot_with_observer(|_| {}).await
 }
 
+/// Open the first available fastboot device with a probe observer callback.
 pub async fn open_fastboot_with_observer(
     observer: impl FnMut(ProbeEvent),
 ) -> Result<FastbootDevice, FastbootOpenError> {
@@ -404,9 +464,9 @@ pub async fn open_fastboot_with_observer(
                 stage: "backend_success",
                 message: "Opened fastboot device with nusb".to_string(),
             });
-            return Ok(FastbootDevice {
+            Ok(FastbootDevice {
                 backend: FastbootDeviceBackend::Nusb(device),
-            });
+            })
         }
         Err(error) => {
             observer(ProbeEvent {

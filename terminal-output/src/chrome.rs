@@ -1,3 +1,6 @@
+//! Terminal chrome — banners, section headers/footers, status lines, notice boxes,
+//! and centered block helpers for structured CLI output.
+
 use std::fmt::Write as _;
 
 use console::measure_text_width;
@@ -5,15 +8,22 @@ use crossterm::style::{Color, Stylize};
 use crossterm::terminal::size;
 use textwrap::{wrap, Options};
 
+/// Semantic tone used to pick the display color and tag label for output elements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
+    /// Accent / highlight tone (cyan).
     Accent,
+    /// Informational tone (blue).
     Info,
+    /// Success / OK tone (green).
     Success,
+    /// Warning tone (yellow).
     Warning,
+    /// Error tone (red).
     Error,
 }
 
+/// Map a [`Tone`] to its corresponding [`Color`].
 pub fn tone_color(tone: Tone) -> Color {
     match tone {
         Tone::Accent => Color::Cyan,
@@ -24,6 +34,7 @@ pub fn tone_color(tone: Tone) -> Color {
     }
 }
 
+/// Return a short uppercase tag string for the given [`Tone`].
 pub fn tone_tag(tone: Tone) -> &'static str {
     match tone {
         Tone::Accent => "ACCENT",
@@ -34,14 +45,17 @@ pub fn tone_tag(tone: Tone) -> &'static str {
     }
 }
 
+/// Query the terminal width via crossterm; falls back to 100 on failure.
 pub fn terminal_width() -> usize {
     terminal_width_from_size(size().ok().map(|(columns, _)| columns))
 }
 
+/// Derive a usable width from an optional column count (defaults to 100).
 pub fn terminal_width_from_size(columns: Option<u16>) -> usize {
     columns.map_or(100, usize::from)
 }
 
+/// Render a centered banner box with an uppercased title.
 pub fn banner(title: &str) -> String {
     let inner_width = terminal_width().saturating_sub(4).max(20);
     let lines = vec![title.to_uppercase()];
@@ -53,6 +67,7 @@ pub fn banner(title: &str) -> String {
     ))
 }
 
+/// Render a centered section-header box with the given title.
 pub fn section_header(title: &str) -> String {
     let inner_width = terminal_width().saturating_sub(4).max(20);
     let lines = vec![title.to_string()];
@@ -64,11 +79,13 @@ pub fn section_header(title: &str) -> String {
     ))
 }
 
+/// Render a centered footer separator line.
 pub fn section_footer() -> String {
     let inner_width = terminal_width().saturating_sub(4).max(20);
     center_block(&format!("╰{}╯", "─".repeat(inner_width + 2)))
 }
 
+/// Render a one-line status message with a styled label and detail text.
 pub fn status_line(tone: Tone, label: &str, detail: &str) -> String {
     center_block(&format!(
         "{} {}",
@@ -77,6 +94,7 @@ pub fn status_line(tone: Tone, label: &str, detail: &str) -> String {
     ))
 }
 
+/// Render a boxed notice with a tone tag, title, and wrapped body text.
 pub fn notice_box(tone: Tone, title: &str, body: &str) -> String {
     let inner_width = terminal_width().saturating_sub(4).max(20);
     let mut lines = vec![format!("[{}] {}", tone_tag(tone), title)];
@@ -84,10 +102,12 @@ pub fn notice_box(tone: Tone, title: &str, body: &str) -> String {
     center_block(&boxed_lines(tone, &lines, inner_width, BoxAlignment::Left))
 }
 
+/// Center a multi-line block within the current terminal width.
 pub fn center_block(block: &str) -> String {
     center_block_with_width(block, terminal_width())
 }
 
+/// Center a multi-line block within the given `width`.
 pub fn center_block_with_width(block: &str, width: usize) -> String {
     let lines: Vec<&str> = block.lines().collect();
     let block_width = lines

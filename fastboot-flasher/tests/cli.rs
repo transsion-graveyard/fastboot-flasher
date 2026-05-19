@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use clap::Parser;
 use fastboot_flasher::{
     cli::{flash_modifier_without_flash, validate_args, Args, Command, FlashMode, SlotArg},

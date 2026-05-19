@@ -1,3 +1,9 @@
+//!
+//! Serial port discovery, candidate selection, and opening with permission-recovery logic.
+//!
+//! Provides the [`PortDiscovery`] trait and [`SystemPortDiscovery`] for enumerating and
+//! opening serial ports, plus helper functions for waiting on newly-connected preloader devices.
+
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -9,28 +15,44 @@ use crate::udev;
 const BAUD: u32 = 115200;
 const TIMEOUT: Duration = Duration::from_millis(250);
 
+/// A discovered serial port that may be an MTK preloader device.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortCandidate {
+    /// Filesystem path to the serial device (e.g. `/dev/ttyACM0`).
     pub device: String,
+    /// Human-readable product description from USB descriptors, if available.
     pub description: String,
+    /// Hardware identifier (serial number) from the USB device, if available.
     pub hwid: String,
+    /// USB vendor ID, if the port is a USB device.
     pub vid: Option<u16>,
+    /// USB product ID, if the port is a USB device.
     pub pid: Option<u16>,
 }
 
+/// Result of a port scan indicating whether an openable device was found.
 pub enum PortSearchResult {
+    /// A new device was found and can be opened successfully.
     Openable(PortCandidate),
+    /// No new openable devices were found.
     NothingFound {
+        /// A device was found but opening it returned a permission error.
         permission_denied: Option<PortCandidate>,
     },
 }
 
+/// Abstraction for enumerating and opening serial ports, enabling injection of fake
+/// implementations in tests.
 pub trait PortDiscovery {
+    /// List all available serial ports as [`PortCandidate`]s.
     fn list_candidates(&self) -> Vec<PortCandidate>;
+    /// Probe whether `device` can be opened without keeping it open.
     fn try_open(&self, device: &str) -> Result<(), anyhow::Error>;
+    /// Open `device` and return a [`SerialIo`] handle.
     fn open(&self, device: &str) -> Result<Box<dyn SerialIo>, anyhow::Error>;
 }
 
+/// Real implementation of [`PortDiscovery`] that delegates to the `serialport` crate.
 pub struct SystemPortDiscovery;
 
 impl SystemPortDiscovery {
@@ -107,6 +129,7 @@ impl PortDiscovery for SystemPortDiscovery {
     }
 }
 
+/// Scan for a newly-connected serial port not in `previous` and report whether it can be opened.
 pub fn find_new_port(
     previous: &HashSet<String>,
     discovery: &dyn PortDiscovery,
@@ -131,6 +154,8 @@ pub fn find_new_port(
     PortSearchResult::NothingFound { permission_denied }
 }
 
+/// Poll for a preloader serial port to appear, installing udev rules or printing
+/// permission guidance when a permission-denied device is detected.
 pub fn wait_for_port(
     discovery: &dyn PortDiscovery,
     auto_udev: bool,
@@ -168,6 +193,8 @@ pub fn wait_for_port(
     }
 }
 
+/// Return the [`PortCandidate`] matching `device`, or a fallback with synthetic metadata
+/// if the device is not present in the current port list.
 pub fn candidate_for_device(device: &str, discovery: &dyn PortDiscovery) -> PortCandidate {
     for candidate in discovery.list_candidates() {
         if candidate.device == device {
@@ -183,6 +210,8 @@ pub fn candidate_for_device(device: &str, discovery: &dyn PortDiscovery) -> Port
     }
 }
 
+/// Open a device, attempting automatic udev rule installation on Linux if opening
+/// fails due to a permission error.
 pub fn open_with_permission_recovery(
     candidate: &PortCandidate,
     discovery: &dyn PortDiscovery,

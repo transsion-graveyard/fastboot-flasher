@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::{collections::HashMap, fs::File, io::Write, path::Path};
 
 use fastboot_rs::{

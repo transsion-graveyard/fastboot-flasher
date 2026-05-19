@@ -1,3 +1,9 @@
+//!
+//! Linux udev rule management for MediaTek preloader USB devices.
+//!
+//! Provides functions to render udev rules, auto-install them via `sudo tee`, and
+//! print user-facing permission guidance when auto-install is disabled or unavailable.
+
 use terminal_output::chrome::{notice_box, Tone};
 
 #[cfg(any(target_os = "linux", test))]
@@ -11,11 +17,14 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="0e8d", MODE="0666", TAG+="uaccess"
 "#;
 
 #[cfg(any(target_os = "linux", test))]
+/// Return the static udev rules content for MediaTek preloader / BROM / DA devices.
 pub fn render_udev_rules() -> &'static str {
     MEDIA_TEK_UDEV_RULES
 }
 
 #[cfg(target_os = "linux")]
+/// Attempt to install the udev rules file to `/etc/udev/rules.d/` using `sudo tee`.
+/// Returns `true` if the rules were installed (or already existed with matching content).
 pub fn auto_install_linux_rule(_candidate: &crate::serial::PortCandidate) -> bool {
     eprintln!(
         "{}",
@@ -56,6 +65,7 @@ pub fn auto_install_linux_rule(_candidate: &crate::serial::PortCandidate) -> boo
 }
 
 #[cfg(not(target_os = "linux"))]
+/// Non-Linux stub: prints a message that automatic udev setup is unsupported and returns `false`.
 pub fn auto_install_linux_rule(candidate: &crate::serial::PortCandidate) -> bool {
     eprintln!(
         "{}",
@@ -72,6 +82,7 @@ pub fn auto_install_linux_rule(candidate: &crate::serial::PortCandidate) -> bool
 }
 
 #[cfg(target_os = "linux")]
+/// Print instructions for manually installing udev rules for the given device.
 pub fn print_permission_guidance(candidate: &crate::serial::PortCandidate) {
     eprintln!(
         "{}",
@@ -88,6 +99,7 @@ pub fn print_permission_guidance(candidate: &crate::serial::PortCandidate) {
 }
 
 #[cfg(not(target_os = "linux"))]
+/// Non-Linux stub: print a message that automatic udev setup is unsupported.
 pub fn print_permission_guidance(candidate: &crate::serial::PortCandidate) {
     eprintln!(
         "{}",

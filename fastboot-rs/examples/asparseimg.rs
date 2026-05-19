@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::{
     io::{copy, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},

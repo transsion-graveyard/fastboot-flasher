@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
@@ -1522,8 +1524,7 @@ struct ProgressLayout {
 impl ProgressLayout {
     fn from_terminal() -> Self {
         let columns = crossterm::terminal::size()
-            .map(|(columns, _)| columns)
-            .unwrap_or(100);
+            .map_or(100, |(columns, _)| columns);
         Self {
             terminal_width: usize::from(columns),
         }
@@ -1796,7 +1797,6 @@ fn print_completion_with_elapsed(title: &str, summary: ActionSummary, elapsed: D
     );
 }
 
-#[expect(dead_code)]
 fn _mode_for_docs(mode: FlashMode) -> mtk_scatter_parser::Mode {
     mode_to_scatter(mode)
 }

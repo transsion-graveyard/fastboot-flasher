@@ -26,6 +26,8 @@ use tokio::time::sleep;
 
 use crate::cli::{FlashMode, SlotArg};
 
+/// Check whether a [`FastbootExecutionError`] represents a "fastboot
+/// command failed" response that the caller can safely skip.
 pub fn should_skip_failed_partition(err: &FastbootExecutionError) -> bool {
     match err {
         FastbootExecutionError::Fastboot(error) => is_fastboot_failed(error),
@@ -33,6 +35,8 @@ pub fn should_skip_failed_partition(err: &FastbootExecutionError) -> bool {
     }
 }
 
+/// Prompt the user (or auto-accept when `yes` is set) whether to skip a
+/// partition whose flash failed.
 pub fn handle_failed_partition(
     yes: bool,
     partition: &str,
@@ -57,6 +61,8 @@ pub fn handle_failed_partition(
         .prompt()?)
 }
 
+/// Prompt the user (or auto-accept when `yes` is set) whether to skip a
+/// partition whose erase failed.
 pub fn handle_failed_erase(
     yes: bool,
     partition: &str,
@@ -81,6 +87,7 @@ pub fn handle_failed_erase(
         .prompt()?)
 }
 
+/// Poll `open_fastboot` every 250ms until a device is found.
 pub async fn connect_fastboot() -> anyhow::Result<FastbootDevice> {
     loop {
         match open_fastboot().await {
@@ -105,6 +112,7 @@ fn is_fastboot_failed(err: &FastbootError) -> bool {
     }
 }
 
+/// Read a single fastboot variable from the device.
 pub async fn read_variable(dev: &mut FastbootDevice, var: &str) -> anyhow::Result<String> {
     dev.get_var(var)
         .await
@@ -112,6 +120,7 @@ pub async fn read_variable(dev: &mut FastbootDevice, var: &str) -> anyhow::Resul
         .with_context(|| format!("get variable {var}"))
 }
 
+/// Read all fastboot variables from the device.
 pub async fn read_all_variables(
     dev: &mut FastbootDevice,
 ) -> anyhow::Result<HashMap<String, String>> {
@@ -121,6 +130,7 @@ pub async fn read_all_variables(
         .context("get all variables")
 }
 
+/// Read the `max-download-size` variable from a variables map and parse it.
 pub fn resolve_max_download_size_from_vars(vars: &HashMap<String, String>) -> anyhow::Result<u32> {
     let raw = vars
         .get("max-download-size")
@@ -133,6 +143,7 @@ pub fn resolve_max_download_size_from_vars(vars: &HashMap<String, String>) -> an
     Ok(max_download)
 }
 
+/// Set the active boot slot on the device.
 pub async fn set_fastboot_active_slot(dev: &mut FastbootDevice, slot: &str) -> anyhow::Result<()> {
     dev.set_active(slot)
         .await
@@ -140,6 +151,7 @@ pub async fn set_fastboot_active_slot(dev: &mut FastbootDevice, slot: &str) -> a
         .with_context(|| format!("set active slot to {slot}"))
 }
 
+/// Reboot the device into the normal OS.
 pub async fn reboot_device(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.reboot()
         .await
@@ -147,6 +159,7 @@ pub async fn reboot_device(dev: &mut FastbootDevice) -> anyhow::Result<()> {
         .context("reboot device")
 }
 
+/// Reboot the device into the bootloader.
 pub async fn reboot_device_bootloader(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.reboot_bootloader()
         .await
@@ -154,6 +167,7 @@ pub async fn reboot_device_bootloader(dev: &mut FastbootDevice) -> anyhow::Resul
         .context("reboot to bootloader")
 }
 
+/// Reboot the device into fastbootd (userspace fastboot).
 pub async fn reboot_device_fastboot(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.reboot_fastboot()
         .await
@@ -161,6 +175,7 @@ pub async fn reboot_device_fastboot(dev: &mut FastbootDevice) -> anyhow::Result<
         .context("reboot to fastboot")
 }
 
+/// Power off the device.
 pub async fn power_off_device(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.power_down()
         .await
@@ -168,6 +183,7 @@ pub async fn power_off_device(dev: &mut FastbootDevice) -> anyhow::Result<()> {
         .context("power off device")
 }
 
+/// Send the `flashing unlock` command to unlock the bootloader.
 pub async fn send_flashing_unlock(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.unlock_bootloader()
         .await
@@ -175,6 +191,7 @@ pub async fn send_flashing_unlock(dev: &mut FastbootDevice) -> anyhow::Result<()
         .context("unlock bootloader")
 }
 
+/// Send the `flashing lock` command to lock the bootloader.
 pub async fn send_flashing_lock(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     dev.lock_bootloader()
         .await
@@ -182,6 +199,8 @@ pub async fn send_flashing_lock(dev: &mut FastbootDevice) -> anyhow::Result<()> 
         .context("lock bootloader")
 }
 
+/// Prepare and flash a single image to a single partition.
+/// Handles logical partition resizing and progress callbacks.
 pub async fn flash_one_partition(
     dev: &mut FastbootDevice,
     partition: &str,
@@ -234,6 +253,7 @@ pub async fn flash_one_partition(
         .with_context(|| format!("flash {partition}"))
 }
 
+/// Erase a single partition on the device.
 pub async fn erase_one_partition(dev: &mut FastbootDevice, partition: &str) -> anyhow::Result<()> {
     dev.erase(partition)
         .await
@@ -241,6 +261,8 @@ pub async fn erase_one_partition(dev: &mut FastbootDevice, partition: &str) -> a
         .with_context(|| format!("erase {partition}"))
 }
 
+/// Build a flash plan by parsing a scatter file with the given mode, slot,
+/// preloader, and partition filters.
 pub fn build_flash_plan(
     scatter_path: &Path,
     mode: FlashMode,
@@ -259,6 +281,7 @@ pub fn build_flash_plan(
     )
 }
 
+/// Run the `force-fastboot` helper to push an MTK device into fastboot mode.
 pub fn force_fastboot() -> anyhow::Result<()> {
     force_fastboot::run_force_fastboot(&force_fastboot::ForceFastbootOptions::default())
         .map_err(anyhow::Error::from)

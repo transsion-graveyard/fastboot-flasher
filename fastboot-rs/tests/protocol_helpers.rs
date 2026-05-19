@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use fastboot_rs::{
     parse_max_download_size,
     protocol::{FastBootCommand, FastBootResponse},

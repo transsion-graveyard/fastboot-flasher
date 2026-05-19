@@ -1133,7 +1133,6 @@ dependencies = [
 name = "fastboot-flasher-ui"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "fastboot-flasher",
  "fastboot-rs",
  "mtk-scatter-parser",
@@ -1229,6 +1228,7 @@ dependencies = [
  "libc",
  "serialport",
  "terminal-output",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

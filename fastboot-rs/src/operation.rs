@@ -69,11 +69,20 @@ pub fn erase_operation(partition: impl Into<String>) -> PlannedOperation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OperationStep {
     /// Send a `download:` command with the given byte count.
-    Download { bytes: u32 },
+    Download {
+        /// Number of bytes to download.
+        bytes: u32,
+    },
     /// Send a `flash:` command.
-    Flash { partition: String },
+    Flash {
+        /// Partition name to flash.
+        partition: String,
+    },
     /// Send an `erase:` command.
-    Erase { partition: String },
+    Erase {
+        /// Partition name to erase.
+        partition: String,
+    },
 }
 
 /// A device-independent sequence of fastboot protocol steps.

@@ -20,30 +20,43 @@ const STREAM_CHUNK_SIZE: usize = 64 * 1024;
 pub enum FlashProgress {
     /// A transfer payload is about to be downloaded.
     DownloadStarted {
+        /// Index of this transfer (1-based).
         transfer_index: usize,
+        /// Total number of transfers for this image.
         transfer_count: usize,
+        /// Number of bytes in this download payload.
         bytes: u32,
     },
     /// Download payload bytes have been queued.
     DownloadFinished {
+        /// Index of this transfer (1-based).
         transfer_index: usize,
+        /// Total number of transfers for this image.
         transfer_count: usize,
+        /// Number of bytes in this download payload.
         bytes: u32,
     },
     /// Download payload bytes have been materialized locally.
     DownloadBytes {
+        /// Index of this transfer (1-based).
         transfer_index: usize,
+        /// Total number of transfers for this image.
         transfer_count: usize,
+        /// Number of bytes materialized so far.
         bytes: u64,
     },
     /// The device flash command is about to run.
     FlashStarted {
+        /// Index of this transfer (1-based).
         transfer_index: usize,
+        /// Total number of transfers for this image.
         transfer_count: usize,
     },
     /// The device flash command completed.
     FlashFinished {
+        /// Index of this transfer (1-based).
         transfer_index: usize,
+        /// Total number of transfers for this image.
         transfer_count: usize,
     },
 }

@@ -1,11 +1,24 @@
+//!
+//! Fastboot handshake protocol over a serial connection.
+//!
+//! Defines the [`SerialIo`] trait for abstracted serial I/O and the [`force_fastboot`]
+//! function that implements the preloader handshake.
+
 use std::io;
 
+/// Abstract serial I/O operations used by the fastboot handshake protocol.
 pub trait SerialIo {
+    /// Read a single byte from the serial port.
+    /// Returns `Ok(None)` on timeout or end-of-stream.
     fn read_byte(&mut self) -> io::Result<Option<u8>>;
+    /// Discard any buffered input data.
     fn flush_input(&mut self) -> io::Result<()>;
+    /// Write all bytes in `buf` to the serial port and flush the output.
     fn write_all(&mut self, buf: &[u8]) -> io::Result<()>;
 }
 
+/// Execute the MTK preloader fastboot handshake: read bytes until `0x59` (`'Y'`) is received,
+/// then flush the input buffer and send the `"FASTBOOT"` command.
 pub fn force_fastboot(port: &mut dyn SerialIo) -> io::Result<()> {
     loop {
         match port.read_byte()? {

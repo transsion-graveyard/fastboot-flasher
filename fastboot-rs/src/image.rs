@@ -84,7 +84,12 @@ pub enum ImagePreparationError {
     Split(#[from] SplitError),
     /// A raw direct download cannot be represented by the fastboot protocol.
     #[error("image size {size} exceeds fastboot download limit {limit}")]
-    SizeTooLarge { size: u64, limit: u64 },
+    SizeTooLarge {
+        /// Actual image size in bytes.
+        size: u64,
+        /// Maximum allowed download size.
+        limit: u64,
+    },
 }
 
 /// Errors while materializing a planned image transfer.

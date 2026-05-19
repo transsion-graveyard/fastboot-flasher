@@ -1,3 +1,5 @@
+//! Terminal progress rendering helpers for flash/wipe operations.
+
 pub use terminal_output::progress::{
     centered_padding, centered_prefix, fit_width, fixed_bar_width, format_byte_pair, format_mm_ss,
     timed_style, visible_width,
@@ -6,6 +8,7 @@ pub use terminal_output::progress::{
 /// One planned dry-run progress increment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DryRunStep {
+    /// Number of bytes for this step.
     pub bytes: u64,
 }
 
@@ -30,14 +33,17 @@ pub fn dry_run_steps(total_bytes: u64, speed_mib: u64) -> Vec<DryRunStep> {
     out
 }
 
+/// Whether the UI should ask for confirmation before running a simulation.
 pub fn should_confirm_before_simulation(yes: bool) -> bool {
     !yes
 }
 
+/// Format a selectable option label for the selective-flash prompt.
 pub fn selective_option_label(partition: &str, safety_class: &str, size_human: &str) -> String {
     format!("{partition} [{safety_class}] {size_human}")
 }
 
+/// Return the maximum visible (Unicode-aware) width among the given strings.
 pub fn max_visible_width<I, S>(items: I) -> usize
 where
     I: IntoIterator<Item = S>,
@@ -50,6 +56,7 @@ where
         .unwrap_or(0)
 }
 
+/// Format a progress header line showing the action count and total bytes.
 pub fn progress_header(summary: ActionSummary, dry_run: bool) -> String {
     let _ = dry_run;
     let noun = if summary.action_count() == 1 {
@@ -64,10 +71,12 @@ pub fn progress_header(summary: ActionSummary, dry_run: bool) -> String {
     )
 }
 
+/// Format an action label like "1/5" for the currently active action.
 pub fn active_action_label(index: usize, total_count: usize) -> String {
     action_label(index, total_count)
 }
 
+/// Format a completed flash history line with partition and byte count.
 pub fn flash_history_message(
     index: usize,
     total_count: usize,
@@ -78,6 +87,7 @@ pub fn flash_history_message(
     compact_history_message(index, total_count, "flash", partition, bytes, target_width)
 }
 
+/// Format a completed skipped-flash history line.
 pub fn skipped_flash_history_message(
     index: usize,
     total_count: usize,
@@ -95,14 +105,17 @@ pub fn skipped_flash_history_message(
     )
 }
 
+/// Format a completed erase history line.
 pub fn erase_history_message(index: usize, total_count: usize, partition: &str) -> String {
     compact_history_message(index, total_count, "erase", partition, 0, 0)
 }
 
+/// Format a completed skipped-erase history line.
 pub fn skipped_erase_history_message(index: usize, total_count: usize, partition: &str) -> String {
     compact_history_message(index, total_count, "skipped erase", partition, 0, 0)
 }
 
+/// Build a compact single-line history message for an action.
 pub fn compact_history_message(
     index: usize,
     total_count: usize,
@@ -142,6 +155,8 @@ pub fn compact_history_message(
     }
 }
 
+/// Minimum terminal width needed to render a flash history line without
+/// truncation.
 pub fn flash_history_min_width(
     index: usize,
     total_count: usize,
@@ -154,6 +169,7 @@ pub fn flash_history_min_width(
     )
 }
 
+/// Minimum terminal width needed to render a skipped-flash history line.
 pub fn skipped_flash_history_min_width(
     index: usize,
     total_count: usize,
@@ -189,18 +205,25 @@ fn action_label(index: usize, total_count: usize) -> String {
 /// Compact action summary for terminal output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ActionSummary {
+    /// Number of flash actions.
     pub flash_count: usize,
+    /// Number of wipe/erase actions.
     pub wipe_count: usize,
+    /// Number of skipped actions.
     pub skipped_count: usize,
+    /// Total bytes across all actions.
     pub total_bytes: u64,
 }
 
 impl ActionSummary {
+    /// Total number of actions (flash + wipe + skipped).
     pub fn action_count(self) -> usize {
         self.flash_count + self.wipe_count + self.skipped_count
     }
 }
 
+/// Build an [`ActionSummary`] from an iterator of `(action, byte_count)` pairs
+/// where action is `"flash"`, `"wipe"`, or `"skip"`.
 pub fn action_summary<'a>(actions: impl IntoIterator<Item = (&'a str, u64)>) -> ActionSummary {
     let mut summary = ActionSummary {
         flash_count: 0,

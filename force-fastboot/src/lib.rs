@@ -1,4 +1,10 @@
 #![deny(unsafe_code, missing_docs)]
+//!
+//! Force an MTK preloader device into fastboot mode by detecting the serial port,
+//! handling permissions (including automatic udev rule installation on Linux),
+//! and sending the fastboot handshake protocol.
+//!
+//! The main entry points are [`run_force_fastboot`] and [`run_force_fastboot_with_discovery`].
 
 pub mod permissions;
 pub mod protocol;
@@ -13,30 +19,46 @@ use thiserror::Error;
 
 use serial::{PortDiscovery, SystemPortDiscovery};
 
+/// Errors that can occur during force-fastboot operations.
 #[derive(Debug, Error)]
 pub enum ForceFastbootError {
+    /// No MTK preloader device could be found on any serial port.
     #[error("no MTK preloader device found: {0}")]
     NoDevice(String),
+    /// Insufficient permissions to open the serial port, and automatic recovery failed.
     #[error("permission denied: {0}")]
     PermissionDenied(String),
+    /// Opening or communicating over the serial port failed.
     #[error("serial port error: {0}")]
     Serial(String),
+    /// The preloader handshake protocol failed (e.g. timeout waiting for the start byte).
     #[error("protocol handshake failed: {0}")]
     Protocol(String),
+    /// Automatic udev rule installation failed.
     #[error("udev setup failed: {0}")]
     Udev(String),
 }
 
+/// Configuration options for [`run_force_fastboot`].
 #[derive(Debug, Clone, Default)]
 pub struct ForceFastbootOptions {
+    /// An explicit serial port path to use (e.g. `/dev/ttyUSB0`).
+    /// When `None`, the device is auto-detected.
     pub port: Option<String>,
+    /// If `true`, skip automatic udev rule installation on Linux when a permission
+    /// error is encountered opening the serial port.
     pub no_auto_udev: bool,
 }
 
+/// Convenience wrapper around [`run_force_fastboot_with_discovery`] that uses
+/// [`SystemPortDiscovery`].
 pub fn run_force_fastboot(options: &ForceFastbootOptions) -> Result<(), ForceFastbootError> {
     run_force_fastboot_with_discovery(options, &SystemPortDiscovery)
 }
 
+/// Detect an MTK preloader serial port (via `--port` or by waiting for a new device),
+/// handle permission issues with optional udev installation, then perform the fastboot
+/// handshake protocol.
 pub fn run_force_fastboot_with_discovery(
     options: &ForceFastbootOptions,
     discovery: &dyn PortDiscovery,

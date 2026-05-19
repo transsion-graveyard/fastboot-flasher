@@ -1,3 +1,7 @@
+//! GSI (Generic System Image) flashing flow: detect mode, transition between
+//! bootloader and fastbootd, flash vbmeta + system + optional product_gsi, and
+//! wipe userdata.
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,10 +25,15 @@ use crate::{
     resolve_max_download_size_from_vars, FastbootDevice,
 };
 
+/// Size in bytes of the product_gsi fallback image.
 pub const PRODUCT_GSI_SIZE_BYTES: u64 = 335_872;
+/// Block size for the product_gsi image.
 pub const PRODUCT_GSI_BLOCK_SIZE: u64 = 4_096;
+/// Number of blocks in the product_gsi image.
 pub const PRODUCT_GSI_BLOCKS: u64 = 82;
+/// Filesystem label for the product_gsi image.
 pub const PRODUCT_GSI_LABEL: &str = "product";
+/// UUID for the product_gsi ext4 filesystem.
 pub const PRODUCT_GSI_UUID: &str = "cdd462dd-8dd0-4006-8a5a-94e5a70c2bc3";
 const MODE_WAIT_ATTEMPTS: usize = 20;
 const MODE_WAIT_DELAY_MS: u64 = 250;
@@ -39,13 +48,17 @@ fn check_cancelled(token: &Option<Arc<AtomicBool>>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The fastboot mode the device is currently in (or should transition to).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FastbootMode {
+    /// Traditional bootloader fastboot.
     Bootloader,
+    /// Userspace fastboot (fastbootd).
     Fastbootd,
 }
 
 impl FastbootMode {
+    /// Return the string representation of the mode.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Bootloader => "bootloader",
@@ -54,25 +67,41 @@ impl FastbootMode {
     }
 }
 
+/// A step in the GSI flashing sequence, used for progress reporting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GsiStep {
+    /// Rebooting into bootloader mode.
     RebootingToBootloader,
+    /// Rebooting into fastbootd mode.
     RebootingToFastbootd,
+    /// Preparing to flash the vbmeta image.
     PreparingVbmetaFlash,
+    /// Flashing the vbmeta image.
     FlashingVbmeta,
+    /// Checking the system partition size.
     CheckingSystemPartition,
+    /// Checking whether product_gsi fallback is needed.
     CheckingProductGsiFallback,
+    /// Generating a product_gsi ext4 image.
     GeneratingProductGsiImage,
+    /// Flashing the product_gsi image.
     FlashingProductGsi,
+    /// product_gsi fallback was not required.
     ProductGsiFallbackNotNeeded,
+    /// Flashing the main GSI system image.
     FlashingSystemGsi,
+    /// Wiping the userdata partition.
     WipingUserdata,
+    /// Starting the bootloader phase of the flow.
     StartingBootloaderPhase,
+    /// Starting the fastbootd phase of the flow.
     StartingFastbootdPhase,
+    /// The entire GSI flow is complete.
     GsiFlowComplete,
 }
 
 impl GsiStep {
+    /// Return a human-readable label for this step.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::RebootingToBootloader => "rebooting to bootloader",
@@ -93,52 +122,85 @@ impl GsiStep {
     }
 }
 
+/// Events emitted during the GSI flash flow for progress/UI reporting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GsiEvent {
+    /// A named step in the GSI sequence.
     Step(GsiStep),
+    /// The device's current mode was detected.
     ModeDetected(FastbootMode),
+    /// The device has confirmed it is in the requested mode.
     ModeReady(FastbootMode),
+    /// Userdata erase fallback was used because image generation failed.
     UserdataEraseFallback {
+        /// The filesystem type that could not be built.
         fs_type: String,
     },
+    /// A partition was resolved to its actual device name.
     ResolvedPartition {
+        /// Base partition name.
         base: &'static str,
+        /// Resolved partition name (e.g. `system_a`).
         partition: String,
+        /// Size of the partition in bytes.
         size_bytes: u64,
     },
+    /// A flash operation has begun.
     Flashing {
+        /// Target partition name.
         partition: String,
+        /// Path to the image being flashed.
         image: PathBuf,
+        /// Image size in bytes.
         size_bytes: u64,
     },
+    /// Progress update during a flash.
     FlashProgress {
+        /// Target partition name.
         partition: String,
+        /// Bytes transferred so far.
         bytes: u64,
+        /// Total bytes to transfer.
         total_bytes: u64,
+        /// Transfer speed in bytes per second.
         speed_bps: u64,
     },
+    /// A flash operation has completed.
     FlashFinished {
+        /// Target partition name.
         partition: String,
+        /// Image size in bytes.
         size_bytes: u64,
     },
+    /// An erase operation has begun.
     Erasing {
+        /// Partition being erased.
         partition: &'static str,
     },
+    /// An erase operation has completed.
     EraseFinished {
+        /// Partition that was erased.
         partition: &'static str,
     },
+    /// A partition was skipped (e.g. it does not exist on the device).
     PartitionSkipped {
+        /// Partition that was skipped.
         partition: &'static str,
+        /// Reason for skipping.
         reason: String,
     },
 }
 
+/// Configuration options for a GSI flash operation.
 #[derive(Debug, Clone)]
 pub struct GsiFlashOptions {
+    /// Wipe-data options controlling userdata, metadata, and cache handling.
     pub wipe_data: WipeDataOptions,
+    /// Optional cancellation token that aborts the flow when set to `true`.
     pub cancel_token: Option<Arc<AtomicBool>>,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for GsiFlashOptions {
     fn default() -> Self {
         Self {
@@ -148,16 +210,24 @@ impl Default for GsiFlashOptions {
     }
 }
 
+/// Summary statistics for a completed GSI flash operation.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GsiFlashSummary {
+    /// Number of partitions flashed.
     pub flash_count: usize,
+    /// Number of partitions wiped.
     pub wipe_count: usize,
+    /// Number of skipped operations.
     pub skipped_count: usize,
+    /// Total bytes transferred.
     pub total_bytes: u64,
 }
 
+/// The result of a GSI flash operation.
 pub struct GsiFlashOutcome {
+    /// The fastboot device after the operation.
     pub device: FastbootDevice,
+    /// Summary of what was done.
     pub summary: GsiFlashSummary,
 }
 
@@ -166,22 +236,33 @@ struct FastbootCapabilities {
     max_download_size: u32,
 }
 
+/// Execution plan describing what will happen during a GSI flash.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GsiExecutionPlan {
+    /// Summary of planned operations.
     pub summary: GsiFlashSummary,
+    /// The mode the device is expected to start in.
     pub start_mode: FastbootMode,
+    /// Whether product_gsi fallback is needed (`None` = unknown).
     pub needs_product_gsi: Option<bool>,
 }
 
+/// Fixed specification for the product_gsi fallback image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FixedProductGsiSpec {
+    /// Total image size in bytes.
     pub size_bytes: u64,
+    /// Ext4 block size.
     pub block_size: u64,
+    /// Number of blocks.
     pub blocks: u64,
+    /// Filesystem label.
     pub label: &'static str,
+    /// Filesystem UUID.
     pub uuid: &'static str,
 }
 
+/// A generated product_gsi ext4 image backed by a temporary directory.
 #[derive(Debug)]
 pub struct GeneratedProductGsiImage {
     temp_dir: TempDir,
@@ -189,15 +270,18 @@ pub struct GeneratedProductGsiImage {
 }
 
 impl GeneratedProductGsiImage {
+    /// Path to the generated image file.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Path to the temporary directory that keeps the image alive.
     pub fn keepalive_dir(&self) -> &Path {
         self.temp_dir.path()
     }
 }
 
+/// Return the fixed [`FixedProductGsiSpec`] for the bundled product_gsi image.
 pub fn fixed_product_gsi_spec() -> FixedProductGsiSpec {
     FixedProductGsiSpec {
         size_bytes: PRODUCT_GSI_SIZE_BYTES,
@@ -208,6 +292,9 @@ pub fn fixed_product_gsi_spec() -> FixedProductGsiSpec {
     }
 }
 
+/// Resolve the actual partition name for a given base name (e.g. "system")
+/// given the current slot and the set of available partitions, preferring the
+/// slot-suffixed variant.
 pub fn resolve_target_partition(
     base: &str,
     current_slot: &str,
@@ -224,14 +311,18 @@ pub fn resolve_target_partition(
     anyhow::bail!("missing fastboot partition for `{base}` on slot `{current_slot}`")
 }
 
+/// Determine whether the product_gsi fallback image is needed because the GSI
+/// expanded size exceeds the system partition size.
 pub fn should_flash_product_gsi(system_partition_size: u64, gsi_expanded_size: u64) -> bool {
     gsi_expanded_size > system_partition_size
 }
 
+/// Prepare and inspect a GSI image to determine its expanded size.
 pub fn inspect_gsi_image(image: &Path) -> anyhow::Result<PreparedImage> {
     prepare_image(image, u32::MAX).with_context(|| format!("inspect GSI image {}", image.display()))
 }
 
+/// Build a [`GsiExecutionPlan`] describing the estimated work for a GSI flash.
 pub fn build_gsi_execution_plan(
     start_mode: FastbootMode,
     image_size: u64,
@@ -274,6 +365,7 @@ pub fn build_gsi_execution_plan(
     }
 }
 
+/// Generate a small ext4 product_gsi image using mke2fs.
 pub fn generate_product_gsi_image(tools: &FormatTools) -> anyhow::Result<GeneratedProductGsiImage> {
     tools.validate()?;
 
@@ -314,6 +406,8 @@ pub fn generate_product_gsi_image(tools: &FormatTools) -> anyhow::Result<Generat
     Ok(GeneratedProductGsiImage { temp_dir, path })
 }
 
+/// Detect whether the device is in bootloader fastboot or userspace fastbootd
+/// by inspecting the `is-userspace` variable.
 pub fn detect_fastboot_mode(vars: &HashMap<String, String>) -> FastbootMode {
     match vars.get("is-userspace").map(String::as_str) {
         Some("yes") => FastbootMode::Fastbootd,
@@ -415,6 +509,8 @@ fn resolve_fastboot_capabilities(
     Ok(FastbootCapabilities { max_download_size })
 }
 
+/// Check whether the product_gsi fallback may be needed by comparing system
+/// partition size to the GSI expanded size.
 pub async fn maybe_needs_product_gsi(
     dev: &mut FastbootDevice,
     vars: &HashMap<String, String>,
@@ -486,6 +582,7 @@ async fn transition_mode(
         })?
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn flash_vbmeta_logged(
     dev: &mut FastbootDevice,
     vars: &mut HashMap<String, String>,
@@ -520,6 +617,7 @@ async fn flash_vbmeta_logged(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn flash_fastbootd_gsi_logged(
     dev: &mut FastbootDevice,
     vars: &mut HashMap<String, String>,
@@ -595,6 +693,7 @@ async fn flash_fastbootd_gsi_logged(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn flash_partition_logged(
     dev: &mut FastbootDevice,
     partition: &str,
@@ -740,6 +839,8 @@ async fn wipe_userdata_logged(
     Ok(())
 }
 
+/// Execute the full GSI flash flow: read variables, then delegate to
+/// [`execute_gsi_flash_with_vars`].
 pub async fn execute_gsi_flash(
     mut dev: FastbootDevice,
     image: &Path,
@@ -751,6 +852,9 @@ pub async fn execute_gsi_flash(
     execute_gsi_flash_with_vars(dev, vars, image, tools, options, report).await
 }
 
+/// Execute the full GSI flash flow, using the provided device and pre-read
+/// variables. Handles mode transitions, vbmeta flashing, GSI flashing,
+/// product_gsi fallback, and userdata wiping.
 pub async fn execute_gsi_flash_with_vars(
     mut dev: FastbootDevice,
     mut vars: HashMap<String, String>,
@@ -904,7 +1008,7 @@ mod tests {
         PRODUCT_GSI_LABEL, PRODUCT_GSI_SIZE_BYTES, PRODUCT_GSI_UUID,
     };
     use crate::format::{UserdataInfo, WipeDataOptions};
-    use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
     #[test]
     fn fixed_product_gsi_spec_matches_expected_recipe() {

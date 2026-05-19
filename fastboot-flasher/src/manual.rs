@@ -1,3 +1,5 @@
+//! Manual (single-partition) flash actions, including the disable-vbmeta flow.
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -14,15 +16,22 @@ enum ManualTarget {
     Slotted { base: String, slot: SlotSelection },
 }
 
+/// A single manual flash operation targeting a partition with a local image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManualFlashAction {
+    /// Name of the partition to flash.
     pub partition: String,
+    /// Path to the image file.
     pub image: PathBuf,
+    /// Size of the image in bytes.
     pub size: u64,
+    /// Human-readable reason for this flash action.
     pub reason: String,
     target: ManualTarget,
 }
 
+/// Create a single [`ManualFlashAction`] for a given partition, image, and
+/// optional slot selection.
 pub fn manual_flash_action(
     partition: impl Into<String>,
     image: impl Into<PathBuf>,
@@ -45,6 +54,8 @@ pub fn manual_flash_action(
     })
 }
 
+/// Create one or two [`ManualFlashAction`]s for a partition, expanding
+/// `SlotArg::All` into separate A/B actions.
 pub fn manual_flash_actions(
     partition: impl Into<String>,
     image: impl Into<PathBuf>,
@@ -63,6 +74,8 @@ pub fn manual_flash_actions(
     Ok(vec![manual_flash_action(partition, image, slot)?])
 }
 
+/// Resolve (and cache if missing) the empty vbmeta image in the system temp
+/// directory, suitable for standalone use outside the crate.
 pub fn standalone_disable_vbmeta_path() -> anyhow::Result<PathBuf> {
     let path = std::env::temp_dir()
         .join("force-fastboot")
@@ -84,6 +97,8 @@ pub fn standalone_disable_vbmeta_path() -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+/// Resolve the path to the bundled empty vbmeta image (falling back to
+/// [`standalone_disable_vbmeta_path`]).
 pub fn resolved_disable_vbmeta_image_path() -> anyhow::Result<PathBuf> {
     let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("assets")
@@ -94,6 +109,8 @@ pub fn resolved_disable_vbmeta_image_path() -> anyhow::Result<PathBuf> {
     standalone_disable_vbmeta_path()
 }
 
+/// Build two [`ManualFlashAction`]s (vbmeta_a and vbmeta_b) for the
+/// disable-vbmeta flow.
 pub fn disable_vbmeta_actions(empty_image: &Path) -> anyhow::Result<Vec<ManualFlashAction>> {
     let metadata = std::fs::metadata(empty_image)
         .with_context(|| format!("read image metadata for {}", empty_image.display()))?;
@@ -113,6 +130,8 @@ pub fn disable_vbmeta_actions(empty_image: &Path) -> anyhow::Result<Vec<ManualFl
 }
 
 impl ManualFlashAction {
+    /// Resolve the final partition name, taking slot variables into account
+    /// when the target is "active" or "inactive".
     pub fn resolved_partition(&self, vars: &HashMap<String, String>) -> anyhow::Result<String> {
         match &self.target {
             ManualTarget::Exact(partition) => Ok(partition.clone()),

@@ -1,9 +1,12 @@
+//! Scatter-file plan building: convert CLI arguments into a [`FlashPlan`].
+
 use std::path::Path;
 
 use mtk_scatter_parser::{FlashPlan, FlashPlanOptions, Mode, SlotPolicy, StorageSelect};
 
 use crate::cli::{FlashMode, SlotArg};
 
+/// Convert a [`FlashMode`] to the [`mtk_scatter_parser::Mode`] equivalent.
 pub fn mode_to_scatter(mode: FlashMode) -> Mode {
     match mode {
         FlashMode::DryRun => Mode::DryRun,
@@ -13,6 +16,7 @@ pub fn mode_to_scatter(mode: FlashMode) -> Mode {
     }
 }
 
+/// Convert an optional [`SlotArg`] to a [`SlotPolicy`].
 pub fn slot_to_scatter(slot: Option<SlotArg>) -> SlotPolicy {
     match slot {
         Some(SlotArg::A) => SlotPolicy::A,
@@ -24,6 +28,8 @@ pub fn slot_to_scatter(slot: Option<SlotArg>) -> SlotPolicy {
     }
 }
 
+/// Build a [`FlashPlan`] from a scatter file, with image existence checks
+/// enabled.
 pub fn build_plan(
     scatter_path: &Path,
     mode: FlashMode,
@@ -34,6 +40,8 @@ pub fn build_plan(
     build_plan_checked(scatter_path, mode, slot, include_preloader, parts, true)
 }
 
+/// Build a [`FlashPlan`] from a scatter file, optionally checking that images
+/// exist on disk.
 pub fn build_plan_checked(
     scatter_path: &Path,
     mode: FlashMode,
