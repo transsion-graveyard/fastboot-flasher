@@ -1056,11 +1056,13 @@ fn append_clean_flash_wipes(
     if !matches!(mode, Mode::CleanFlash | Mode::DryRun) {
         return;
     }
-    for canonical in ["metadata", "userdata", "cache"] {
+    for canonical in ["userdata", "cache", "metadata"] {
+        let mut matched = false;
         for part in selected_parts
             .iter()
             .filter(|part| part.canonical() == canonical)
         {
+            matched = true;
             if part.canonical() == "userdata" {
                 let (image, warnings) = resolve_images_for_plan(part, scatter_dir, options);
                 let image_exists = image
@@ -1105,6 +1107,9 @@ fn append_clean_flash_wipes(
                 ));
             }
         }
+        if !matched && mode == Mode::CleanFlash {
+            actions.push(synthetic_clean_flash_wipe(canonical));
+        }
     }
 }
 
@@ -1117,7 +1122,7 @@ fn append_missing_clean_flash_wipes(
         return;
     }
 
-    for partition in ["metadata", "userdata", "cache"] {
+    for partition in ["userdata", "cache", "metadata"] {
         if existing_wipes.contains(partition) {
             continue;
         }

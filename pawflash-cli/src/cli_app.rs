@@ -182,14 +182,7 @@ pub enum VbmetaCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum DataCommand {
-    Format {
-        #[arg(long)]
-        no_metadata: bool,
-        #[arg(long)]
-        no_cache: bool,
-        #[arg(long)]
-        erase_fallback: bool,
-    },
+    Format,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Args)]
@@ -380,22 +373,12 @@ mod tests {
 
     #[test]
     fn parses_data_format_command() {
-        let args = AppArgs::parse_from([
-            "pawflash",
-            "data",
-            "format",
-            "--no-cache",
-            "--erase-fallback",
-        ]);
+        let args = AppArgs::parse_from(["pawflash", "data", "format"]);
 
         assert_eq!(
             args.command,
             TopLevelCommand::Data(DataArgs {
-                command: DataCommand::Format {
-                    no_metadata: false,
-                    no_cache: true,
-                    erase_fallback: true,
-                }
+                command: DataCommand::Format
             })
         );
     }

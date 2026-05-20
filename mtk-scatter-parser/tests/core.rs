@@ -307,7 +307,7 @@ fn clean_flash_should_add_conditional_metadata_and_cache_wipes_even_when_scatter
         .map(|action| action.partition.as_str())
         .collect::<Vec<_>>();
 
-    assert_eq!(wipe_partitions, vec!["metadata", "userdata", "cache"]);
+    assert_eq!(wipe_partitions, vec!["userdata", "cache", "metadata"]);
     assert_eq!(plan.summary.wipe_count, 3);
     assert_eq!(plan.summary.flash_count, 0);
     let wipe_kinds = plan
@@ -329,9 +329,9 @@ fn clean_flash_should_add_conditional_metadata_and_cache_wipes_even_when_scatter
     assert_eq!(
         wipe_kinds,
         vec![
-            ("metadata".to_string(), "format_data".to_string()),
             ("userdata".to_string(), "format_data".to_string()),
             ("cache".to_string(), "erase_if_present".to_string()),
+            ("metadata".to_string(), "format_data".to_string()),
         ]
     );
     assert!(plan
@@ -466,10 +466,10 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
             ("flash", "dtbo_a"),
             ("flash", "dtbo_b"),
             ("flash", "super"),
-            ("wipe", "metadata"),
             ("flash", "userdata"),
             ("wipe", "userdata"),
             ("wipe", "cache"),
+            ("wipe", "metadata"),
         ]
     );
     let execution_kinds = plan
@@ -495,10 +495,10 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
             ("dtbo_a".to_string(), "flash".to_string()),
             ("dtbo_b".to_string(), "flash".to_string()),
             ("super".to_string(), "flash".to_string()),
-            ("metadata".to_string(), "format_data".to_string()),
             ("userdata".to_string(), "flash".to_string()),
             ("userdata".to_string(), "format_data".to_string()),
             ("cache".to_string(), "erase_if_present".to_string()),
+            ("metadata".to_string(), "format_data".to_string()),
         ]
     );
     assert!(plan.errors.is_empty(), "{:?}", plan.errors);

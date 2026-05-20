@@ -598,11 +598,7 @@ export default function App() {
     appendLog("FormatData StartRequested");
 
     try {
-      await invoke("format_data", {
-        noMetadata: false,
-        noCache: false,
-        eraseFallback: false,
-      });
+      await invoke("format_data");
     } catch (error) {
       const message = String(error);
       appendLog(`FormatData Error ${message}`);
