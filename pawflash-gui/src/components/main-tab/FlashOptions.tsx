@@ -1,4 +1,6 @@
 import { memo, useState } from "react";
+import { RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import {
   Select,
   SelectContent,
@@ -11,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { flashModeLabel, visibleFlashModeOptions } from "@/lib/flash-mode";
+import { useDevice } from "@/hooks/useDevice";
 import {
   Dialog,
   DialogContent,
@@ -45,9 +48,23 @@ export const FlashOptions = memo(function FlashOptions({
   onSlotChange,
 }: FlashOptionsProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [rebooting, setRebooting] = useState(false);
   const advancedEnabled = includePreloader || slot !== "";
   const modeOptions = visibleFlashModeOptions();
   const slotLabel = slot === "a" ? "_a" : slot === "b" ? "_b" : slot === "all" ? "all slots" : "";
+  const { reboot: rebootDevice } = useDevice();
+
+  const handleReboot = async () => {
+    setRebooting(true);
+    try {
+      await rebootDevice();
+      toast.success("Rebooted to system");
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setRebooting(false);
+    }
+  };
 
   return (
     <div className="panel-shell grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_auto]">
@@ -75,7 +92,17 @@ export const FlashOptions = memo(function FlashOptions({
         </div>
       </div>
 
-      <div className="flex items-start justify-start xl:justify-end">
+      <div className="flex items-start gap-2 justify-start xl:justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          className="gap-2"
+          disabled={rebooting}
+          onClick={handleReboot}
+        >
+          <RotateCcw className="h-4 w-4" />
+          {rebooting ? "Rebooting..." : "Reboot"}
+        </Button>
         <Button
           type="button"
           variant={advanced ? "secondary" : "outline"}
