@@ -19,14 +19,14 @@ use tracing::debug;
 use crate::WINDOWS_FASTBOOTD_DRIVER_HINT;
 use crate::{
     connect::try_connect_fastboot,
-    flash_one_partition,
+    flash_one_partition_with_resize,
     format::{
         detect_userdata, erase_optional_partition, generate_userdata_image, parse_fastboot_u64,
         FormatTools, FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
     },
     manual::resolved_disable_vbmeta_image_path,
     read_all_variables, reboot_device_bootloader, reboot_device_fastboot,
-    resolve_max_download_size_from_vars, FastbootDevice,
+    resolve_max_download_size_from_vars, FastbootDevice, ResizeLogicalPartition,
 };
 
 /// Size in bytes of the product_gsi fallback image.
@@ -644,21 +644,28 @@ where
         let mut bytes_flashed = 0_u64;
         let started = std::time::Instant::now();
         let report = &mut *self.report;
-        flash_one_partition(self.dev, partition, image, max_download_size, |event| {
-            if let crate::FlashProgress::DownloadBytes { bytes, .. } = event {
-                bytes_flashed += bytes;
-                let speed_bps = match started.elapsed().as_secs_f64() {
-                    secs if secs > 0.0 => (bytes_flashed as f64 / secs) as u64,
-                    _ => 0,
-                };
-                report(GsiEvent::FlashProgress {
-                    partition: partition_name.clone(),
-                    bytes: bytes_flashed,
-                    total_bytes: size_bytes.max(1),
-                    speed_bps,
-                });
-            }
-        })
+        flash_one_partition_with_resize(
+            self.dev,
+            partition,
+            image,
+            max_download_size,
+            ResizeLogicalPartition::IfLogical,
+            |event| {
+                if let crate::FlashProgress::DownloadBytes { bytes, .. } = event {
+                    bytes_flashed += bytes;
+                    let speed_bps = match started.elapsed().as_secs_f64() {
+                        secs if secs > 0.0 => (bytes_flashed as f64 / secs) as u64,
+                        _ => 0,
+                    };
+                    report(GsiEvent::FlashProgress {
+                        partition: partition_name.clone(),
+                        bytes: bytes_flashed,
+                        total_bytes: size_bytes.max(1),
+                        speed_bps,
+                    });
+                }
+            },
+        )
         .await?;
         check_cancelled(&self.options.cancel_token)?;
         (self.report)(GsiEvent::FlashFinished {

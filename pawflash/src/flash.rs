@@ -10,6 +10,15 @@ use fastboot_rs::{
 };
 use tracing::{debug, warn};
 
+/// Whether a flash should resize a logical partition before downloading data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResizeLogicalPartition {
+    /// Keep the current partition size.
+    Skip,
+    /// Query the device and resize if the target partition is logical.
+    IfLogical,
+}
+
 /// Whether a scatter-flash partition error should be skipped (non-fatal).
 ///
 /// Returns `true` when the error is recoverable – device command rejection,
@@ -126,6 +135,20 @@ async fn resize_logical_partition_if_needed(
     Ok(false)
 }
 
+async fn maybe_resize_logical_partition(
+    dev: &mut impl LogicalPartitionOps,
+    partition: &str,
+    expanded_size: u64,
+    resize: ResizeLogicalPartition,
+) -> anyhow::Result<bool> {
+    match resize {
+        ResizeLogicalPartition::Skip => Ok(false),
+        ResizeLogicalPartition::IfLogical => {
+            resize_logical_partition_if_needed(dev, partition, expanded_size).await
+        }
+    }
+}
+
 /// Prompt the user (or auto-accept when `yes` is set) whether to skip a
 /// partition whose flash failed.
 pub fn handle_failed_partition(
@@ -168,8 +191,7 @@ pub fn handle_failed_erase(
     )
 }
 
-/// Prepare and flash a single image to a single partition.
-/// Handles logical partition resizing and progress callbacks.
+/// Prepare and flash a single image to a single partition without resizing it.
 pub async fn flash_one_partition(
     dev: &mut FastbootDevice,
     partition: &str,
@@ -177,10 +199,32 @@ pub async fn flash_one_partition(
     max_download: u32,
     on_progress: impl FnMut(FlashProgress),
 ) -> anyhow::Result<()> {
+    flash_one_partition_with_resize(
+        dev,
+        partition,
+        image,
+        max_download,
+        ResizeLogicalPartition::Skip,
+        on_progress,
+    )
+    .await
+}
+
+/// Prepare and flash a single image to a single partition.
+/// Optionally handles logical partition resizing and progress callbacks.
+pub async fn flash_one_partition_with_resize(
+    dev: &mut FastbootDevice,
+    partition: &str,
+    image: &Path,
+    max_download: u32,
+    resize: ResizeLogicalPartition,
+    on_progress: impl FnMut(FlashProgress),
+) -> anyhow::Result<()> {
     debug!(
         partition,
         image = %image.display(),
         max_download = %format!("0x{max_download:x}"),
+        ?resize,
         "flash_one_partition start"
     );
     if max_download == 0 {
@@ -195,7 +239,7 @@ pub async fn flash_one_partition(
         file_size = prepared.file_size,
         "prepared image"
     );
-    resize_logical_partition_if_needed(dev, partition, prepared.expanded_size).await?;
+    maybe_resize_logical_partition(dev, partition, prepared.expanded_size, resize).await?;
     debug!(partition, "starting flash_prepared_image");
     flash_prepared_image(dev, partition, &prepared, on_progress)
         .await
@@ -218,8 +262,9 @@ mod tests {
     };
 
     use super::{
-        is_scatter_skippable_error, resize_logical_partition_if_needed,
-        should_skip_failed_partition, should_skip_failed_partition_error, LogicalPartitionOps,
+        is_scatter_skippable_error, maybe_resize_logical_partition,
+        resize_logical_partition_if_needed, should_skip_failed_partition,
+        should_skip_failed_partition_error, LogicalPartitionOps, ResizeLogicalPartition,
     };
 
     fn fastboot_failed_error() -> FastbootExecutionError {
@@ -365,5 +410,45 @@ mod tests {
 
         assert!(error.to_string().contains("query logical partition state"));
         assert_eq!(dev.calls, vec!["is_logical:userdata".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn maybe_resize_logical_partition_skips_query_when_disabled() {
+        let mut dev = LogicalPartitionOpsMock::new(Ok(true));
+
+        let resized = maybe_resize_logical_partition(
+            &mut dev,
+            "system_a",
+            4096,
+            ResizeLogicalPartition::Skip,
+        )
+        .await
+        .unwrap();
+
+        assert!(!resized);
+        assert!(dev.calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn maybe_resize_logical_partition_queries_when_enabled() {
+        let mut dev = LogicalPartitionOpsMock::new(Ok(true));
+
+        let resized = maybe_resize_logical_partition(
+            &mut dev,
+            "system_a",
+            4096,
+            ResizeLogicalPartition::IfLogical,
+        )
+        .await
+        .unwrap();
+
+        assert!(resized);
+        assert_eq!(
+            dev.calls,
+            vec![
+                "is_logical:system_a".to_string(),
+                "resize_logical_partition:system_a:4096".to_string(),
+            ]
+        );
     }
 }

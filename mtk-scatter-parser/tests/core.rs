@@ -375,6 +375,81 @@ fn flash_action_should_expose_scatter_image_type() {
     assert_eq!(action.image_type.as_deref(), Some("NORMAL_ROM"));
 }
 
+#[test]
+fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
+    let fixture = PathBuf::from("tests/fixtures/realish_clean_flash");
+    let scatter = parse_scatter(fixture.join("MT6789_Android_scatter.xml")).unwrap();
+    let plan = build_flash_plan(
+        &scatter,
+        FlashPlanOptions {
+            mode: Mode::CleanFlash,
+            firmware_dir: Some(fixture.clone()),
+            package_root: Some(fixture.clone()),
+            check_images: true,
+            ..FlashPlanOptions::default()
+        },
+    );
+
+    let actions = plan
+        .actions
+        .iter()
+        .map(|action| (action.action.as_str(), action.partition.as_str()))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        actions,
+        vec![
+            ("flash", "boot_a"),
+            ("flash", "boot_b"),
+            ("flash", "vbmeta_a"),
+            ("flash", "vbmeta_b"),
+            ("flash", "dtbo_a"),
+            ("flash", "dtbo_b"),
+            ("flash", "super"),
+            ("wipe", "metadata"),
+            ("wipe", "userdata"),
+            ("wipe", "cache"),
+        ]
+    );
+    assert!(plan.errors.is_empty(), "{:?}", plan.errors);
+}
+
+#[test]
+fn real_fixture_firmware_upgrade_should_exclude_clean_flash_wipes() {
+    let fixture = PathBuf::from("tests/fixtures/realish_clean_flash");
+    let scatter = parse_scatter(fixture.join("MT6789_Android_scatter.xml")).unwrap();
+    let plan = build_flash_plan(
+        &scatter,
+        FlashPlanOptions {
+            mode: Mode::FirmwareUpgrade,
+            firmware_dir: Some(fixture.clone()),
+            package_root: Some(fixture),
+            check_images: true,
+            ..FlashPlanOptions::default()
+        },
+    );
+
+    let actions = plan
+        .actions
+        .iter()
+        .map(|action| (action.action.as_str(), action.partition.as_str()))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        actions,
+        vec![
+            ("flash", "boot_a"),
+            ("flash", "boot_b"),
+            ("flash", "vbmeta_a"),
+            ("flash", "vbmeta_b"),
+            ("flash", "dtbo_a"),
+            ("flash", "dtbo_b"),
+            ("flash", "super"),
+        ]
+    );
+    assert!(plan.errors.is_empty(), "{:?}", plan.errors);
+}
+
 fn write_global_yaml_fixture(write_boot_image: bool) -> tempfile::TempDir {
     let temp = tempfile::tempdir().unwrap();
     if write_boot_image {

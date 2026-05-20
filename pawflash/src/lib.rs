@@ -49,7 +49,10 @@ pub use device::{
     reboot_device_bootloader, reboot_device_fastboot, resolve_max_download_size_from_vars,
     send_flashing_lock, send_flashing_unlock, set_fastboot_active_slot,
 };
-pub use flash::{erase_one_partition, flash_one_partition};
+pub use flash::{
+    erase_one_partition, flash_one_partition, flash_one_partition_with_resize,
+    ResizeLogicalPartition,
+};
 
 /// Convenience wrapper that runs the default force-fastboot flow.
 pub fn force_fastboot() -> Result<(), ForceFastbootError> {
