@@ -10,7 +10,7 @@ use crate::cli::{FlashMode, SlotArg};
 pub fn mode_to_scatter(mode: FlashMode) -> Mode {
     match mode {
         FlashMode::DryRun => Mode::DryRun,
-        FlashMode::FirmwareUpgrade => Mode::FirmwareUpgrade,
+        FlashMode::DirtyFlash => Mode::DirtyFlash,
         FlashMode::CleanFlash => Mode::CleanFlash,
         FlashMode::Selective => Mode::Selective,
     }

@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 pub enum FlashMode {
     /// Only print what would be done; do not modify the device.
     DryRun,
-    /// Perform a firmware upgrade (reflash all partitions from a scatter).
-    FirmwareUpgrade,
+    /// Perform a dirty flash (reflash all partitions from a scatter).
+    DirtyFlash,
     /// Wipe userdata and reflash all partitions from a scatter.
     CleanFlash,
     /// Let the user choose which partitions to flash.
@@ -117,7 +117,7 @@ mod tests {
 
     fn sample_plan() -> FlashPlan {
         FlashPlan {
-            mode: "firmware-upgrade".to_string(),
+            mode: "dirty-flash".to_string(),
             storage_selection: "auto".to_string(),
             selected_layouts: vec!["UFS".to_string()],
             slot_policy_requested: "auto".to_string(),
@@ -152,7 +152,7 @@ mod tests {
                 image: Some(Value::Null),
                 image_type: Some("SV5_BL_BIN".to_string()),
                 safety_class: "boot_critical".to_string(),
-                reason: "allowed by firmware-upgrade".to_string(),
+                reason: "allowed by dirty-flash".to_string(),
                 warnings: vec![],
             }],
             skipped: vec![SkippedPartition {
@@ -178,9 +178,7 @@ mod tests {
         assert!(lines
             .iter()
             .any(|line| line.contains("scatter plan preview")));
-        assert!(lines
-            .iter()
-            .any(|line| line.contains("mode=firmware-upgrade")));
+        assert!(lines.iter().any(|line| line.contains("mode=dirty-flash")));
         assert!(lines
             .iter()
             .any(|line| line.contains("actions=1 flash=1 wipe=0 skipped=1")));

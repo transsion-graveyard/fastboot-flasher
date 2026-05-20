@@ -18,7 +18,7 @@ pub enum UiMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FlashModeArg {
     DryRun,
-    FirmwareUpgrade,
+    DirtyFlash,
     CleanFlash,
     Selective,
 }
@@ -27,7 +27,7 @@ impl From<FlashModeArg> for FlashMode {
     fn from(value: FlashModeArg) -> Self {
         match value {
             FlashModeArg::DryRun => FlashMode::DryRun,
-            FlashModeArg::FirmwareUpgrade => FlashMode::FirmwareUpgrade,
+            FlashModeArg::DirtyFlash => FlashMode::DirtyFlash,
             FlashModeArg::CleanFlash => FlashMode::CleanFlash,
             FlashModeArg::Selective => FlashMode::Selective,
         }
@@ -143,7 +143,7 @@ pub struct InspectArgs {
 pub enum FlashCommand {
     Package {
         scatter: PathBuf,
-        #[arg(long, value_enum, default_value_t = FlashModeArg::FirmwareUpgrade)]
+        #[arg(long, value_enum, default_value_t = FlashModeArg::CleanFlash)]
         mode: FlashModeArg,
         #[arg(long, value_enum)]
         slot: Option<SlotArgValue>,
@@ -293,6 +293,70 @@ mod tests {
                     mode: FlashModeArg::Selective,
                     slot: None,
                     include_preloader: false,
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn parses_dirty_flash_mode_for_flash_package() {
+        let args = AppArgs::parse_from([
+            "pawflash",
+            "flash",
+            "package",
+            "firmware/MT6789_Android_scatter.xml",
+            "--mode",
+            "dirty-flash",
+        ]);
+
+        assert_eq!(
+            args.command,
+            TopLevelCommand::Flash(FlashArgs {
+                command: FlashCommand::Package {
+                    scatter: PathBuf::from("firmware/MT6789_Android_scatter.xml"),
+                    mode: FlashModeArg::DirtyFlash,
+                    slot: None,
+                    include_preloader: false,
+                    reboot: false,
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_legacy_firmware_upgrade_mode_name() {
+        let error = AppArgs::try_parse_from([
+            "pawflash",
+            "flash",
+            "package",
+            "firmware/MT6789_Android_scatter.xml",
+            "--mode",
+            "firmware-upgrade",
+        ])
+        .unwrap_err();
+
+        let rendered = error.to_string();
+        assert!(rendered.contains("invalid value 'firmware-upgrade'"));
+    }
+
+    #[test]
+    fn flash_package_defaults_to_clean_flash() {
+        let args = AppArgs::parse_from([
+            "pawflash",
+            "flash",
+            "package",
+            "firmware/MT6789_Android_scatter.xml",
+        ]);
+
+        assert_eq!(
+            args.command,
+            TopLevelCommand::Flash(FlashArgs {
+                command: FlashCommand::Package {
+                    scatter: PathBuf::from("firmware/MT6789_Android_scatter.xml"),
+                    mode: FlashModeArg::CleanFlash,
+                    slot: None,
+                    include_preloader: false,
+                    reboot: false,
                 }
             })
         );

@@ -450,13 +450,13 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
 }
 
 #[test]
-fn real_fixture_firmware_upgrade_should_exclude_clean_flash_wipes() {
+fn real_fixture_dirty_flash_should_exclude_clean_flash_wipes() {
     let fixture = PathBuf::from("tests/fixtures/realish_clean_flash");
     let scatter = parse_scatter(fixture.join("MT6789_Android_scatter.xml")).unwrap();
     let plan = build_flash_plan(
         &scatter,
         FlashPlanOptions {
-            mode: Mode::FirmwareUpgrade,
+            mode: Mode::DirtyFlash,
             firmware_dir: Some(fixture.clone()),
             package_root: Some(fixture),
             check_images: true,

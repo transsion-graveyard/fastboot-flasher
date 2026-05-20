@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { flashModeLabel } from "@/lib/flash-mode";
 import type { FlashPlanDto, PartitionDto } from "@/types/api";
 
 interface FlashPlanConfirmDialogProps {
@@ -32,11 +33,17 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-2">
-          <SummaryCard label="Mode" value={plan ? plan.mode : "flash"} />
+          <SummaryCard label="Mode" value={plan ? flashModeLabel(plan.mode.replaceAll("-", "_")) : "flash"} />
           <SummaryCard label="Selected" value={`${selectedPartitions.length} partition${selectedPartitions.length === 1 ? "" : "s"}`} />
           <SummaryCard label="Flash" value={`${flashPartitions.length} partition${flashPartitions.length === 1 ? "" : "s"}`} />
           <SummaryCard label="Wipe" value={`${wipePartitions.length} partition${wipePartitions.length === 1 ? "" : "s"}`} />
         </div>
+
+        {plan?.mode === "clean-flash" ? (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+            Clean flash will remove all files and apps from internal storage.
+          </p>
+        ) : null}
 
         <DialogFooter className="items-stretch sm:items-center">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending} className="w-full sm:w-auto">

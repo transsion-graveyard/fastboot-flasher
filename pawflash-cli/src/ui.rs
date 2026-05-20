@@ -147,9 +147,9 @@ mod tests {
 
     #[test]
     fn wrap_for_note_preserves_existing_line_breaks() {
-        let wrapped = wrap_for_note("mode: firmware-upgrade\nstorage: auto");
+        let wrapped = wrap_for_note("mode: dirty-flash\nstorage: auto");
 
-        assert!(wrapped.contains("mode: firmware-upgrade"));
+        assert!(wrapped.contains("mode: dirty-flash"));
         assert!(wrapped.contains("storage: auto"));
     }
 

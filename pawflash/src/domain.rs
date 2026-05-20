@@ -377,7 +377,7 @@ pub fn parse_plan_request(mode: &str, slot: Option<&str>) -> Result<ParsedPlanRe
 pub fn parse_flash_mode(mode: &str) -> Result<FlashMode, String> {
     match mode {
         "dry_run" => Ok(FlashMode::DryRun),
-        "firmware_upgrade" => Ok(FlashMode::FirmwareUpgrade),
+        "dirty_flash" => Ok(FlashMode::DirtyFlash),
         "clean_flash" => Ok(FlashMode::CleanFlash),
         "selective" => Ok(FlashMode::Selective),
         other => Err(format!("unknown flash mode: {other}")),

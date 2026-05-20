@@ -1465,7 +1465,7 @@ fn parse_plan_request(mode: &str, slot: Option<&str>) -> Result<ParsedPlanReques
 fn parse_flash_mode(mode: &str) -> Result<FlashMode, String> {
     match mode {
         "dry_run" => Ok(FlashMode::DryRun),
-        "firmware_upgrade" => Ok(FlashMode::FirmwareUpgrade),
+        "dirty_flash" => Ok(FlashMode::DirtyFlash),
         "clean_flash" => Ok(FlashMode::CleanFlash),
         "selective" => Ok(FlashMode::Selective),
         other => Err(format!("unknown flash mode: {other}")),
@@ -1681,6 +1681,7 @@ mod tests {
     };
     use fastboot_rs::{transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError};
     use mtk_scatter_parser::{FlashAction, FlashActionExecutionKind, FlashPlan, FlashPlanSummary};
+    use pawflash::cli::FlashMode;
     use pawflash::gsi::{
         detect_fastboot_mode as shared_detect_fastboot_mode, FastbootMode as SharedFastbootMode,
     };
@@ -1809,6 +1810,11 @@ mod tests {
     fn parse_flash_mode_rejects_unknown_modes() {
         let error = parse_flash_mode("not-a-real-mode").unwrap_err();
         assert_eq!(error, "unknown flash mode: not-a-real-mode");
+    }
+
+    #[test]
+    fn parse_flash_mode_accepts_dirty_flash() {
+        assert_eq!(parse_flash_mode("dirty_flash").unwrap(), FlashMode::DirtyFlash);
     }
 
     #[test]

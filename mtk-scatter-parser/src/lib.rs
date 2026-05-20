@@ -162,7 +162,7 @@ pub enum Mode {
     /// Flash only requested partitions or groups.
     Selective,
     /// Flash safe firmware and Android partitions.
-    FirmwareUpgrade,
+    DirtyFlash,
     /// Flash safe partitions and wipe user-state partitions.
     CleanFlash,
 }
@@ -172,7 +172,7 @@ impl Mode {
         match self {
             Self::DryRun => "dry-run",
             Self::Selective => "selective",
-            Self::FirmwareUpgrade => "firmware-upgrade",
+            Self::DirtyFlash => "dirty-flash",
             Self::CleanFlash => "clean-flash",
         }
     }
@@ -488,7 +488,7 @@ pub struct FlashPlanOptions {
     pub check_images: bool,
     /// Whether to search for images by basename.
     pub image_search: bool,
-    /// Whether to include preloader in firmware-upgrade mode.
+    /// Whether to include preloader in dirty-flash mode.
     pub include_preloader: bool,
     /// Whether to allow incomplete slot pairs.
     pub allow_incomplete_slots: bool,
@@ -925,7 +925,7 @@ fn select_partition_for_mode(
     explicit_names: &BTreeSet<String>,
 ) -> (bool, String) {
     match options.mode {
-        Mode::DryRun | Mode::FirmwareUpgrade | Mode::CleanFlash => {
+        Mode::DryRun | Mode::DirtyFlash | Mode::CleanFlash => {
             (true, format!("mode {}", options.mode.as_python()))
         }
         Mode::Selective => {
@@ -2538,7 +2538,7 @@ fn mode_allows_partition(
                 )
             }
         }
-        Mode::FirmwareUpgrade | Mode::CleanFlash => {
+        Mode::DirtyFlash | Mode::CleanFlash => {
             if !flashable {
                 return (
                     false,
