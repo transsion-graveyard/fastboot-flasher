@@ -7,6 +7,7 @@ use std::sync::Arc;
 use clap::Parser;
 
 use pawflash::device_info::compact_device_info;
+use pawflash::FastbootDevice;
 use pawflash::{
     cli::{scatter_plan_preview_lines, FlashMode, RebootTargetArg, SlotArg},
     connect::{connect_fastboot, try_connect_fastboot},
@@ -30,6 +31,8 @@ use pawflash::{
 mod cli_app;
 mod progress;
 mod ui;
+
+use terminal_output::spinner::StatusSpinner;
 
 use crate::cli_app::{
     AppArgs, BootloaderArgs, BootloaderCommand, BootloaderSlotCommand, DataArgs, DataCommand,
@@ -96,7 +99,7 @@ async fn run(args: AppArgs) -> anyhow::Result<()> {
 async fn run_device(session: &Session, args: DeviceArgs) -> anyhow::Result<()> {
     match args.command {
         DeviceCommand::Status => {
-            let mut dev = connect_fastboot().await?;
+            let mut dev = connect_with_spinner().await?;
             let vars = read_all_variables(&mut dev).await?;
             if session.mode() == UiMode::Machine {
                 session.emit_json(&vars)?;
@@ -105,7 +108,7 @@ async fn run_device(session: &Session, args: DeviceArgs) -> anyhow::Result<()> {
             }
         }
         DeviceCommand::Var { name } => {
-            let mut dev = connect_fastboot().await?;
+            let mut dev = connect_with_spinner().await?;
             let value = read_variable(&mut dev, &name).await?;
             match session.mode() {
                 UiMode::Machine => session.emit_json(&serde_json::json!({
@@ -116,7 +119,7 @@ async fn run_device(session: &Session, args: DeviceArgs) -> anyhow::Result<()> {
             }
         }
         DeviceCommand::Vars => {
-            let mut dev = connect_fastboot().await?;
+            let mut dev = connect_with_spinner().await?;
             let vars = read_all_variables(&mut dev).await?;
             match session.output() {
                 OutputFormat::Json => session.emit_json(&vars)?,
@@ -167,7 +170,7 @@ async fn run_inspect(session: &Session, args: InspectArgs) -> anyhow::Result<()>
             }
         }
         InspectCommand::Device => {
-            let mut dev = connect_fastboot().await?;
+            let mut dev = connect_with_spinner().await?;
             let vars = read_all_variables(&mut dev).await?;
             match session.output() {
                 OutputFormat::Json => session.emit_json(&vars)?,
@@ -225,18 +228,18 @@ async fn run_bootloader(session: &Session, args: BootloaderArgs) -> anyhow::Resu
     match args.command {
         BootloaderCommand::ForceFastboot => run_force_fastboot(session),
         BootloaderCommand::Unlock => {
-            let mut dev = connect_fastboot().await?;
+            let mut dev = connect_with_spinner().await?;
             send_flashing_unlock(&mut dev).await?;
             Ok(())
         }
         BootloaderCommand::Lock => {
-            let mut dev = connect_fastboot().await?;
+            let mut dev = connect_with_spinner().await?;
             send_flashing_lock(&mut dev).await?;
             Ok(())
         }
         BootloaderCommand::Slot { command } => match command {
             BootloaderSlotCommand::Set { slot } => {
-                let mut dev = connect_fastboot().await?;
+                let mut dev = connect_with_spinner().await?;
                 set_fastboot_active_slot(&mut dev, slot_name(slot.into())).await?;
                 Ok(())
             }
@@ -246,7 +249,7 @@ async fn run_bootloader(session: &Session, args: BootloaderArgs) -> anyhow::Resu
 
 async fn run_reboot_command(session: &Session, target: RebootTargetArg) -> anyhow::Result<()> {
     let _ = session;
-    let mut dev = connect_fastboot().await?;
+    let mut dev = connect_with_spinner().await?;
     match target {
         RebootTargetArg::System => reboot_device(&mut dev).await?,
         RebootTargetArg::Bootloader => reboot_device_bootloader(&mut dev).await?,
@@ -291,7 +294,7 @@ async fn run_scatter(session: &Session, request: ScatterRunRequest) -> anyhow::R
     }
 
     let tools = FormatTools::from_cli_assets()?;
-    let mut dev = connect_fastboot().await?;
+    let mut dev = connect_with_spinner().await?;
     let summary = run_scatter_flash(
         &mut dev,
         &plan,
@@ -335,7 +338,7 @@ async fn run_manual_flash(
     let actions = manual_flash_actions(partition, image, slot)?;
     let control = FlashRunControl::default();
     let mut emit = make_flash_emit();
-    let mut dev = connect_fastboot().await?;
+    let mut dev = connect_with_spinner().await?;
     let vars = read_all_variables(&mut dev).await?;
     let max_download = resolve_max_download_size_from_vars(&vars)?;
     let total_bytes: u64 = actions.iter().map(|action| action.size).sum();
@@ -391,7 +394,7 @@ async fn run_disable_vbmeta(session: &Session) -> anyhow::Result<()> {
     let image = resolved_disable_vbmeta_image_path()?;
     let control = FlashRunControl::default();
     let mut emit = make_flash_emit();
-    let mut dev = connect_fastboot().await?;
+    let mut dev = connect_with_spinner().await?;
     let vars = read_all_variables(&mut dev).await?;
     let max_download = resolve_max_download_size_from_vars(&vars)?;
     let actions = disable_vbmeta_actions(&image)?;
@@ -451,7 +454,7 @@ async fn run_format_data(
 
     let control = FlashRunControl::default();
     let mut emit = make_flash_emit();
-    let mut dev = connect_fastboot().await?;
+    let mut dev = connect_with_spinner().await?;
     let tools = FormatTools::from_cli_assets()?;
     let summary = wipe_data_flow(
         &mut dev,
@@ -485,7 +488,7 @@ async fn run_gsi(session: &Session, image: PathBuf) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let dev = connect_fastboot().await?;
+    let dev = connect_with_spinner().await?;
     let tools = FormatTools::from_cli_assets()?;
     let control = Arc::new(AtomicBool::new(false));
     let options = GsiFlashOptions {
@@ -571,6 +574,11 @@ fn finish_summary(session: &Session, summary: &FlashSummaryDto) -> anyhow::Resul
     } else {
         session.render_run_summary(summary)
     }
+}
+
+async fn connect_with_spinner() -> anyhow::Result<FastbootDevice> {
+    let _spinner = StatusSpinner::new("Waiting for fastboot device...");
+    connect_fastboot().await
 }
 
 fn slot_name(slot: SlotArg) -> &'static str {

@@ -31,6 +31,15 @@ impl StatusSpinner {
     }
 }
 
+impl StatusSpinner {
+    /// Update the spinner message while it is running.
+    pub fn set_message(&self, message: &str) {
+        if let Some(pb) = &self.pb {
+            pb.set_message(message.to_string());
+        }
+    }
+}
+
 impl Drop for StatusSpinner {
     fn drop(&mut self) {
         if let Some(pb) = &self.pb {

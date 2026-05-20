@@ -10,8 +10,9 @@ import { ScatterPicker } from "@/components/main-tab/ScatterPicker";
 import { FlashOptions } from "@/components/main-tab/FlashOptions";
 import { PartitionTable } from "@/components/main-tab/PartitionTable";
 import { FlashFab } from "@/components/main-tab/FlashFab";
+import { FastbootVars } from "@/components/extra-tab/FastbootVars";
 import { GsiFlasher } from "@/components/extra-tab/GsiFlasher";
-import { ExtraTools } from "@/components/extra-tab/ExtraTools";
+import { ManualFlash } from "@/components/extra-tab/ManualFlash";
 import { FlashDialog } from "@/components/flash/FlashDialog";
 import { FlashPlanConfirmDialog } from "@/components/flash/FlashPlanConfirmDialog";
 import { ForceFastbootDialog } from "@/components/flash/ForceFastbootDialog";
@@ -809,21 +810,33 @@ export default function App() {
               </div>
             </div>
 
-            <div className={tab === "extra" ? "flex h-full min-h-0 flex-col gap-5" : "hidden"}>
-              <GsiFlasher
-                imagePath={gsiImagePath}
-                onImagePathChange={setGsiImagePath}
-                onFlash={startGsiFlash}
-                disabled={menuActionDisabled}
-                flashing={isStartingGsiFlash}
-              />
-              <ExtraTools
-                disabled={menuActionDisabled}
-                flashing={isStartingFlash}
-                onGetVariable={readVariable}
-                onGetAllVariables={readAllVariables}
-                onManualFlash={startManualFlash}
-              />
+            <div className={tab === "extra" ? "grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]" : "hidden"}>
+              <div className="flex min-h-0 flex-col gap-5">
+                <GsiFlasher
+                  imagePath={gsiImagePath}
+                  onImagePathChange={setGsiImagePath}
+                  onFlash={startGsiFlash}
+                  disabled={menuActionDisabled}
+                  flashing={isStartingGsiFlash}
+                />
+                <ManualFlash
+                  disabled={menuActionDisabled}
+                  flashing={isStartingFlash}
+                  onManualFlash={startManualFlash}
+                />
+              </div>
+              <div className="flex min-h-0 flex-col gap-5">
+                <RebootSection
+                  disabled={menuActionDisabled}
+                  target={rebootTarget}
+                  onTargetChange={setRebootTarget}
+                />
+                <FastbootVars
+                  disabled={menuActionDisabled}
+                  onGetVariable={readVariable}
+                  onGetAllVariables={readAllVariables}
+                />
+              </div>
             </div>
 
             <div className={tab === "menu" ? "grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]" : "hidden"}>
