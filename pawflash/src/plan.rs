@@ -1,8 +1,11 @@
-//! Scatter-file plan building: convert CLI arguments into a [`FlashPlan`].
+//! Scatter-file preview building: convert CLI arguments into an offline plan.
 
 use std::path::Path;
 
-use mtk_scatter_parser::{FlashPlan, FlashPlanOptions, Mode, SlotPolicy, StorageSelect};
+use mtk_scatter_parser::{
+    build_preview_plan, load_scatter_manifest, Mode, PreviewPlan, PreviewPlanOptions, SlotPolicy,
+    StorageSelect,
+};
 
 use crate::cli::{FlashMode, SlotArg};
 
@@ -28,38 +31,38 @@ pub fn slot_to_scatter(slot: Option<SlotArg>) -> SlotPolicy {
     }
 }
 
-/// Build a [`FlashPlan`] from a scatter file, with image existence checks
+/// Build a [`PreviewPlan`] from a scatter file, with image existence checks
 /// enabled.
-pub fn build_plan(
+pub fn build_scatter_preview(
     scatter_path: &Path,
     mode: FlashMode,
     slot: Option<SlotArg>,
     include_preloader: bool,
     parts: &[String],
-) -> anyhow::Result<FlashPlan> {
-    build_plan_checked(scatter_path, mode, slot, include_preloader, parts, true)
+) -> anyhow::Result<PreviewPlan> {
+    build_scatter_preview_checked(scatter_path, mode, slot, include_preloader, parts, true)
 }
 
-/// Build a [`FlashPlan`] from a scatter file, optionally checking that images
+/// Build a [`PreviewPlan`] from a scatter file, optionally checking that images
 /// exist on disk.
-pub fn build_plan_checked(
+pub fn build_scatter_preview_checked(
     scatter_path: &Path,
     mode: FlashMode,
     slot: Option<SlotArg>,
     include_preloader: bool,
     parts: &[String],
     check_images: bool,
-) -> anyhow::Result<FlashPlan> {
-    let scatter = mtk_scatter_parser::parse_scatter(scatter_path)?;
+) -> anyhow::Result<PreviewPlan> {
+    let scatter = load_scatter_manifest(scatter_path)?;
     let firmware_dir = scatter_path.parent().map(Path::to_path_buf);
     let package_root = scatter_path
         .parent()
         .and_then(Path::parent)
         .map(Path::to_path_buf)
         .or_else(|| firmware_dir.clone());
-    Ok(mtk_scatter_parser::build_flash_plan(
+    Ok(build_preview_plan(
         &scatter,
-        FlashPlanOptions {
+        PreviewPlanOptions {
             mode: mode_to_scatter(mode),
             storage: StorageSelect::Auto,
             slot_policy: slot_to_scatter(slot),
@@ -73,4 +76,34 @@ pub fn build_plan_checked(
             allow_incomplete_slots: false,
         },
     ))
+}
+
+/// Backward-compatible wrapper around [`build_scatter_preview`].
+pub fn build_plan(
+    scatter_path: &Path,
+    mode: FlashMode,
+    slot: Option<SlotArg>,
+    include_preloader: bool,
+    parts: &[String],
+) -> anyhow::Result<PreviewPlan> {
+    build_scatter_preview(scatter_path, mode, slot, include_preloader, parts)
+}
+
+/// Backward-compatible wrapper around [`build_scatter_preview_checked`].
+pub fn build_plan_checked(
+    scatter_path: &Path,
+    mode: FlashMode,
+    slot: Option<SlotArg>,
+    include_preloader: bool,
+    parts: &[String],
+    check_images: bool,
+) -> anyhow::Result<PreviewPlan> {
+    build_scatter_preview_checked(
+        scatter_path,
+        mode,
+        slot,
+        include_preloader,
+        parts,
+        check_images,
+    )
 }

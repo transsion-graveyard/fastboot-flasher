@@ -17,6 +17,8 @@ pub mod device;
 pub mod device_info;
 /// Shared domain types and helpers for adapters.
 pub mod domain;
+/// Device-specific execution planning derived from offline preview plans.
+pub mod execution;
 /// Partition flashing and erase helpers.
 pub mod flash;
 /// Formatting and wipe orchestration helpers.
@@ -42,6 +44,9 @@ pub use domain::{
     FlashRunControl, FlashSummaryDto, ForceFastbootEvent, ForceFastbootStartDto,
     ParseScatterResponseDto, ParsedPlanRequest, PartitionDto, WINDOWS_FASTBOOTD_DRIVER_HINT,
 };
+pub use execution::{
+    prepare_scatter_execution, ExecutionPlan, ExecutionPlanSummary, ExecutionRoute, ExecutionStep,
+};
 pub use fastboot_rs::{FastbootDevice, FastbootError, FastbootExecutionError, FlashProgress};
 
 // Re-export from force-fastboot
@@ -51,7 +56,8 @@ pub use force_fastboot::{
 
 // Re-export from mtk-scatter-parser
 pub use mtk_scatter_parser::{
-    FlashAction, FlashActionExecutionKind, FlashPlan, FlashPlanOptions, Mode, SlotPolicy,
+    FlashAction, FlashActionExecutionKind, FlashPlan, FlashPlanOptions, Mode, PreviewPlan,
+    PreviewPlanOptions, ScatterManifest, SlotPolicy,
 };
 
 // Re-export helpers needed by submodules
@@ -65,6 +71,7 @@ pub use flash::{
     erase_one_partition, flash_one_partition, flash_one_partition_with_resize,
     ResizeLogicalPartition,
 };
+pub use plan::{build_scatter_preview, build_scatter_preview_checked};
 
 /// Convenience wrapper that runs the default force-fastboot flow.
 pub fn force_fastboot() -> Result<(), ForceFastbootError> {

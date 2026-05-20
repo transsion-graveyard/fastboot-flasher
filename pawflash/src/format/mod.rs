@@ -9,7 +9,7 @@ pub use tools::FormatTools;
 pub use wipe::{
     detect_ext4_partition, detect_userdata, erase_optional_partition, format_userdata,
     format_userdata_with_info, generate_ext4_partition_image, generate_userdata_image,
-    parse_fastboot_u64, wipe_data, wipe_data_with_info, Ext4PartitionInfo,
-    FormatUserdataOptions, FormatUserdataOutcome, GeneratedUserdataImage,
-    OptionalEraseOutcome, UserdataInfo, WipeDataOptions, WipeDataOutcome,
+    parse_fastboot_u64, wipe_data, wipe_data_with_info, Ext4PartitionInfo, FormatUserdataOptions,
+    FormatUserdataOutcome, GeneratedUserdataImage, OptionalEraseOutcome, UserdataInfo,
+    WipeDataOptions, WipeDataOutcome,
 };

@@ -118,13 +118,32 @@ pub async fn send_flashing_lock(dev: &mut FastbootDevice) -> anyhow::Result<()> 
     })
 }
 
-/// Build a flash plan by parsing a scatter file with the given mode, slot,
+/// Build an offline preview plan by parsing a scatter file with the given mode, slot,
 /// preloader, and partition filters.
 ///
 /// # Errors
 ///
 /// Returns an error when the scatter file cannot be parsed or the derived
 /// flash plan fails validation.
+pub fn build_scatter_preview(
+    scatter_path: &Path,
+    mode: crate::cli::FlashMode,
+    slot: Option<crate::cli::SlotArg>,
+    include_preloader: bool,
+    parts: &[String],
+    check_images: bool,
+) -> anyhow::Result<mtk_scatter_parser::PreviewPlan> {
+    crate::plan::build_scatter_preview_checked(
+        scatter_path,
+        mode,
+        slot,
+        include_preloader,
+        parts,
+        check_images,
+    )
+}
+
+/// Backward-compatible wrapper around [`build_scatter_preview`].
 pub fn build_flash_plan(
     scatter_path: &Path,
     mode: crate::cli::FlashMode,
@@ -132,8 +151,8 @@ pub fn build_flash_plan(
     include_preloader: bool,
     parts: &[String],
     check_images: bool,
-) -> anyhow::Result<mtk_scatter_parser::FlashPlan> {
-    crate::plan::build_plan_checked(
+) -> anyhow::Result<mtk_scatter_parser::PreviewPlan> {
+    build_scatter_preview(
         scatter_path,
         mode,
         slot,

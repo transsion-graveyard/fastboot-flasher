@@ -718,9 +718,9 @@ async fn parse_scatter(
     include_preloader: bool,
 ) -> Result<ParseScatterResponseDto, String> {
     let request = pawflash::parse_plan_request(&mode, slot.as_deref())?;
-    let scatter = mtk_scatter_parser::parse_scatter(&path)
+    let scatter = mtk_scatter_parser::load_scatter_manifest(&path)
         .map_err(|e| format!("parse scatter metadata: {e}"))?;
-    let plan = pawflash::build_flash_plan(
+    let plan = pawflash::build_scatter_preview_checked(
         &PathBuf::from(&path),
         request.mode,
         request.slot,
@@ -736,7 +736,8 @@ async fn parse_scatter(
 
 #[tauri::command]
 async fn validate_scatter(path: String) -> Result<(), String> {
-    mtk_scatter_parser::parse_scatter(&path).map_err(|e| format!("parse scatter metadata: {e}"))?;
+    mtk_scatter_parser::load_scatter_manifest(&path)
+        .map_err(|e| format!("parse scatter metadata: {e}"))?;
     Ok(())
 }
 
@@ -884,8 +885,9 @@ async fn start_flash_inner(
     let vars = pawflash::read_all_variables(&mut dev)
         .await
         .map_err(|e| format!("read vars: {e}"))?;
-    let max_download_size = resolve_max_download_size_from_vars(&vars)
-        .map_err(|e| format!("max-download-size: {e}"))?;
+    let execution =
+        pawflash::prepare_scatter_execution(&plan, &partitions, &image_overrides, &vars)
+            .map_err(|e| format!("prepare execution: {e}"))?;
     let tools = resolve_format_tools(&app)?;
 
     let emit = |event: FlashEvent| -> Result<(), String> {
@@ -897,11 +899,11 @@ async fn start_flash_inner(
         emit,
         summary: &mut summary,
         control: &control,
-        max_download_size,
+        max_download_size: execution.max_download_size,
         overall_total: total_bytes,
     };
     flash
-        .execute_plan_actions(&filtered, &image_overrides, Some(&tools), &vars)
+        .execute_execution_plan(&execution.steps, Some(&tools))
         .await?;
 
     if reboot {

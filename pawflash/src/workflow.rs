@@ -8,13 +8,14 @@ use mtk_scatter_parser::{FlashAction, FlashActionExecutionKind};
 use tracing::warn;
 
 use crate::{
+    device::reboot_device,
     device::resolve_flash_partition_target,
-    device::{read_all_variables, reboot_device, resolve_max_download_size_from_vars},
+    execution::{ExecutionPlan, ExecutionRoute, ExecutionStep},
     flash::{erase_one_partition, flash_one_partition, is_scatter_skippable_error},
     format::{
         detect_ext4_partition, detect_userdata, erase_optional_partition,
-        generate_ext4_partition_image, generate_userdata_image, FormatTools,
-        FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
+        generate_ext4_partition_image, generate_userdata_image, FormatTools, FormatUserdataOptions,
+        OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
     },
     manual::ManualFlashAction,
 };
@@ -91,10 +92,6 @@ where
 
 /// Options for executing a scatter flash plan on a connected device.
 pub struct ScatterFlashOptions<'a> {
-    /// Selected partition filters. Empty means all plan actions.
-    pub partitions: &'a [String],
-    /// Per-partition image path overrides.
-    pub image_overrides: &'a HashMap<String, String>,
     /// Whether to emit a `PlanBuilt` event before execution.
     pub announce_plan: bool,
     /// Whether to reboot to system after flashing completes.
@@ -401,6 +398,189 @@ where
         Ok(())
     }
 
+    /// Execute a prepared device-specific execution plan.
+    pub async fn execute_execution_plan(
+        &mut self,
+        steps: &[ExecutionStep],
+        format_tools: Option<&FormatTools>,
+    ) -> Result<(), String> {
+        let mut completed_before = 0_u64;
+
+        for step in steps {
+            self.control.ensure_not_cancelled()?;
+            let action = &step.action;
+            let action_bytes = u64::try_from(action.size).unwrap_or(0);
+
+            match step.route {
+                ExecutionRoute::Blocked => {
+                    let reason = step.blocking_reason.clone().unwrap_or_else(|| {
+                        format!("blocked execution step for {}", action.partition)
+                    });
+                    (self.emit)(FlashEvent::PartitionFailed {
+                        partition: action.partition.clone(),
+                        operation: FlashOperation::Flash,
+                        error: reason.clone(),
+                    })?;
+                    return Err(reason);
+                }
+                ExecutionRoute::Flash => {
+                    let allow_skip = action_is_skip_eligible(action);
+                    let Some(image_path) = step.image_path.as_deref().map(Path::new) else {
+                        let reason = step.blocking_reason.clone().unwrap_or_else(|| {
+                            format!("missing image path for {}", action.partition)
+                        });
+                        if allow_skip {
+                            warn!(
+                                partition = action.partition,
+                                safety_class = action.safety_class.as_str(),
+                                "skipping partition with missing image path"
+                            );
+                            (self.emit)(FlashEvent::PartitionSkipped {
+                                partition: action.partition.clone(),
+                                operation: FlashOperation::Flash,
+                                reason,
+                            })?;
+                            self.summary.skipped_count += 1;
+                            completed_before = completed_before.saturating_add(action_bytes);
+                            continue;
+                        }
+                        return Err(reason);
+                    };
+                    let outcome = self
+                        .flash_partition(
+                            &step.partition_on_device,
+                            image_path,
+                            action_bytes,
+                            completed_before,
+                            allow_skip,
+                            FlashOperation::Flash,
+                        )
+                        .await?;
+                    completed_before = completed_before.saturating_add(action_bytes);
+                    if outcome == PartitionFlashOutcome::Skipped {
+                        continue;
+                    }
+                }
+                ExecutionRoute::FormatData => {
+                    let Some(tools) = format_tools else {
+                        return Err(
+                            "missing format tools for clean-flash format action".to_string()
+                        );
+                    };
+                    let generated = if action.partition == "metadata" {
+                        let info = detect_ext4_partition(self.dev, &step.partition_on_device)
+                            .await
+                            .map_err(|error| format!("detect metadata: {error:#}"))?;
+                        generate_ext4_partition_image(tools, &info)
+                            .map_err(|error| format!("generate metadata image: {error:#}"))?
+                    } else {
+                        let info = detect_userdata(self.dev)
+                            .await
+                            .map_err(|error| format!("detect userdata: {error:#}"))?;
+                        generate_userdata_image(tools, &info, &FormatUserdataOptions::default())
+                            .map_err(|error| format!("generate userdata image: {error:#}"))?
+                    };
+                    self.control.ensure_not_cancelled()?;
+                    (self.emit)(FlashEvent::PreparingImage {
+                        partition: action.partition.clone(),
+                        operation: FlashOperation::FormatData,
+                    })?;
+                    emit_overall_progress(&mut self.emit, completed_before, 0, self.overall_total)?;
+                    self.flash_one_partition_evented(
+                        &step.partition_on_device,
+                        generated.path(),
+                        action_bytes.max(1),
+                        completed_before,
+                        FlashOperation::FormatData,
+                    )
+                    .await
+                    .map_err(|error| {
+                        let msg = format!("{error:#}");
+                        let _ = (self.emit)(FlashEvent::PartitionFailed {
+                            partition: action.partition.clone(),
+                            operation: FlashOperation::FormatData,
+                            error: msg.clone(),
+                        });
+                        msg
+                    })?;
+                    self.summary.wipe_count += 1;
+                    emit_overall_progress(
+                        &mut self.emit,
+                        completed_before,
+                        action_bytes.max(1),
+                        self.overall_total,
+                    )?;
+                    (self.emit)(FlashEvent::PartitionComplete {
+                        partition: action.partition.clone(),
+                        operation: FlashOperation::FormatData,
+                    })?;
+                    completed_before = completed_before.saturating_add(action_bytes);
+                }
+                ExecutionRoute::EraseIfPresent => {
+                    if step.device_partition_exists == Some(false) {
+                        self.summary.skipped_count += 1;
+                        emit_overall_progress(
+                            &mut self.emit,
+                            completed_before,
+                            action_bytes,
+                            self.overall_total,
+                        )?;
+                        (self.emit)(FlashEvent::PartitionSkipped {
+                            partition: action.partition.clone(),
+                            operation: FlashOperation::Erase,
+                            reason: "partition not reported by connected device".to_string(),
+                        })?;
+                        completed_before = completed_before.saturating_add(action_bytes);
+                        continue;
+                    }
+                    match erase_one_partition(self.dev, &step.partition_on_device).await {
+                        Ok(()) => {
+                            self.summary.wipe_count += 1;
+                            emit_overall_progress(
+                                &mut self.emit,
+                                completed_before,
+                                action_bytes,
+                                self.overall_total,
+                            )?;
+                            (self.emit)(FlashEvent::EraseComplete {
+                                partition: action.partition.clone(),
+                            })?;
+                            completed_before = completed_before.saturating_add(action_bytes);
+                        }
+                        Err(error) if wipe_failure_is_skip_eligible(action, &error) => {
+                            let reason = format!("{error:#}");
+                            warn!(partition = action.partition, error = %error, "skipping failed wipe");
+                            self.summary.skipped_count += 1;
+                            emit_overall_progress(
+                                &mut self.emit,
+                                completed_before,
+                                action_bytes,
+                                self.overall_total,
+                            )?;
+                            (self.emit)(FlashEvent::PartitionSkipped {
+                                partition: action.partition.clone(),
+                                operation: FlashOperation::Erase,
+                                reason,
+                            })?;
+                            completed_before = completed_before.saturating_add(action_bytes);
+                        }
+                        Err(error) => {
+                            let msg = format!("{error:#}");
+                            (self.emit)(FlashEvent::PartitionFailed {
+                                partition: action.partition.clone(),
+                                operation: FlashOperation::Erase,
+                                error: msg.clone(),
+                            })?;
+                            return Err(msg);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     async fn flash_one_partition_evented(
         &mut self,
         partition: &str,
@@ -588,35 +768,29 @@ pub async fn run_scatter_dry_run(
 /// Execute a scatter plan on a connected device.
 pub async fn run_scatter_flash(
     dev: &mut FastbootDevice,
-    plan: &mtk_scatter_parser::FlashPlan,
+    plan: &ExecutionPlan,
     options: ScatterFlashOptions<'_>,
     emit: &mut impl FnMut(FlashEvent) -> Result<(), String>,
 ) -> Result<FlashSummaryDto, String> {
-    let actions = filter_actions(plan, options.partitions);
-    let total_bytes = total_bytes_for_actions(&actions);
-
     if options.announce_plan {
         emit(FlashEvent::PlanBuilt {
-            actions: actions.len(),
-            total_bytes,
+            actions: plan.steps.len(),
+            total_bytes: plan.summary.total_bytes,
         })?;
     }
     emit(FlashEvent::Overall {
         bytes: 0,
-        total: total_bytes,
+        total: plan.summary.total_bytes,
     })?;
-
-    let vars = read_all_variables(dev)
-        .await
-        .map_err(|e| format!("read vars: {e}"))?;
-    let max_download_size = resolve_max_download_size_from_vars(&vars)
-        .map_err(|e| format!("max-download-size: {e}"))?;
+    if !plan.errors.is_empty() {
+        return Err(plan.errors.join("\n"));
+    }
 
     let mut summary = FlashSummaryDto {
         flash_count: 0,
         wipe_count: 0,
         skipped_count: 0,
-        total_bytes,
+        total_bytes: plan.summary.total_bytes,
     };
 
     let mut flash = FlashProgressContext {
@@ -624,16 +798,11 @@ pub async fn run_scatter_flash(
         emit: &mut *emit,
         summary: &mut summary,
         control: options.control,
-        max_download_size,
-        overall_total: total_bytes,
+        max_download_size: plan.max_download_size,
+        overall_total: plan.summary.total_bytes,
     };
     flash
-        .execute_plan_actions(
-            &actions,
-            options.image_overrides,
-            options.format_tools,
-            &vars,
-        )
+        .execute_execution_plan(&plan.steps, options.format_tools)
         .await?;
 
     if options.reboot {

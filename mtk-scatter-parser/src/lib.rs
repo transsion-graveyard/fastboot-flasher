@@ -467,6 +467,9 @@ impl ScatterFile {
     }
 }
 
+/// Offline scatter/package manifest used as the planner input.
+pub type ScatterManifest = ScatterFile;
+
 /// Flash planner options.
 #[derive(Debug, Clone)]
 pub struct FlashPlanOptions {
@@ -493,6 +496,9 @@ pub struct FlashPlanOptions {
     /// Whether to allow incomplete slot pairs.
     pub allow_incomplete_slots: bool,
 }
+
+/// Preview-plan options used for offline planning.
+pub type PreviewPlanOptions = FlashPlanOptions;
 
 impl Default for FlashPlanOptions {
     fn default() -> Self {
@@ -649,6 +655,19 @@ pub struct FlashPlan {
     pub warnings: Vec<String>,
     /// Plan-level errors.
     pub errors: Vec<String>,
+}
+
+/// Offline preview plan derived from a scatter manifest.
+pub type PreviewPlan = FlashPlan;
+
+/// Load and normalize a scatter manifest from disk.
+pub fn load_scatter_manifest(path: impl AsRef<Path>) -> Result<ScatterManifest, ScatterError> {
+    parse_scatter(path)
+}
+
+/// Build an offline preview plan from a parsed scatter manifest.
+pub fn build_preview_plan(scatter: &ScatterManifest, options: PreviewPlanOptions) -> PreviewPlan {
+    build_flash_plan(scatter, options)
 }
 
 /// Parse a MediaTek scatter file.

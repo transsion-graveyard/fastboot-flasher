@@ -343,7 +343,9 @@ fn clean_flash_should_add_conditional_metadata_and_cache_wipes_even_when_scatter
         .actions
         .iter()
         .filter(|action| action.partition == "metadata")
-        .all(|action| action.reason.contains("formats metadata using live device partition info")));
+        .all(|action| action
+            .reason
+            .contains("formats metadata using live device partition info")));
     assert!(plan.errors.is_empty(), "{:?}", plan.errors);
 }
 

@@ -18,10 +18,11 @@ use pawflash::{
         set_fastboot_active_slot,
     },
     domain::{plan_to_dto, FlashEvent, FlashRunControl, FlashSummaryDto},
+    execution::prepare_scatter_execution,
     format::{FormatTools, WipeDataOptions},
     gsi::{execute_gsi_flash, GsiEvent, GsiFlashOptions},
     manual::{disable_vbmeta_actions, manual_flash_actions, resolved_disable_vbmeta_image_path},
-    plan::build_plan_checked,
+    plan::build_scatter_preview_checked,
     workflow::{
         execute_manual_actions, run_scatter_dry_run, run_scatter_flash, wipe_data_flow,
         ManualActionExecution, ScatterFlashOptions,
@@ -139,7 +140,7 @@ async fn run_inspect(session: &Session, args: InspectArgs) -> anyhow::Result<()>
             slot,
             include_preloader,
         } => {
-            let plan = build_plan_checked(
+            let plan = build_scatter_preview_checked(
                 &scatter,
                 mode.into(),
                 slot.map(Into::into),
@@ -158,7 +159,8 @@ async fn run_inspect(session: &Session, args: InspectArgs) -> anyhow::Result<()>
             }
         }
         InspectCommand::Package { scatter } => {
-            let plan = build_plan_checked(&scatter, FlashMode::DryRun, None, false, &[], true)?;
+            let plan =
+                build_scatter_preview_checked(&scatter, FlashMode::DryRun, None, false, &[], true)?;
             if session.output() == OutputFormat::Json {
                 let dto = plan_to_dto(&plan, None);
                 session.emit_json(&dto)?;
@@ -260,7 +262,7 @@ async fn run_reboot_command(session: &Session, target: RebootTargetArg) -> anyho
 }
 
 async fn run_scatter(session: &Session, request: ScatterRunRequest) -> anyhow::Result<()> {
-    let plan = build_plan_checked(
+    let plan = build_scatter_preview_checked(
         &request.scatter,
         request.mode,
         request.slot,
@@ -295,12 +297,13 @@ async fn run_scatter(session: &Session, request: ScatterRunRequest) -> anyhow::R
 
     let tools = FormatTools::from_cli_assets()?;
     let mut dev = connect_with_spinner().await?;
+    let vars = read_all_variables(&mut dev).await?;
+    let execution = prepare_scatter_execution(&plan, &request.partitions, &image_overrides, &vars)
+        .map_err(anyhow::Error::msg)?;
     let summary = run_scatter_flash(
         &mut dev,
-        &plan,
+        &execution,
         ScatterFlashOptions {
-            partitions: &request.partitions,
-            image_overrides: &image_overrides,
             announce_plan: false,
             reboot: request.reboot,
             format_tools: Some(&tools),
