@@ -74,7 +74,7 @@ export const PartitionTable = memo(function PartitionTable({
         <Table className="table-fixed min-w-max">
           <colgroup>
             {columnWidths.map((width, i) => (
-              <col key={width} className={cn(width, (i === 2 || i === 4) && "max-lg:hidden")} />
+              <col key={width} className={cn(width, (i === 2 || i === 3) && "max-lg:hidden")} />
             ))}
           </colgroup>
           <TableHeader className="[&_th]:text-muted-foreground">
@@ -91,8 +91,8 @@ export const PartitionTable = memo(function PartitionTable({
               </TableHead>
               <TableHead className={columnWidths[1]}>Partition</TableHead>
               <TableHead className={cn(columnWidths[2], "hidden lg:table-cell")}>Size</TableHead>
-              <TableHead className={columnWidths[3]}>Type</TableHead>
-              <TableHead className={cn(columnWidths[4], "hidden lg:table-cell")}>Image</TableHead>
+              <TableHead className={cn(columnWidths[3], "hidden lg:table-cell")}>Type</TableHead>
+              <TableHead className={columnWidths[4]}>Image</TableHead>
             </TableRow>
           </TableHeader>
         </Table>
@@ -101,7 +101,7 @@ export const PartitionTable = memo(function PartitionTable({
         <Table className="table-fixed min-w-max">
           <colgroup>
             {columnWidths.map((width, i) => (
-              <col key={width} className={cn(width, (i === 2 || i === 4) && "max-lg:hidden")} />
+              <col key={width} className={cn(width, (i === 2 || i === 3) && "max-lg:hidden")} />
             ))}
           </colgroup>
           <TableBody>
@@ -124,10 +124,10 @@ export const PartitionTable = memo(function PartitionTable({
                     <span className="font-mono">{partition.partition}</span>
                 </TableCell>
                 <TableCell className="hidden whitespace-nowrap text-center lg:table-cell">{partition.size_human}</TableCell>
-                <TableCell className="truncate text-center">
+                <TableCell className="hidden truncate text-center lg:table-cell">
                   {partition.image_type ? partition.image_type : <span className="text-muted-foreground">—</span>}
                 </TableCell>
-                <TableCell className="hidden text-left lg:table-cell">
+                <TableCell className="text-left">
                   {partition.action === "flash" ? (
                     <Tooltip>
                       <TooltipTrigger

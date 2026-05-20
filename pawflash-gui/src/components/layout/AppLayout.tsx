@@ -34,7 +34,12 @@ export function AppLayout({
   const [tab, setTab] = useState<"main" | "extra" | "menu">("main");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const userOverride = useRef(false);
+  const mainRef = useRef<HTMLDivElement>(null);
   const { append } = useFlashLog();
+
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0);
+  }, [tab]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -187,7 +192,7 @@ export function AppLayout({
       </aside>
 
       <main className="flex min-w-0 flex-1 overflow-hidden">
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3 lg:p-4 xl:p-5">{children({ tab })}</div>
+        <div ref={mainRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3 lg:p-4 xl:p-5">{children({ tab })}</div>
       </main>
     </div>
   );

@@ -23,7 +23,7 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
   selectedPartitions,
   isPending = false,
 }: FlashPlanConfirmDialogProps) {
-  const { flashPartitions, effectiveWipeCount, includesUserdata } = useMemo(() => {
+  const { flashPartitions, effectiveWipeCount } = useMemo(() => {
     const flashPartitions = selectedPartitions.filter((partition) => partition.action === "flash");
     const visibleWipeCount = selectedPartitions.filter((partition) => partition.action === "wipe").length;
     const includesUserdata = selectedPartitions.some((partition) => partition.partition === "userdata");
@@ -36,7 +36,7 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
     const effectiveWipeCount =
       visibleWipeCount + hiddenCleanFlashWipes;
 
-    return { flashPartitions, effectiveWipeCount, includesUserdata };
+    return { flashPartitions, effectiveWipeCount };
   }, [plan, selectedPartitions]);
 
   return (
@@ -66,21 +66,6 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
             </Badge>
           } />
         </div>
-
-        {plan?.mode === "clean-flash" ? (
-          <div className="space-y-2">
-            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-              Clean flash will remove all files and apps from internal storage.
-            </p>
-            {includesUserdata ? (
-              <p className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-                Selecting <span className="font-mono text-foreground">userdata</span> also runs
-                post-flash cleanup: userdata is formatted after flashing the packaged image, and
-                metadata/cache cleanup runs when the device reports those partitions.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
 
         <DialogFooter className="items-stretch sm:items-center">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending} className="w-full sm:w-auto">

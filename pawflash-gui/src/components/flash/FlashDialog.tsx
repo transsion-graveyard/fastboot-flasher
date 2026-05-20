@@ -127,7 +127,7 @@ export const FlashDialog = memo(function FlashDialog({
               </p>
             )}
 
-            <div className={cn("grid gap-3", showCurrentCard ? "lg:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]" : "grid-cols-1")}>
+            <div className={cn("grid gap-3", showCurrentCard ? "lg:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)] border-b border-border pb-3" : "grid-cols-1")}>
               {showCurrentCard && (
                 <section className="status-shell grid gap-4 px-4 py-4">
                   <div className="min-w-0">
@@ -162,7 +162,7 @@ export const FlashDialog = memo(function FlashDialog({
             </div>
 
             {summary && (
-              <div className="grid grid-cols-2 gap-2 border-t border-border pt-3">
+              <div className="grid grid-cols-2 gap-2">
                 <Metric label="Flashed" value={summary.flash_count} />
                 <Metric label="Wiped" value={summary.wipe_count} />
                 <Metric label="Skipped" value={summary.skipped_count} />
