@@ -208,7 +208,7 @@ fn dry_run_should_normalize_userdata_to_wipe_action() {
 }
 
 #[test]
-fn clean_flash_userdata_image_should_stay_a_flash_action_when_present() {
+fn clean_flash_should_flash_then_format_userdata_when_bundled_image_is_present() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("userdata.img"), [0x24; 32]).unwrap();
     let scatter = synthetic_userdata_scatter(temp.path().join("scatter.xml"));
@@ -222,15 +222,16 @@ fn clean_flash_userdata_image_should_stay_a_flash_action_when_present() {
         },
     );
 
-    let userdata_flash = plan
+    let userdata_actions = plan
         .actions
         .iter()
-        .find(|action| action.partition == "userdata")
-        .unwrap();
+        .filter(|action| action.partition == "userdata")
+        .collect::<Vec<_>>();
 
-    assert_eq!(userdata_flash.action, "flash");
+    assert_eq!(userdata_actions.len(), 2);
+    assert_eq!(userdata_actions[0].action, "flash");
     assert_eq!(
-        userdata_flash
+        userdata_actions[0]
             .image
             .as_ref()
             .and_then(|image| image.get("file_name"))
@@ -238,11 +239,19 @@ fn clean_flash_userdata_image_should_stay_a_flash_action_when_present() {
         Some("userdata.img")
     );
     assert_eq!(
-        serde_json::to_value(userdata_flash)
+        serde_json::to_value(userdata_actions[0])
             .unwrap()
             .get("execution_kind")
             .and_then(|value| value.as_str()),
         Some("flash")
+    );
+    assert_eq!(userdata_actions[1].action, "wipe");
+    assert_eq!(
+        serde_json::to_value(userdata_actions[1])
+            .unwrap()
+            .get("execution_kind")
+            .and_then(|value| value.as_str()),
+        Some("format_data")
     );
 }
 
@@ -300,6 +309,7 @@ fn clean_flash_should_add_conditional_metadata_and_cache_wipes_even_when_scatter
 
     assert_eq!(wipe_partitions, vec!["metadata", "userdata", "cache"]);
     assert_eq!(plan.summary.wipe_count, 3);
+    assert_eq!(plan.summary.flash_count, 0);
     assert!(plan
         .actions
         .iter()
@@ -427,6 +437,7 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
             ("flash", "super"),
             ("wipe", "metadata"),
             ("flash", "userdata"),
+            ("wipe", "userdata"),
             ("wipe", "cache"),
         ]
     );
@@ -455,6 +466,7 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
             ("super".to_string(), "flash".to_string()),
             ("metadata".to_string(), "erase_if_present".to_string()),
             ("userdata".to_string(), "flash".to_string()),
+            ("userdata".to_string(), "format_data".to_string()),
             ("cache".to_string(), "erase_if_present".to_string()),
         ]
     );

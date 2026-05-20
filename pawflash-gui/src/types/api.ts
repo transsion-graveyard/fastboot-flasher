@@ -9,6 +9,7 @@ export interface PartitionDto {
   source: string;
   image_path: string | null;
   image_name: string | null;
+  user_visible: boolean;
   image_overridden?: boolean;
   selected: boolean;
 }

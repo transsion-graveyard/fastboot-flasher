@@ -270,9 +270,18 @@ fn filter_actions<'a>(
         return plan.actions.iter().collect();
     }
 
+    let include_hidden_clean_flash_cleanup =
+        matches!(plan.mode.as_str(), "clean-flash" | "clean_flash")
+            && partitions.iter().any(|partition| partition == "userdata");
+
     plan.actions
         .iter()
-        .filter(|action| partitions.contains(&action.partition))
+        .filter(|action| {
+            partitions.contains(&action.partition)
+                || (include_hidden_clean_flash_cleanup
+                    && action.action == "wipe"
+                    && matches!(action.partition.as_str(), "metadata" | "cache"))
+        })
         .collect()
 }
 
@@ -1397,6 +1406,29 @@ fn default_partition_selected(action: &mtk_scatter_parser::FlashAction) -> bool 
 }
 
 #[cfg(test)]
+fn partition_user_visible(plan: &FlashPlan, action: &mtk_scatter_parser::FlashAction) -> bool {
+    if !matches!(plan.mode.as_str(), "clean-flash" | "clean_flash") {
+        return true;
+    }
+
+    if action.action == "wipe" && matches!(action.partition.as_str(), "metadata" | "cache") {
+        return false;
+    }
+
+    if action.partition == "userdata" && action.action == "wipe" {
+        let has_userdata_flash = plan
+            .actions
+            .iter()
+            .any(|candidate| candidate.partition == "userdata" && candidate.action == "flash");
+        if has_userdata_flash {
+            return false;
+        }
+    }
+
+    true
+}
+
+#[cfg(test)]
 fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
     let partitions = plan
         .actions
@@ -1431,6 +1463,7 @@ fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
                 source: a.reason.clone(),
                 image_path,
                 image_name,
+                user_visible: partition_user_visible(plan, a),
                 selected: default_partition_selected(a),
             }
         })
@@ -1684,6 +1717,50 @@ mod tests {
     }
 
     #[test]
+    fn clean_flash_filter_actions_includes_hidden_cleanup_when_userdata_is_selected() {
+        let mut plan = flash_plan(vec![
+            flash_action("boot", "flash"),
+            flash_action("userdata", "flash"),
+            flash_action("userdata", "wipe"),
+            flash_action("metadata", "wipe"),
+            flash_action("cache", "wipe"),
+        ]);
+        plan.mode = "clean_flash".to_string();
+
+        let filtered = filter_actions(&plan, &["userdata".to_string()]);
+
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|action| (action.partition.as_str(), action.action.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("userdata", "flash"),
+                ("userdata", "wipe"),
+                ("metadata", "wipe"),
+                ("cache", "wipe"),
+            ]
+        );
+    }
+
+    #[test]
+    fn clean_flash_filter_actions_does_not_include_hidden_cleanup_without_userdata() {
+        let mut plan = flash_plan(vec![
+            flash_action("boot", "flash"),
+            flash_action("userdata", "flash"),
+            flash_action("userdata", "wipe"),
+            flash_action("metadata", "wipe"),
+            flash_action("cache", "wipe"),
+        ]);
+        plan.mode = "clean_flash".to_string();
+
+        let filtered = filter_actions(&plan, &["boot".to_string()]);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].partition, "boot");
+    }
+
+    #[test]
     fn parse_flash_mode_rejects_unknown_modes() {
         let error = parse_flash_mode("not-a-real-mode").unwrap_err();
         assert_eq!(error, "unknown flash mode: not-a-real-mode");
@@ -1825,6 +1902,26 @@ mod tests {
         assert!(dto.partitions[0].selected);
         assert!(!dto.partitions[1].selected);
         assert!(dto.partitions[2].selected);
+    }
+
+    #[test]
+    fn plan_to_dto_hides_clean_flash_internal_cleanup_rows() {
+        let mut plan = flash_plan(vec![
+            flash_action("boot", "flash"),
+            flash_action("userdata", "flash"),
+            flash_action("userdata", "wipe"),
+            flash_action("metadata", "wipe"),
+            flash_action("cache", "wipe"),
+        ]);
+        plan.mode = "clean_flash".to_string();
+
+        let dto = plan_to_dto(&plan, None);
+
+        assert!(dto.partitions[0].user_visible);
+        assert!(dto.partitions[1].user_visible);
+        assert!(!dto.partitions[2].user_visible);
+        assert!(!dto.partitions[3].user_visible);
+        assert!(!dto.partitions[4].user_visible);
     }
 
     #[test]

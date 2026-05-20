@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { CheckCircle2, LoaderCircle, Minus, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ interface ForceFastbootDialogProps {
   onCancel: () => void | Promise<void>;
 }
 
-export function ForceFastbootDialog({
+export const ForceFastbootDialog = memo(function ForceFastbootDialog({
   open,
   onOpenChange,
   onHide,
@@ -106,4 +107,4 @@ export function ForceFastbootDialog({
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
@@ -9,7 +9,7 @@ interface DataSectionProps {
   disabled?: boolean;
 }
 
-export function DataSection({ onFormatData, disabled = false }: DataSectionProps) {
+export const DataSection = memo(function DataSection({ onFormatData, disabled = false }: DataSectionProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -37,4 +37,4 @@ export function DataSection({ onFormatData, disabled = false }: DataSectionProps
       />
     </SectionCard>
   );
-}
+});

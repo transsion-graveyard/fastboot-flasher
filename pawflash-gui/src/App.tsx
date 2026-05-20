@@ -1,33 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Toaster, toast } from "sonner";
-import { AlertTriangle, LoaderCircle, MonitorUp, PlugZap, XCircle } from "lucide-react";
+import { LoaderCircle, MonitorUp, PlugZap } from "lucide-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { ScatterPicker } from "@/components/main-tab/ScatterPicker";
-import { FlashOptions } from "@/components/main-tab/FlashOptions";
-import { PartitionTable } from "@/components/main-tab/PartitionTable";
-import { FlashFab } from "@/components/main-tab/FlashFab";
-import { FastbootVars } from "@/components/extra-tab/FastbootVars";
-import { GsiFlasher } from "@/components/extra-tab/GsiFlasher";
-import { ManualFlash } from "@/components/extra-tab/ManualFlash";
 import { FlashDialog } from "@/components/flash/FlashDialog";
 import { FlashPlanConfirmDialog } from "@/components/flash/FlashPlanConfirmDialog";
 import { ForceFastbootDialog } from "@/components/flash/ForceFastbootDialog";
-import { DeviceSection } from "@/components/menu-tab/DeviceSection";
-import { BootloaderSection } from "@/components/menu-tab/BootloaderSection";
-import { DataSection } from "@/components/menu-tab/DataSection";
-import { LogSection } from "@/components/menu-tab/LogSection";
-import { RebootSection, type RebootTarget } from "@/components/menu-tab/RebootSection";
-import { SlotSection } from "@/components/menu-tab/SlotSection";
+import type { RebootTarget } from "@/components/menu-tab/RebootSection";
 import { useDevice } from "@/hooks/useDevice";
 import { useFlashLog, useFlashProgress } from "@/hooks/useFlashProgress";
 import { useForceFastboot } from "@/hooks/useForceFastboot";
 import { applyDismissibleDialogChange } from "@/components/shared/dialogBehavior";
 import { defaultFlashMode, type FlashMode } from "@/lib/flash-mode";
 import type { DeviceInfo, FlashPlanDto, ParseScatterResponseDto, PartitionDto } from "@/types/api";
+
+const MainTab = lazy(() => import("@/components/tabs/MainTab").then((m) => ({ default: m.MainTab })));
+const ExtraTab = lazy(() => import("@/components/tabs/ExtraTab").then((m) => ({ default: m.ExtraTab })));
+const MenuTab = lazy(() => import("@/components/tabs/MenuTab").then((m) => ({ default: m.MenuTab })));
 
 const SCATTER_STORAGE_KEY = "last-scatter-path";
 const GSI_STORAGE_KEY = "last-gsi-image-path";
@@ -140,11 +132,18 @@ export default function App() {
   });
   const planRequestRef = useRef(0);
   const lastParsedScatterPathRef = useRef("");
+  const partitionsRef = useRef(partitions);
+  partitionsRef.current = partitions;
 
   const device = useDevice();
   const flash = useFlashProgress();
   const { append: appendLog } = useFlashLog();
   const forceFastboot = useForceFastboot();
+
+  const flashPhaseRef = useRef(flash.phase);
+  flashPhaseRef.current = flash.phase;
+  const forcePhaseRef = useRef(forceFastboot.phase);
+  forcePhaseRef.current = forceFastboot.phase;
 
   const handleModeChange = useCallback(
     (newMode: string) => {
@@ -334,20 +333,20 @@ export default function App() {
 
   const togglePartition = useCallback(
     (index: number) => {
-      const partition = partitions[index];
+      const partition = partitionsRef.current[index];
       if (partition) {
         appendLog(`PartitionToggled ${partition.partition} ${!partition.selected ? "selected" : "deselected"}`);
       }
       setPartitions((prev) => prev.map((p, i) => (i === index ? { ...p, selected: !p.selected } : p)));
     },
-    [appendLog, partitions],
+    [appendLog],
   );
 
   const toggleAllPartitions = useCallback(() => {
-    const nextSelected = !partitions.every((p) => p.selected);
+    const nextSelected = !partitionsRef.current.every((p) => p.selected);
     appendLog(`PartitionsAllToggled ${nextSelected ? "selected" : "cleared"}`);
     setPartitions((prev) => prev.map((p) => ({ ...p, selected: nextSelected })));
-  }, [appendLog, partitions]);
+  }, [appendLog]);
 
   const startFlash = useCallback(async () => {
     if (
@@ -359,7 +358,9 @@ export default function App() {
       return;
     }
 
-    const selected = partitions.filter((p) => p.selected).map((p) => p.partition);
+    const selected = partitions
+      .filter((partition) => partition.user_visible && partition.selected)
+      .map((partition) => partition.partition);
     appendLog(`FlashStarted ${selected.length} partitions`);
     flash.reset();
     setFlashOpen(true);
@@ -391,7 +392,8 @@ export default function App() {
   ]);
 
   const startForceFastboot = useCallback(async () => {
-    if (flash.phase === "waiting" || flash.phase === "flashing" || forceFastboot.phase === "waiting") {
+    const sessionLive = flashPhaseRef.current === "waiting" || flashPhaseRef.current === "flashing";
+    if (sessionLive || forcePhaseRef.current === "waiting") {
       return;
     }
 
@@ -409,7 +411,7 @@ export default function App() {
       forceFastboot.reset();
       setForceOpen(false);
     }
-  }, [appendLog, flash.phase, forceFastboot]);
+  }, [appendLog, forceFastboot]);
 
   const activeFlashSession = flash.phase === "waiting" || flash.phase === "flashing";
   const activeForceSession = forceFastboot.phase === "waiting";
@@ -422,14 +424,16 @@ export default function App() {
     activeForceSession;
 
   const startGsiFlash = useCallback(async () => {
+    const sessionLive = flashPhaseRef.current === "waiting" || flashPhaseRef.current === "flashing";
+    const forceLive = forcePhaseRef.current === "waiting";
     if (
       !gsiImagePath ||
       isStartingGsiFlash ||
       isStartingFlash ||
       isFormattingData ||
       isCheckingDevice ||
-      activeFlashSession ||
-      activeForceSession
+      sessionLive ||
+      forceLive
     ) {
       return;
     }
@@ -450,8 +454,6 @@ export default function App() {
       setIsStartingGsiFlash(false);
     }
   }, [
-    activeFlashSession,
-    activeForceSession,
     appendLog,
     flash,
     gsiImagePath,
@@ -480,13 +482,15 @@ export default function App() {
       image: string,
       selectedSlot: "" | "a" | "b" | "active" | "inactive" | "all",
     ) => {
+      const sessionLive = flashPhaseRef.current === "waiting" || flashPhaseRef.current === "flashing";
+      const forceLive = forcePhaseRef.current === "waiting";
       if (
         isStartingFlash ||
         isStartingGsiFlash ||
         isFormattingData ||
         isCheckingDevice ||
-        activeFlashSession ||
-        activeForceSession
+        sessionLive ||
+        forceLive
       ) {
         return;
       }
@@ -510,8 +514,6 @@ export default function App() {
       }
     },
     [
-      activeFlashSession,
-      activeForceSession,
       flash,
       isCheckingDevice,
       isFormattingData,
@@ -521,7 +523,16 @@ export default function App() {
   );
 
   const startFormatData = useCallback(async () => {
-    if (menuActionDisabled) {
+    const sessionLive = flashPhaseRef.current === "waiting" || flashPhaseRef.current === "flashing";
+    const forceLive = forcePhaseRef.current === "waiting";
+    const anyBusy =
+      isStartingFlash ||
+      isStartingGsiFlash ||
+      isFormattingData ||
+      isCheckingDevice ||
+      sessionLive ||
+      forceLive;
+    if (anyBusy) {
       return;
     }
 
@@ -544,10 +555,12 @@ export default function App() {
     } finally {
       setIsFormattingData(false);
     }
-  }, [appendLog, flash, menuActionDisabled]);
+  }, [appendLog, flash, isCheckingDevice, isFormattingData, isStartingFlash, isStartingGsiFlash]);
 
   const checkDevice = useCallback(async () => {
-    if (isCheckingDevice || activeFlashSession || activeForceSession) {
+    const sessionLive = flashPhaseRef.current === "waiting" || flashPhaseRef.current === "flashing";
+    const forceLive = forcePhaseRef.current === "waiting";
+    if (isCheckingDevice || sessionLive || forceLive) {
       return;
     }
 
@@ -566,7 +579,7 @@ export default function App() {
     } finally {
       setIsCheckingDevice(false);
     }
-  }, [activeFlashSession, activeForceSession, appendLog, device, isCheckingDevice]);
+  }, [appendLog, device, isCheckingDevice]);
 
   const pickCustomImage = useCallback(
     async (partition: PartitionDto) => {
@@ -592,16 +605,17 @@ export default function App() {
 
   const hideFlashDialog = useCallback(() => {
     setFlashOpen(false);
-    setFlashMinimized(activeFlashSession);
-  }, [activeFlashSession]);
+    setFlashMinimized(flashPhaseRef.current === "waiting" || flashPhaseRef.current === "flashing");
+  }, []);
 
   const hideForceDialog = useCallback(() => {
     setForceOpen(false);
-    setForceMinimized(activeForceSession);
-  }, [activeForceSession]);
+    setForceMinimized(forcePhaseRef.current === "waiting");
+  }, []);
 
   const cancelFlash = useCallback(async () => {
-    if (!activeFlashSession || isCancellingFlash) {
+    const sessionLive = flashPhaseRef.current === "waiting" || flashPhaseRef.current === "flashing";
+    if (!sessionLive || isCancellingFlash) {
       return;
     }
 
@@ -616,10 +630,11 @@ export default function App() {
       setIsCancellingFlash(false);
       flash.fail(String(error));
     }
-  }, [activeFlashSession, appendLog, flash, isCancellingFlash]);
+  }, [appendLog, flash, isCancellingFlash]);
 
   const cancelForceFastboot = useCallback(async () => {
-    if (!activeForceSession || isCancellingForceFastboot) {
+    const forceLive = forcePhaseRef.current === "waiting";
+    if (!forceLive || isCancellingForceFastboot) {
       return;
     }
 
@@ -634,11 +649,12 @@ export default function App() {
       setIsCancellingForceFastboot(false);
       toast.error(String(error));
     }
-  }, [activeForceSession, appendLog, forceFastboot, isCancellingForceFastboot]);
+  }, [appendLog, forceFastboot, isCancellingForceFastboot]);
 
   const displayPartitions = useMemo(
     () =>
       partitions
+        .filter((partition) => partition.user_visible)
         .map((partition) => {
         const overridePath = imageOverrides[partition.partition];
         const overrideName = overridePath?.split(/[/\\]/).pop() ?? null;
@@ -672,8 +688,10 @@ export default function App() {
     [selectedPartitions],
   );
 
-  const allPartitionsSelected = partitions.length > 0 && partitions.every((partition) => partition.selected);
-  const somePartitionsSelected = partitions.some((partition) => partition.selected) && !allPartitionsSelected;
+  const allPartitionsSelected =
+    displayPartitions.length > 0 && displayPartitions.every((partition) => partition.selected);
+  const somePartitionsSelected =
+    displayPartitions.some((partition) => partition.selected) && !allPartitionsSelected;
 
   const flashDisabled =
     !plan ||
@@ -752,118 +770,59 @@ export default function App() {
         onThemeChange={setTheme}
       >
         {({ tab }) => (
-          <>
-            <div className={tab === "main" ? "flex h-full min-h-0 flex-col gap-4" : "hidden"}>
-              <ScatterPicker path={scatterPath} onChange={loadScatter} />
-              <FlashOptions
+          <Suspense fallback={null}>
+            {tab === "main" && (
+              <MainTab
+                scatterPath={scatterPath}
+                loadScatter={loadScatter}
                 mode={mode}
-                onModeChange={handleModeChange}
-                reboot={rebootAfter}
-                onRebootChange={handleRebootChange}
+                handleModeChange={handleModeChange}
+                rebootAfter={rebootAfter}
+                handleRebootChange={handleRebootChange}
                 advanced={advanced}
-                onAdvancedChange={handleAdvancedChange}
+                handleAdvancedChange={handleAdvancedChange}
                 includePreloader={includePreloader}
-                onIncludePreloaderChange={handleIncludePreloaderChange}
+                handleIncludePreloaderChange={handleIncludePreloaderChange}
                 slot={slot}
-                onSlotChange={handleSlotChange}
-              />
-              <PartitionTable
-                className="min-h-0 flex-1"
-                partitions={displayPartitions}
+                handleSlotChange={handleSlotChange}
+                displayPartitions={displayPartitions}
                 isParsingPlan={isParsingPlan}
-                onToggle={togglePartition}
-                onToggleAll={toggleAllPartitions}
-                allSelected={allPartitionsSelected}
-                someSelected={somePartitionsSelected}
-                onPickImage={pickCustomImage}
+                togglePartition={togglePartition}
+                toggleAllPartitions={toggleAllPartitions}
+                allPartitionsSelected={allPartitionsSelected}
+                somePartitionsSelected={somePartitionsSelected}
+                pickCustomImage={pickCustomImage}
+                plan={plan}
+                selectedSummary={selectedSummary}
+                flashDisabled={flashDisabled}
+                setFlashConfirmOpen={setFlashConfirmOpen}
               />
-              {advanced && plan && (
-                <div className="shrink-0 space-y-2 text-sm text-muted-foreground">
-                  {plan.warnings.map((warning, index) => (
-                    <p key={index} className="flex items-start gap-2 leading-6 text-warning">
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      {warning}
-                    </p>
-                  ))}
-                  {plan.errors.map((error, index) => (
-                    <p key={index} className="flex items-start gap-2 leading-6 text-error">
-                      <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      {error}
-                    </p>
-                  ))}
-                </div>
-              )}
-              <div className="panel-shell grid shrink-0 gap-4 px-4 py-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <SummaryCard label="Chipset" value={plan?.chipset ?? "—"} />
-                  <SummaryCard label="Storage" value={plan?.storage ?? "—"} />
-                  <SummaryCard label="Slot" value={plan?.slot_policy ?? "—"} />
-                  <SummaryCard
-                    label="Actions"
-                    value={plan ? `F = ${selectedSummary.flashCount} / W = ${selectedSummary.wipeCount}` : isParsingPlan ? "Parsing..." : "—"}
-                    accent
-                  />
-                </div>
-                <div className="xl:text-right">
-                  <FlashFab onClick={() => setFlashConfirmOpen(true)} disabled={flashDisabled} />
-                </div>
-              </div>
-            </div>
-
-            <div className={tab === "extra" ? "grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]" : "hidden"}>
-              <div className="flex min-h-0 flex-col gap-5">
-                <GsiFlasher
-                  imagePath={gsiImagePath}
-                  onImagePathChange={setGsiImagePath}
-                  onFlash={startGsiFlash}
-                  disabled={menuActionDisabled}
-                  flashing={isStartingGsiFlash}
-                />
-                <ManualFlash
-                  disabled={menuActionDisabled}
-                  flashing={isStartingFlash}
-                  onManualFlash={startManualFlash}
-                />
-              </div>
-              <div className="flex min-h-0 flex-col gap-5">
-                <RebootSection
-                  disabled={menuActionDisabled}
-                  target={rebootTarget}
-                  onTargetChange={setRebootTarget}
-                />
-                <FastbootVars
-                  disabled={menuActionDisabled}
-                  onGetVariable={readVariable}
-                  onGetAllVariables={readAllVariables}
-                />
-              </div>
-            </div>
-
-            <div className={tab === "menu" ? "grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]" : "hidden"}>
-              <div className="flex min-h-0 flex-col gap-5">
-                <DeviceSection
-                  onForceFastboot={startForceFastboot}
-                  forceFastbootDisabled={menuActionDisabled}
-                  disableVbmetaDisabled={menuActionDisabled}
-                  disabled={menuActionDisabled}
-                />
-                <BootloaderSection />
-                <DataSection
-                  onFormatData={startFormatData}
-                  disabled={menuActionDisabled}
-                />
-                <SlotSection disabled={menuActionDisabled} />
-              </div>
-              <div className="flex min-h-0 flex-col gap-5">
-                <RebootSection
-                  disabled={menuActionDisabled}
-                  target={rebootTarget}
-                  onTargetChange={setRebootTarget}
-                />
-                <LogSection />
-              </div>
-            </div>
-          </>
+            )}
+            {tab === "extra" && (
+              <ExtraTab
+                gsiImagePath={gsiImagePath}
+                onGsiImagePathChange={setGsiImagePath}
+                onGsiFlash={startGsiFlash}
+                menuActionDisabled={menuActionDisabled}
+                isStartingGsiFlash={isStartingGsiFlash}
+                onManualFlash={startManualFlash}
+                isStartingFlash={isStartingFlash}
+                rebootTarget={rebootTarget}
+                onRebootTargetChange={setRebootTarget}
+                onGetVariable={readVariable}
+                onGetAllVariables={readAllVariables}
+              />
+            )}
+            {tab === "menu" && (
+              <MenuTab
+                onForceFastboot={startForceFastboot}
+                menuActionDisabled={menuActionDisabled}
+                onFormatData={startFormatData}
+                rebootTarget={rebootTarget}
+                onRebootTargetChange={setRebootTarget}
+              />
+            )}
+          </Suspense>
         )}
       </AppLayout>
       <FlashPlanConfirmDialog
@@ -919,23 +878,4 @@ function phaseLabel(
   if (phase === "complete") return runMode === "dry_run" ? "Dry run complete" : "Complete";
   if (phase === "error") return "Error";
   return "";
-}
-
-function SummaryCard({
-  label,
-  value,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  return (
-    <div className="panel-inset flex h-12 flex-col justify-center px-3">
-      <p className="text-[10px] leading-tight font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
-      <p className={accent ? "mt-0.5 text-sm leading-tight font-semibold text-accent-soft-foreground" : "mt-0.5 text-sm leading-tight font-semibold"}>
-        {value}
-      </p>
-    </div>
-  );
 }

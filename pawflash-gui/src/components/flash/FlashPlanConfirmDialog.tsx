@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { flashModeLabel } from "@/lib/flash-mode";
@@ -22,8 +22,11 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
   selectedPartitions,
   isPending = false,
 }: FlashPlanConfirmDialogProps) {
-  const flashPartitions = selectedPartitions.filter((partition) => partition.action === "flash");
-  const wipePartitions = selectedPartitions.filter((partition) => partition.action === "wipe");
+  const { flashPartitions, wipePartitions, includesUserdata } = useMemo(() => ({
+    flashPartitions: selectedPartitions.filter((partition) => partition.action === "flash"),
+    wipePartitions: selectedPartitions.filter((partition) => partition.action === "wipe"),
+    includesUserdata: selectedPartitions.some((partition) => partition.partition === "userdata"),
+  }), [selectedPartitions]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -40,9 +43,18 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
         </div>
 
         {plan?.mode === "clean-flash" ? (
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-            Clean flash will remove all files and apps from internal storage.
-          </p>
+          <div className="space-y-2">
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              Clean flash will remove all files and apps from internal storage.
+            </p>
+            {includesUserdata ? (
+              <p className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                Selecting <span className="font-mono text-foreground">userdata</span> also runs
+                post-flash cleanup: userdata is formatted after flashing the packaged image, and
+                metadata/cache cleanup runs when the device reports those partitions.
+              </p>
+            ) : null}
+          </div>
         ) : null}
 
         <DialogFooter className="items-stretch sm:items-center">

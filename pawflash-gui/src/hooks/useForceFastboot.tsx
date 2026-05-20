@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -28,6 +29,11 @@ export function ForceFastbootProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<ForceFastbootState["phase"]>("idle");
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
+  const sessionIdRef = useRef(sessionId);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,7 +42,7 @@ export function ForceFastbootProvider({ children }: { children: ReactNode }) {
     listen<ForceFastbootEvent>("force-fastboot-progress", (event) => {
       if (cancelled) return;
       const payload = event.payload;
-      if (payload.event !== "Started" && sessionId !== null && payload.data.session_id !== sessionId) {
+      if (payload.event !== "Started" && sessionIdRef.current !== null && payload.data.session_id !== sessionIdRef.current) {
         return;
       }
 
@@ -81,7 +87,7 @@ export function ForceFastbootProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       unlisten?.();
     };
-  }, [sessionId]);
+  }, []);
 
   const start = useCallback(async () => {
     setPhase("waiting");

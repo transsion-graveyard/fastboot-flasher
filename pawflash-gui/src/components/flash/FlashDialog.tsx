@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { memo, useEffect } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
   Minus,
@@ -7,6 +7,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { formatBytes, formatSpeed } from "@/lib/format";
 import { useFlashProgress } from "@/hooks/useFlashProgress";
 import {
   createDismissibleDialogRootHandler,
@@ -21,7 +22,7 @@ interface FlashDialogProps {
   canCancel: boolean;
 }
 
-export function FlashDialog({
+export const FlashDialog = memo(function FlashDialog({
   open,
   onOpenChange,
   onMinimize,
@@ -149,12 +150,6 @@ export function FlashDialog({
 
               {phase !== "complete" && (
                 <section className="status-shell space-y-4 px-4 py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="mt-1 text-sm font-semibold leading-5">Overall</p>
-                    </div>
-                  </div>
-
                   <ProgressBlock
                     label="Overall progress"
                     value={overallPct}
@@ -179,7 +174,7 @@ export function FlashDialog({
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
-}
+});
 
 function ProgressBlock({
   label,
@@ -315,32 +310,4 @@ function formatBytesProgress(bytes: number, total: number) {
   return `${formatBytes(bytes)} / ${formatBytes(total)}`;
 }
 
-function formatBytes(value: number) {
-  if (value <= 0) return "0 B";
-  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-  let size = value;
-  let unitIndex = 0;
 
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-
-  const precision = unitIndex === 0 ? 0 : size >= 100 ? 0 : size >= 10 ? 1 : 2;
-  return `${size.toFixed(precision)} ${units[unitIndex]}`;
-}
-
-function formatSpeed(speedBps: number): string {
-  if (speedBps <= 0) return "";
-  const units = ["B/s", "KiB/s", "MiB/s", "GiB/s", "TiB/s"];
-  let value = speedBps;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  const precision = unitIndex === 0 ? 0 : value >= 100 ? 0 : value >= 10 ? 1 : 2;
-  return `${value.toFixed(precision)} ${units[unitIndex]}`;
-}

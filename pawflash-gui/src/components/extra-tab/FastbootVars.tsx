@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Search, TerminalSquare } from "lucide-react";
+import { memo, useState } from "react";
+import { Copy, Search, TerminalSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ interface FastbootVarsProps {
   onGetAllVariables: () => Promise<Record<string, string>>;
 }
 
-export function FastbootVars({
+export const FastbootVars = memo(function FastbootVars({
   disabled = false,
   onGetVariable,
   onGetAllVariables,
@@ -21,8 +21,6 @@ export function FastbootVars({
   const [variableOutput, setVariableOutput] = useState("");
   const [reading, setReading] = useState(false);
   const { append } = useFlashLog();
-
-  const prettyVars = useMemo(() => variableOutput, [variableOutput]);
 
   const readVariable = async () => {
     const trimmed = variableName.trim();
@@ -80,18 +78,32 @@ export function FastbootVars({
           {reading ? "Reading..." : "Read var"}
         </Button>
       </div>
-      <Button
-        variant="outline"
-        className="w-full justify-start gap-2"
-        disabled={disabled || reading}
-        onClick={readAllVariables}
-      >
-        <TerminalSquare className="h-4 w-4" />
-        Read all vars
-      </Button>
+      <div className="grid grid-cols-2 gap-3">
+        <Button
+          variant="outline"
+          className="justify-start gap-2"
+          disabled={disabled || reading}
+          onClick={readAllVariables}
+        >
+          <TerminalSquare className="h-4 w-4" />
+          Read all vars
+        </Button>
+        <Button
+          variant="outline"
+          className="justify-start gap-2"
+          disabled={disabled || reading || !variableOutput}
+          onClick={() => {
+            navigator.clipboard.writeText(variableOutput);
+            toast.success("Copied to clipboard");
+          }}
+        >
+          <Copy className="h-4 w-4" />
+          Copy vars
+        </Button>
+      </div>
       <pre className="min-h-48 overflow-auto rounded-md border border-border/70 bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
-        {prettyVars || "Variable output will appear here."}
+        {variableOutput || "Variable output will appear here."}
       </pre>
     </SectionCard>
   );
-}
+});

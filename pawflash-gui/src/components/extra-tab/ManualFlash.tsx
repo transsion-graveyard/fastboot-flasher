@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -24,13 +24,13 @@ interface ManualFlashProps {
   ) => Promise<void>;
 }
 
-export function ManualFlash({
+export const ManualFlash = memo(function ManualFlash({
   disabled = false,
   flashing = false,
   onManualFlash,
 }: ManualFlashProps) {
   const [manualPartition, setManualPartition] = useState("");
-  const [manualSlot, setManualSlot] = useState<"" | "a" | "b" | "active" | "inactive" | "all">("");
+  const [manualSlot, setManualSlot] = useState<"" | "a" | "b" | "active" | "inactive" | "all">("active");
   const [manualImage, setManualImage] = useState("");
   const [pickingImage, setPickingImage] = useState(false);
   const { append } = useFlashLog();
@@ -82,7 +82,7 @@ export function ManualFlash({
           }
         >
           <SelectTrigger aria-label="Manual flash slot" disabled={disabled || flashing}>
-            <SelectValue placeholder="Plan default" />
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="a">_a</SelectItem>
@@ -121,4 +121,4 @@ export function ManualFlash({
       </Button>
     </SectionCard>
   );
-}
+});

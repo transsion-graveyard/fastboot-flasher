@@ -72,13 +72,13 @@ export function AppLayout({
   );
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
+    <div
+      className="grid h-screen bg-background text-foreground transition-[grid-template-columns] duration-200 ease-out"
+      style={{ gridTemplateColumns: sidebarOpen ? "14rem 1fr" : "4.5rem 1fr" }}
+    >
       <aside
         aria-label="Sidebar"
-        className={cn(
-          "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out",
-          sidebarOpen ? "w-56" : "w-[4.5rem]",
-        )}
+        className="flex flex-col border-r border-sidebar-border bg-sidebar"
       >
         <div className={cn("flex items-center", sidebarOpen ? "justify-between px-3 py-3" : "justify-center px-2 py-3")}>
           {sidebarOpen && <span className="text-sm font-semibold tracking-[0.16em] text-muted-foreground">PAWFLASH</span>}

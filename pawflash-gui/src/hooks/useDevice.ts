@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { DeviceInfo } from "@/types/api";
 
@@ -43,18 +43,34 @@ export function useDevice() {
     [],
   );
 
-  return {
-    check,
-    connect,
-    reboot,
-    rebootBootloader,
-    rebootFastboot,
-    rebootRecovery,
-    forceFastboot,
-    getVariable,
-    getAllVariables,
-    setActiveSlot,
-    unlockBootloader,
-    lockBootloader,
-  };
+  return useMemo(
+    () => ({
+      check,
+      connect,
+      reboot,
+      rebootBootloader,
+      rebootFastboot,
+      rebootRecovery,
+      forceFastboot,
+      getVariable,
+      getAllVariables,
+      setActiveSlot,
+      unlockBootloader,
+      lockBootloader,
+    }),
+    [
+      check,
+      connect,
+      reboot,
+      rebootBootloader,
+      rebootFastboot,
+      rebootRecovery,
+      forceFastboot,
+      getVariable,
+      getAllVariables,
+      setActiveSlot,
+      unlockBootloader,
+      lockBootloader,
+    ],
+  );
 }

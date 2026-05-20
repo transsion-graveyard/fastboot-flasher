@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Copy, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -37,7 +37,7 @@ const logColors: Record<string, string> = {
   error: "text-error",
 };
 
-export function LogSection() {
+export const LogSection = memo(function LogSection() {
   const { entries, clear } = useFlashLog();
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -102,4 +102,4 @@ export function LogSection() {
       </ScrollArea>
     </SectionCard>
   );
-}
+});

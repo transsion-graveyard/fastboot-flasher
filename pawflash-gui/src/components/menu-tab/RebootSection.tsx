@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,7 @@ interface RebootSectionProps {
   onTargetChange: (target: RebootTarget) => void;
 }
 
-export function RebootSection({ disabled = false, target, onTargetChange }: RebootSectionProps) {
+export const RebootSection = memo(function RebootSection({ disabled = false, target, onTargetChange }: RebootSectionProps) {
   const { reboot, rebootBootloader, rebootFastboot, rebootRecovery } = useDevice();
   const [busy, setBusy] = useState(false);
   const { append } = useFlashLog();
@@ -95,4 +95,4 @@ export function RebootSection({ disabled = false, target, onTargetChange }: Rebo
       </Button>
     </SectionCard>
   );
-}
+});

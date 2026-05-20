@@ -1045,17 +1045,25 @@ fn append_clean_flash_wipes(
                     .pointer("/path/exists")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let action = if image_exists { "flash" } else { "wipe" };
+                if image_exists {
+                    actions.push(flash_action(
+                        "flash",
+                        part,
+                        Some(image),
+                        "clean-flash resets userdata using bundled image before live format",
+                        warnings,
+                    ));
+                }
                 actions.push(flash_action(
-                    action,
+                    "wipe",
                     part,
-                    Some(image),
+                    None,
                     if image_exists {
-                        "clean-flash resets userdata using bundled image"
+                        "clean-flash formats userdata using live device partition info after flashing bundled userdata image"
                     } else {
-                        "clean-flash formats userdata when no bundled image is available"
+                        "clean-flash formats userdata using live device partition info"
                     },
-                    warnings,
+                    Vec::new(),
                 ));
             } else {
                 let image = part

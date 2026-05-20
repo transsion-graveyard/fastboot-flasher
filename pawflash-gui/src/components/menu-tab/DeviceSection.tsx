@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { ShieldOff, Zap } from "lucide-react";
@@ -14,7 +14,7 @@ interface DeviceSectionProps {
   disabled?: boolean;
 }
 
-export function DeviceSection({
+export const DeviceSection = memo(function DeviceSection({
   onForceFastboot,
   forceFastbootDisabled = false,
   disableVbmetaDisabled = false,
@@ -88,4 +88,4 @@ export function DeviceSection({
       />
     </SectionCard>
   );
-}
+});
