@@ -416,6 +416,7 @@ mod tests {
             },
             actions: vec![FlashAction {
                 action: "flash".to_string(),
+                execution_kind: mtk_scatter_parser::FlashActionExecutionKind::Flash,
                 partition: "vbmeta_a".to_string(),
                 base_name: "vbmeta".to_string(),
                 slot: Some("a".to_string()),

@@ -198,6 +198,7 @@ async fn run_scatter(request: ScatterRunRequest) -> anyhow::Result<()> {
         }
     }
 
+    let tools = FormatTools::from_cli_assets()?;
     let mut dev = connect_fastboot().await?;
     let _summary = run_scatter_flash(
         &mut dev,
@@ -207,6 +208,7 @@ async fn run_scatter(request: ScatterRunRequest) -> anyhow::Result<()> {
             image_overrides: &image_overrides,
             announce_plan: !prompt_for_confirmation,
             reboot: false,
+            format_tools: Some(&tools),
             control: &control,
         },
         &mut emit,

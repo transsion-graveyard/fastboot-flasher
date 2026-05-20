@@ -235,6 +235,13 @@ fn clean_flash_userdata_wipe_should_keep_source_file_metadata() {
             .and_then(|value| value.as_str()),
         Some("userdata.img")
     );
+    assert_eq!(
+        serde_json::to_value(userdata_wipe)
+            .unwrap()
+            .get("execution_kind")
+            .and_then(|value| value.as_str()),
+        Some("format_userdata")
+    );
 }
 
 #[test]
@@ -409,6 +416,37 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
             ("wipe", "metadata"),
             ("wipe", "userdata"),
             ("wipe", "cache"),
+        ]
+    );
+    let execution_kinds = plan
+        .actions
+        .iter()
+        .map(|action| {
+            let execution_kind = serde_json::to_value(action)
+                .unwrap()
+                .get("execution_kind")
+                .and_then(|value| value.as_str())
+                .unwrap_or("missing")
+                .to_string();
+            (
+                action.partition.clone(),
+                execution_kind,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        execution_kinds,
+        vec![
+            ("boot_a".to_string(), "flash".to_string()),
+            ("boot_b".to_string(), "flash".to_string()),
+            ("vbmeta_a".to_string(), "flash".to_string()),
+            ("vbmeta_b".to_string(), "flash".to_string()),
+            ("dtbo_a".to_string(), "flash".to_string()),
+            ("dtbo_b".to_string(), "flash".to_string()),
+            ("super".to_string(), "flash".to_string()),
+            ("metadata".to_string(), "erase_optional".to_string()),
+            ("userdata".to_string(), "format_userdata".to_string()),
+            ("cache".to_string(), "erase_optional".to_string()),
         ]
     );
     assert!(plan.errors.is_empty(), "{:?}", plan.errors);

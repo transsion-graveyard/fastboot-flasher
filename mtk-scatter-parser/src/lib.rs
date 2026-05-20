@@ -535,11 +535,25 @@ pub struct FlashPlanSummary {
     pub error_count: usize,
 }
 
+/// Execution semantics for a planned flash action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlashActionExecutionKind {
+    /// Flash an image file to a partition.
+    Flash,
+    /// Generate and flash a formatted userdata image.
+    FormatUserdata,
+    /// Erase an optional partition such as metadata or cache.
+    EraseOptional,
+}
+
 /// A flash or wipe action.
 #[derive(Debug, Clone, Serialize)]
 pub struct FlashAction {
     /// Action type ("flash" or "wipe").
     pub action: String,
+    /// Execution semantics for the action.
+    pub execution_kind: FlashActionExecutionKind,
     /// Full partition name.
     pub partition: String,
     /// Base partition name without slot suffix.
@@ -1066,6 +1080,11 @@ fn append_missing_clean_flash_wipes(
 fn synthetic_clean_flash_wipe(partition: &str) -> FlashAction {
     FlashAction {
         action: "wipe".to_string(),
+        execution_kind: if partition == "userdata" {
+            FlashActionExecutionKind::FormatUserdata
+        } else {
+            FlashActionExecutionKind::EraseOptional
+        },
         partition: partition.to_string(),
         base_name: partition.to_string(),
         slot: None,
@@ -1263,6 +1282,7 @@ fn slot_synthesized_action(
     let (image, warnings) = recheck_synthesized_image(source.image.clone(), target);
     FlashAction {
         action: source.action.clone(),
+        execution_kind: source.execution_kind,
         partition: target.name.clone(),
         base_name: target.base_name(),
         slot: target.slot(),
@@ -2440,6 +2460,7 @@ fn flash_action(
 ) -> FlashAction {
     FlashAction {
         action: action.to_string(),
+        execution_kind: execution_kind_for_action(action, part),
         partition: part.name.clone(),
         base_name: part.base_name(),
         slot: part.slot(),
@@ -2455,6 +2476,15 @@ fn flash_action(
         safety_class: part.safety_class(),
         reason: reason.to_string(),
         warnings,
+    }
+}
+
+fn execution_kind_for_action(action: &str, part: &ScatterPartition) -> FlashActionExecutionKind {
+    match action {
+        "flash" => FlashActionExecutionKind::Flash,
+        "wipe" if part.canonical() == "userdata" => FlashActionExecutionKind::FormatUserdata,
+        "wipe" => FlashActionExecutionKind::EraseOptional,
+        _ => FlashActionExecutionKind::Flash,
     }
 }
 

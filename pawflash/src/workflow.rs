@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use fastboot_rs::{FastbootDevice, FlashProgress};
-use mtk_scatter_parser::FlashAction;
+use mtk_scatter_parser::{FlashAction, FlashActionExecutionKind};
 
 use tracing::warn;
 
@@ -60,7 +60,9 @@ fn action_is_skip_eligible(action: &FlashAction) -> bool {
 }
 
 fn wipe_failure_is_skip_eligible(action: &FlashAction, error: &anyhow::Error) -> bool {
-    action_is_skip_eligible(action) && is_scatter_skippable_error(error)
+    action.execution_kind == FlashActionExecutionKind::EraseOptional
+        && action_is_skip_eligible(action)
+        && is_scatter_skippable_error(error)
 }
 
 /// Progress context for flash operations that emit shared events.
@@ -92,6 +94,8 @@ pub struct ScatterFlashOptions<'a> {
     pub announce_plan: bool,
     /// Whether to reboot to system after flashing completes.
     pub reboot: bool,
+    /// Bundled filesystem-formatting tools used for userdata clean-flash actions.
+    pub format_tools: Option<&'a FormatTools>,
     /// Cancellation token for the current run.
     pub control: &'a FlashRunControl,
 }
@@ -213,6 +217,7 @@ where
         &mut self,
         actions: &[&mtk_scatter_parser::FlashAction],
         image_overrides: &HashMap<String, String>,
+        format_tools: Option<&FormatTools>,
         device_vars: &HashMap<String, String>,
     ) -> Result<(), String> {
         let mut completed_before = 0_u64;
@@ -220,8 +225,8 @@ where
         for action in actions {
             self.control.ensure_not_cancelled()?;
             let action_bytes = u64::try_from(action.size).unwrap_or(0);
-            match action.action.as_str() {
-                "flash" => {
+            match action.execution_kind {
+                FlashActionExecutionKind::Flash => {
                     let allow_skip = action_is_skip_eligible(action);
                     let image_path =
                         match crate::domain::resolve_image_path_for_action(action, image_overrides)
@@ -258,7 +263,48 @@ where
                         continue;
                     }
                 }
-                "wipe" => match erase_one_partition(self.dev, &action.partition).await {
+                FlashActionExecutionKind::FormatUserdata => {
+                    let Some(tools) = format_tools else {
+                        return Err("missing format tools for clean-flash userdata wipe".to_string());
+                    };
+                    let info = detect_userdata(self.dev)
+                        .await
+                        .map_err(|error| format!("detect userdata: {error:#}"))?;
+                    let generated = generate_userdata_image(tools, &info, &FormatUserdataOptions::default())
+                        .map_err(|error| format!("generate userdata image: {error:#}"))?;
+                    self.control.ensure_not_cancelled()?;
+                    (self.emit)(FlashEvent::PreparingImage {
+                        partition: action.partition.clone(),
+                    })?;
+                    emit_overall_progress(&mut self.emit, completed_before, 0, self.overall_total)?;
+                    self.flash_one_partition_evented(
+                        &action.partition,
+                        generated.path(),
+                        action_bytes.max(1),
+                        completed_before,
+                    )
+                    .await
+                    .map_err(|error| {
+                        let msg = format!("{error:#}");
+                        let _ = (self.emit)(FlashEvent::PartitionFailed {
+                            partition: action.partition.clone(),
+                            error: msg.clone(),
+                        });
+                        msg
+                    })?;
+                    self.summary.wipe_count += 1;
+                    emit_overall_progress(
+                        &mut self.emit,
+                        completed_before,
+                        action_bytes.max(1),
+                        self.overall_total,
+                    )?;
+                    (self.emit)(FlashEvent::PartitionComplete {
+                        partition: action.partition.clone(),
+                    })?;
+                    completed_before = completed_before.saturating_add(action_bytes);
+                }
+                FlashActionExecutionKind::EraseOptional => match erase_one_partition(self.dev, &action.partition).await {
                     Ok(()) => {
                         self.summary.wipe_count += 1;
                         emit_overall_progress(
@@ -297,7 +343,6 @@ where
                         return Err(msg);
                     }
                 },
-                other => return Err(format!("unsupported plan action: {other}")),
             }
         }
 
@@ -517,7 +562,7 @@ pub async fn run_scatter_flash(
         overall_total: total_bytes,
     };
     flash
-        .execute_plan_actions(&actions, options.image_overrides, &vars)
+        .execute_plan_actions(&actions, options.image_overrides, options.format_tools, &vars)
         .await?;
 
     if options.reboot {
@@ -832,11 +877,18 @@ mod tests {
     use serde_json::json;
     use std::collections::HashMap;
 
-    use crate::FlashAction;
+    use crate::{FlashAction, FlashActionExecutionKind};
 
     fn test_action(partition: &str, safety_class: &str) -> FlashAction {
         FlashAction {
             action: "flash".to_string(),
+            execution_kind: if partition == "userdata" {
+                FlashActionExecutionKind::FormatUserdata
+            } else if safety_class == "wipe_only" {
+                FlashActionExecutionKind::EraseOptional
+            } else {
+                FlashActionExecutionKind::Flash
+            },
             partition: partition.to_string(),
             base_name: partition.to_string(),
             slot: None,
@@ -937,6 +989,16 @@ mod tests {
     #[test]
     fn wipe_failures_remain_fatal_for_boot_critical_partitions() {
         let action = test_action("boot", "boot_critical");
+
+        assert!(!wipe_failure_is_skip_eligible(
+            &action,
+            &fastboot_failed_error()
+        ));
+    }
+
+    #[test]
+    fn wipe_failures_remain_fatal_for_clean_flash_userdata() {
+        let action = test_action("userdata", "wipe_only");
 
         assert!(!wipe_failure_is_skip_eligible(
             &action,

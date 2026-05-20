@@ -890,6 +890,7 @@ async fn start_flash_inner(
         .map_err(|e| format!("read vars: {e}"))?;
     let max_download_size = resolve_max_download_size_from_vars(&vars)
         .map_err(|e| format!("max-download-size: {e}"))?;
+    let tools = resolve_format_tools(&app)?;
 
     let emit = |event: FlashEvent| -> Result<(), String> {
         app.emit("flash-progress", event).map_err(|e| format!("emit: {e}"))
@@ -902,7 +903,9 @@ async fn start_flash_inner(
         max_download_size,
         overall_total: total_bytes,
     };
-    flash.execute_plan_actions(&filtered, &image_overrides).await?;
+    flash
+        .execute_plan_actions(&filtered, &image_overrides, Some(&tools), &vars)
+        .await?;
 
     if reboot {
         app.emit(
@@ -1690,7 +1693,7 @@ mod tests {
     };
     use pawflash::plan::slot_to_scatter;
     use pawflash::workflow::{partition_flash_failure_disposition, PartitionFlashFailureDisposition};
-    use mtk_scatter_parser::{FlashAction, FlashPlan, FlashPlanSummary};
+    use mtk_scatter_parser::{FlashAction, FlashActionExecutionKind, FlashPlan, FlashPlanSummary};
     use serde_json::json;
     use std::collections::BTreeMap;
     use std::collections::HashMap;
@@ -1701,6 +1704,13 @@ mod tests {
     fn flash_action(partition: &str, action: &str) -> FlashAction {
         FlashAction {
             action: action.to_string(),
+            execution_kind: if action == "wipe" && partition == "userdata" {
+                FlashActionExecutionKind::FormatUserdata
+            } else if action == "wipe" {
+                FlashActionExecutionKind::EraseOptional
+            } else {
+                FlashActionExecutionKind::Flash
+            },
             partition: partition.to_string(),
             base_name: partition.to_string(),
             slot: None,

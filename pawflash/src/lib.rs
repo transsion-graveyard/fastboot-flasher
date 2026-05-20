@@ -49,7 +49,9 @@ pub use fastboot_rs::{FastbootDevice, FastbootError, FastbootExecutionError, Fla
 pub use force_fastboot::{run_force_fastboot, ForceFastbootError, ForceFastbootOptions};
 
 // Re-export from mtk-scatter-parser
-pub use mtk_scatter_parser::{FlashAction, FlashPlan, FlashPlanOptions, Mode, SlotPolicy};
+pub use mtk_scatter_parser::{
+    FlashAction, FlashActionExecutionKind, FlashPlan, FlashPlanOptions, Mode, SlotPolicy,
+};
 
 // Re-export helpers needed by submodules
 pub use connect::connect_fastboot;
