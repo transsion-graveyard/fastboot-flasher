@@ -405,8 +405,8 @@ fn operation_kind(operation: FlashOperation, simulated: bool) -> ActionKind {
     match (operation, simulated) {
         (FlashOperation::Flash, false) => ActionKind::Flash,
         (FlashOperation::Flash, true) => ActionKind::SimulateFlash,
-        (FlashOperation::FormatUserdata, false) => ActionKind::Format,
-        (FlashOperation::FormatUserdata, true) => ActionKind::SimulateFormat,
+        (FlashOperation::FormatData, false) => ActionKind::Format,
+        (FlashOperation::FormatData, true) => ActionKind::SimulateFormat,
         (FlashOperation::Erase, _) => ActionKind::Erase,
     }
 }

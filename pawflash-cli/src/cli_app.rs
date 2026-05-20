@@ -98,7 +98,7 @@ pub enum TopLevelCommand {
     Device(DeviceArgs),
     Inspect(InspectArgs),
     Flash(FlashArgs),
-    Wipe(WipeArgs),
+    Data(DataArgs),
     Bootloader(BootloaderArgs),
     Reboot(RebootCommand),
 }
@@ -181,8 +181,8 @@ pub enum VbmetaCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
-pub enum WipeCommand {
-    Data {
+pub enum DataCommand {
+    Format {
         #[arg(long)]
         no_metadata: bool,
         #[arg(long)]
@@ -190,16 +190,12 @@ pub enum WipeCommand {
         #[arg(long)]
         erase_fallback: bool,
     },
-    FormatUserdata {
-        #[arg(long)]
-        erase_fallback: bool,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Args)]
-pub struct WipeArgs {
+pub struct DataArgs {
     #[command(subcommand)]
-    pub command: WipeCommand,
+    pub command: DataCommand,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
@@ -380,5 +376,27 @@ mod tests {
         ]);
 
         assert_eq!(args.ui_mode(true), UiMode::Machine);
+    }
+
+    #[test]
+    fn parses_data_format_command() {
+        let args = AppArgs::parse_from([
+            "pawflash",
+            "data",
+            "format",
+            "--no-cache",
+            "--erase-fallback",
+        ]);
+
+        assert_eq!(
+            args.command,
+            TopLevelCommand::Data(DataArgs {
+                command: DataCommand::Format {
+                    no_metadata: false,
+                    no_cache: true,
+                    erase_fallback: true,
+                }
+            })
+        );
     }
 }

@@ -17,13 +17,13 @@ use pawflash::{
         set_fastboot_active_slot,
     },
     domain::{plan_to_dto, FlashEvent, FlashRunControl, FlashSummaryDto},
-    format::{FormatTools, FormatUserdataOptions, WipeDataOptions},
+    format::{FormatTools, WipeDataOptions},
     gsi::{execute_gsi_flash, GsiEvent, GsiFlashOptions},
     manual::{disable_vbmeta_actions, manual_flash_actions, resolved_disable_vbmeta_image_path},
     plan::build_plan_checked,
     workflow::{
-        execute_manual_actions, format_userdata_flow, run_scatter_dry_run, run_scatter_flash,
-        wipe_data_flow, ManualActionExecution, ScatterFlashOptions,
+        execute_manual_actions, run_scatter_dry_run, run_scatter_flash, wipe_data_flow,
+        ManualActionExecution, ScatterFlashOptions,
     },
 };
 
@@ -32,9 +32,9 @@ mod progress;
 mod ui;
 
 use crate::cli_app::{
-    AppArgs, BootloaderArgs, BootloaderCommand, BootloaderSlotCommand, DeviceArgs, DeviceCommand,
-    FlashArgs, FlashCommand, InspectArgs, InspectCommand, OutputFormat, TopLevelCommand, UiMode,
-    VbmetaCommand, WipeArgs, WipeCommand,
+    AppArgs, BootloaderArgs, BootloaderCommand, BootloaderSlotCommand, DataArgs, DataCommand,
+    DeviceArgs, DeviceCommand, FlashArgs, FlashCommand, InspectArgs, InspectCommand, OutputFormat,
+    TopLevelCommand, UiMode, VbmetaCommand,
 };
 use crate::ui::Session;
 
@@ -74,7 +74,7 @@ async fn run(args: AppArgs) -> anyhow::Result<()> {
         TopLevelCommand::Device(command) => run_device(&session, command).await,
         TopLevelCommand::Inspect(command) => run_inspect(&session, command).await,
         TopLevelCommand::Flash(command) => run_flash(&session, command).await,
-        TopLevelCommand::Wipe(command) => run_wipe(&session, command).await,
+        TopLevelCommand::Data(command) => run_data(&session, command).await,
         TopLevelCommand::Bootloader(command) => run_bootloader(&session, command).await,
         TopLevelCommand::Reboot(command) => {
             run_reboot_command(&session, command.target.into()).await
@@ -211,16 +211,13 @@ async fn run_flash(session: &Session, args: FlashArgs) -> anyhow::Result<()> {
     }
 }
 
-async fn run_wipe(session: &Session, args: WipeArgs) -> anyhow::Result<()> {
+async fn run_data(session: &Session, args: DataArgs) -> anyhow::Result<()> {
     match args.command {
-        WipeCommand::Data {
+        DataCommand::Format {
             no_metadata,
             no_cache,
             erase_fallback,
-        } => run_wipe_data(session, no_metadata, no_cache, erase_fallback).await,
-        WipeCommand::FormatUserdata { erase_fallback } => {
-            run_format_userdata(session, erase_fallback).await
-        }
+        } => run_format_data(session, no_metadata, no_cache, erase_fallback).await,
     }
 }
 
@@ -439,33 +436,7 @@ async fn run_disable_vbmeta(session: &Session) -> anyhow::Result<()> {
     finish_summary(session, &summary)
 }
 
-async fn run_format_userdata(session: &Session, erase_fallback: bool) -> anyhow::Result<()> {
-    ensure_device_or_offer_force_fastboot(session).await?;
-    if session.mode() == UiMode::Human && !session.confirm("Format userdata?", false)? {
-        return Ok(());
-    }
-
-    let control = FlashRunControl::default();
-    let mut emit = make_flash_emit();
-    let mut dev = connect_fastboot().await?;
-    let tools = FormatTools::from_cli_assets()?;
-    let summary = format_userdata_flow(
-        &mut dev,
-        &tools,
-        &FormatUserdataOptions {
-            erase_fallback,
-            casefold: false,
-        },
-        &control,
-        &mut emit,
-    )
-    .await
-    .map_err(anyhow::Error::msg)?;
-
-    finish_summary(session, &summary)
-}
-
-async fn run_wipe_data(
+async fn run_format_data(
     session: &Session,
     no_metadata: bool,
     no_cache: bool,
@@ -473,7 +444,7 @@ async fn run_wipe_data(
 ) -> anyhow::Result<()> {
     ensure_device_or_offer_force_fastboot(session).await?;
     if session.mode() == UiMode::Human
-        && !session.confirm("Wipe userdata and optional partitions?", false)?
+        && !session.confirm("Format data and clear optional partitions?", false)?
     {
         return Ok(());
     }
@@ -546,7 +517,7 @@ async fn run_gsi(session: &Session, image: PathBuf) -> anyhow::Result<()> {
             println!("gsi skipped {partition}: {reason}")
         }
         GsiEvent::UserdataEraseFallback { fs_type } => {
-            println!("gsi userdata erase fallback: {fs_type}")
+            println!("gsi data erase fallback: {fs_type}")
         }
         GsiEvent::ResolvedPartition {
             base,

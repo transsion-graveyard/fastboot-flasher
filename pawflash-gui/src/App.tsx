@@ -519,7 +519,7 @@ export default function App() {
     ],
   );
 
-  const startWipeData = useCallback(async () => {
+  const startFormatData = useCallback(async () => {
     if (menuActionDisabled) {
       return;
     }
@@ -528,17 +528,17 @@ export default function App() {
     setFlashOpen(true);
     setFlashMinimized(false);
     setIsFormattingData(true);
-    appendLog("WipeData StartRequested");
+    appendLog("FormatData StartRequested");
 
     try {
-      await invoke("wipe_data", {
+      await invoke("format_data", {
         noMetadata: false,
         noCache: false,
         eraseFallback: false,
       });
     } catch (error) {
       const message = String(error);
-      appendLog(`WipeData Error ${message}`);
+      appendLog(`FormatData Error ${message}`);
       flash.fail(message);
     } finally {
       setIsFormattingData(false);
@@ -836,7 +836,7 @@ export default function App() {
                 />
                 <BootloaderSection />
                 <DataSection
-                  onWipeData={startWipeData}
+                  onFormatData={startFormatData}
                   disabled={menuActionDisabled}
                 />
                 <SlotSection disabled={menuActionDisabled} />

@@ -985,25 +985,14 @@ async fn disable_vbmeta_inner(
 }
 
 #[tauri::command]
-async fn format_userdata(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-    erase_fallback: bool,
-) -> Result<FlashSummaryDto, String> {
-    format_userdata_inner(state, app.clone(), erase_fallback)
-        .await
-        .map_err(|error| emit_flash_error(&app, error))
-}
-
-#[tauri::command]
-async fn wipe_data(
+async fn format_data(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     no_metadata: bool,
     no_cache: bool,
     erase_fallback: bool,
 ) -> Result<FlashSummaryDto, String> {
-    wipe_data_inner(state, app.clone(), no_metadata, no_cache, erase_fallback)
+    format_data_inner(state, app.clone(), no_metadata, no_cache, erase_fallback)
         .await
         .map_err(|error| emit_flash_error(&app, error))
 }
@@ -1019,118 +1008,7 @@ fn resolve_format_tools(app: &tauri::AppHandle) -> Result<FormatTools, String> {
     FormatTools::from_bin_root(&root).map_err(|error| error.to_string())
 }
 
-async fn format_userdata_inner(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-    erase_fallback: bool,
-) -> Result<FlashSummaryDto, String> {
-    let _guard = FlashGuard::new(&state)?;
-    let control = begin_flash_run(&state);
-    let mut dev =
-        ensure_device_with_policy(&state, &app, &control, session_policy_for_flash_run()).await?;
-    let tools = resolve_format_tools(&app)?;
-    let info = detect_userdata(&mut dev)
-        .await
-        .map_err(|e| format!("detect userdata: {e}"))?;
-    let max_download_size = info
-        .max_download_size
-        .ok_or_else(|| "detect userdata: missing max-download-size".to_string())
-        .and_then(|value| {
-            u32::try_from(value).map_err(|_| {
-                "detect userdata: max-download-size exceeds supported range".to_string()
-            })
-        })?;
-
-    app.emit(
-        "flash-progress",
-        FlashEvent::PreparingImage {
-            partition: "userdata".to_string(),
-            operation: FlashOperation::FormatUserdata,
-        },
-    )
-    .map_err(|e| format!("emit: {e}"))?;
-
-    let options = FormatUserdataOptions {
-        erase_fallback,
-        casefold: false,
-    };
-    let generated = generate_userdata_image(&tools, &info, &options);
-    let total_bytes = match &generated {
-        Ok(image) => image
-            .image_len()
-            .map_err(|e| format!("generated image: {e}"))?,
-        Err(_) if erase_fallback => 1,
-        Err(_) => 0,
-    };
-
-    emit_plan_built(&app, 1, total_bytes)?;
-    emit_overall_progress(&app, 0, 0, total_bytes)?;
-
-    let mut summary = FlashSummaryDto {
-        flash_count: 0,
-        wipe_count: 0,
-        skipped_count: 0,
-        total_bytes,
-    };
-
-    match generated {
-        Ok(image) => {
-            let emit = |event: FlashEvent| -> Result<(), String> {
-                app.emit("flash-progress", event)
-                    .map_err(|e| format!("emit: {e}"))
-            };
-            let mut flash = pawflash::workflow::FlashProgressContext {
-                dev: &mut dev,
-                emit,
-                summary: &mut summary,
-                control: &control,
-                max_download_size,
-                overall_total: total_bytes,
-            };
-            flash
-                .flash_partition(
-                    "userdata",
-                    image.path(),
-                    total_bytes,
-                    0,
-                    false,
-                    FlashOperation::FormatUserdata,
-                )
-                .await?;
-        }
-        Err(_error) if erase_fallback => {
-            let emit = |event: FlashEvent| -> Result<(), String> {
-                app.emit("flash-progress", event)
-                    .map_err(|e| format!("emit: {e}"))
-            };
-            let mut flash = pawflash::workflow::FlashProgressContext {
-                dev: &mut dev,
-                emit,
-                summary: &mut summary,
-                control: &control,
-                max_download_size,
-                overall_total: total_bytes.max(1),
-            };
-            flash
-                .erase_partition("userdata", total_bytes.max(1), 0)
-                .await?;
-        }
-        Err(error) => return Err(format!("generate userdata image: {error:#}")),
-    }
-
-    drop(dev);
-    app.emit(
-        "flash-progress",
-        FlashEvent::Complete {
-            summary: summary.clone(),
-        },
-    )
-    .map_err(|e| format!("emit: {e}"))?;
-
-    Ok(summary)
-}
-
-async fn wipe_data_inner(
+async fn format_data_inner(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     no_metadata: bool,
@@ -1158,7 +1036,7 @@ async fn wipe_data_inner(
         "flash-progress",
         FlashEvent::PreparingImage {
             partition: "userdata".to_string(),
-            operation: FlashOperation::FormatUserdata,
+            operation: FlashOperation::FormatData,
         },
     )
     .map_err(|e| format!("emit: {e}"))?;
@@ -1209,7 +1087,7 @@ async fn wipe_data_inner(
                     base_bytes.max(1),
                     0,
                     false,
-                    FlashOperation::FormatUserdata,
+                    FlashOperation::FormatData,
                 )
                 .await?;
         }
@@ -1626,7 +1504,7 @@ pub fn run() {
             cancel_force_fastboot,
             manual_flash,
             disable_vbmeta,
-            format_userdata,
+            format_data,
             set_active_slot,
             reboot_device,
             reboot_bootloader,
@@ -1634,7 +1512,6 @@ pub fn run() {
             reboot_recovery,
             unlock_bootloader,
             lock_bootloader,
-            wipe_data,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -1700,9 +1577,9 @@ mod tests {
         FlashAction {
             action: action.to_string(),
             execution_kind: if action == "wipe" && partition == "userdata" {
-                FlashActionExecutionKind::FormatUserdata
+                FlashActionExecutionKind::FormatData
             } else if action == "wipe" {
-                FlashActionExecutionKind::EraseOptional
+                FlashActionExecutionKind::EraseIfPresent
             } else {
                 FlashActionExecutionKind::Flash
             },
@@ -1814,7 +1691,10 @@ mod tests {
 
     #[test]
     fn parse_flash_mode_accepts_dirty_flash() {
-        assert_eq!(parse_flash_mode("dirty_flash").unwrap(), FlashMode::DirtyFlash);
+        assert_eq!(
+            parse_flash_mode("dirty_flash").unwrap(),
+            FlashMode::DirtyFlash
+        );
     }
 
     #[test]

@@ -5,11 +5,11 @@ import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { SectionCard } from "@/components/menu-tab/SectionCard";
 
 interface DataSectionProps {
-  onWipeData: () => void | Promise<void>;
+  onFormatData: () => void | Promise<void>;
   disabled?: boolean;
 }
 
-export function DataSection({ onWipeData, disabled = false }: DataSectionProps) {
+export function DataSection({ onFormatData, disabled = false }: DataSectionProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -21,18 +21,18 @@ export function DataSection({ onWipeData, disabled = false }: DataSectionProps) 
         onClick={() => setOpen(true)}
       >
         <Eraser className="h-4 w-4" />
-        Wipe Data
+        Format Data
       </Button>
 
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
-        title="Wipe Data"
-        confirmLabel="Wipe Data"
+        title="Format Data"
+        confirmLabel="Format Data"
         destructive
         onConfirm={async () => {
           setOpen(false);
-          await onWipeData();
+          await onFormatData();
         }}
       />
     </SectionCard>

@@ -51,7 +51,7 @@ export interface DeviceInfo {
   all_vars: Record<string, string>;
 }
 
-export type FlashOperation = "flash" | "format_userdata" | "erase";
+export type FlashOperation = "flash" | "format_data" | "erase";
 
 export type FlashEvent =
   | { event: "WaitingForDevice" }

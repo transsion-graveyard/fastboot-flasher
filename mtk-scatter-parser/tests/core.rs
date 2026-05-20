@@ -208,8 +208,9 @@ fn dry_run_should_normalize_userdata_to_wipe_action() {
 }
 
 #[test]
-fn clean_flash_userdata_wipe_should_keep_source_file_metadata() {
+fn clean_flash_userdata_image_should_stay_a_flash_action_when_present() {
     let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("userdata.img"), [0x24; 32]).unwrap();
     let scatter = synthetic_userdata_scatter(temp.path().join("scatter.xml"));
 
     let plan = build_flash_plan(
@@ -221,14 +222,15 @@ fn clean_flash_userdata_wipe_should_keep_source_file_metadata() {
         },
     );
 
-    let userdata_wipe = plan
+    let userdata_flash = plan
         .actions
         .iter()
-        .find(|action| action.action == "wipe" && action.partition == "userdata")
+        .find(|action| action.partition == "userdata")
         .unwrap();
 
+    assert_eq!(userdata_flash.action, "flash");
     assert_eq!(
-        userdata_wipe
+        userdata_flash
             .image
             .as_ref()
             .and_then(|image| image.get("file_name"))
@@ -236,16 +238,16 @@ fn clean_flash_userdata_wipe_should_keep_source_file_metadata() {
         Some("userdata.img")
     );
     assert_eq!(
-        serde_json::to_value(userdata_wipe)
+        serde_json::to_value(userdata_flash)
             .unwrap()
             .get("execution_kind")
             .and_then(|value| value.as_str()),
-        Some("format_userdata")
+        Some("flash")
     );
 }
 
 #[test]
-fn clean_flash_should_synthesize_missing_declared_user_state_wipes() {
+fn clean_flash_should_format_userdata_when_bundled_image_is_missing() {
     let temp = tempfile::tempdir().unwrap();
     let scatter = synthetic_userdata_scatter(temp.path().join("scatter.xml"));
 
@@ -258,20 +260,25 @@ fn clean_flash_should_synthesize_missing_declared_user_state_wipes() {
         },
     );
 
-    let wipe_partitions = plan
+    let userdata_action = plan
         .actions
         .iter()
-        .filter(|action| action.action == "wipe")
-        .map(|action| action.partition.as_str())
-        .collect::<Vec<_>>();
+        .find(|action| action.partition == "userdata")
+        .unwrap();
 
-    assert_eq!(wipe_partitions, vec!["userdata"]);
-    assert_eq!(plan.summary.wipe_count, 1);
+    assert_eq!(userdata_action.action, "wipe");
+    assert_eq!(
+        serde_json::to_value(userdata_action)
+            .unwrap()
+            .get("execution_kind")
+            .and_then(|value| value.as_str()),
+        Some("format_data")
+    );
     assert!(plan.errors.is_empty(), "{:?}", plan.errors);
 }
 
 #[test]
-fn clean_flash_should_not_synthesize_cache_when_scatter_lacks_it() {
+fn clean_flash_should_add_conditional_metadata_and_cache_wipes_even_when_scatter_lacks_cache() {
     let temp = tempfile::tempdir().unwrap();
     let scatter = synthetic_userdata_metadata_scatter(temp.path().join("scatter.xml"));
 
@@ -291,8 +298,13 @@ fn clean_flash_should_not_synthesize_cache_when_scatter_lacks_it() {
         .map(|action| action.partition.as_str())
         .collect::<Vec<_>>();
 
-    assert_eq!(wipe_partitions, vec!["metadata", "userdata"]);
-    assert_eq!(plan.summary.wipe_count, 2);
+    assert_eq!(wipe_partitions, vec!["metadata", "userdata", "cache"]);
+    assert_eq!(plan.summary.wipe_count, 3);
+    assert!(plan
+        .actions
+        .iter()
+        .filter(|action| action.partition == "metadata" || action.partition == "cache")
+        .all(|action| action.reason.contains("if present on connected device")));
     assert!(plan.errors.is_empty(), "{:?}", plan.errors);
 }
 
@@ -414,7 +426,7 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
             ("flash", "dtbo_b"),
             ("flash", "super"),
             ("wipe", "metadata"),
-            ("wipe", "userdata"),
+            ("flash", "userdata"),
             ("wipe", "cache"),
         ]
     );
@@ -441,9 +453,9 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
             ("dtbo_a".to_string(), "flash".to_string()),
             ("dtbo_b".to_string(), "flash".to_string()),
             ("super".to_string(), "flash".to_string()),
-            ("metadata".to_string(), "erase_optional".to_string()),
-            ("userdata".to_string(), "format_userdata".to_string()),
-            ("cache".to_string(), "erase_optional".to_string()),
+            ("metadata".to_string(), "erase_if_present".to_string()),
+            ("userdata".to_string(), "flash".to_string()),
+            ("cache".to_string(), "erase_if_present".to_string()),
         ]
     );
     assert!(plan.errors.is_empty(), "{:?}", plan.errors);

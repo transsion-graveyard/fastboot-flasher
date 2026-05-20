@@ -437,7 +437,7 @@ function formatFlashEventForLog(
         : `FlashPrepare operation=${event.data.operation} partition=${event.data.partition}`;
     case "Flashing":
       return formatProgressMilestone({
-        prefix: event.data.operation === "format_userdata" ? "FormatProgress" : "FlashProgress",
+        prefix: event.data.operation === "format_data" ? "FormatProgress" : "FlashProgress",
         label: "partition",
         partition: event.data.partition,
         bytes: event.data.bytes,
@@ -450,7 +450,7 @@ function formatFlashEventForLog(
         prefix:
           event.data.operation === "erase"
             ? "DryRunEraseProgress"
-            : event.data.operation === "format_userdata"
+            : event.data.operation === "format_data"
               ? "DryRunFormatProgress"
               : "DryRunProgress",
         label: event.data.operation,
@@ -537,7 +537,7 @@ function toUiOperation(operation: FlashOperation): FlashProgress["operation"] {
   switch (operation) {
     case "erase":
       return "erase";
-    case "format_userdata":
+    case "format_data":
       return "format";
     default:
       return "flash";
@@ -545,14 +545,14 @@ function toUiOperation(operation: FlashOperation): FlashProgress["operation"] {
 }
 
 function completionToast(partition: string, operation: FlashOperation) {
-  if (operation === "format_userdata") {
+  if (operation === "format_data") {
     return `${partition} formatted`;
   }
   return `${partition} complete`;
 }
 
 function skipToast(partition: string, operation: FlashOperation) {
-  if (operation === "format_userdata") {
+  if (operation === "format_data") {
     return `${partition} format skipped`;
   }
   return `${partition} skipped`;

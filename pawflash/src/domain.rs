@@ -117,8 +117,8 @@ pub struct FlashSummaryDto {
 pub enum FlashOperation {
     /// A normal partition flash.
     Flash,
-    /// A userdata format implemented by flashing a generated blank image.
-    FormatUserdata,
+    /// A data-format operation implemented by flashing a generated blank image.
+    FormatData,
     /// An erase operation.
     Erase,
 }
