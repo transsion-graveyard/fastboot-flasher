@@ -272,6 +272,8 @@ impl NusbFastBoot {
                 || matches!(error, NusbFastBootError::FastbootFailed(message) if super::is_missing_variable_message(message))
             {
                 debug!(error = %error, "execute retryable transport failure");
+            } else if matches!(error, NusbFastBootError::FastbootFailed(_)) {
+                warn!(error = %error, "execute fastboot command rejected");
             } else {
                 warn!(error = %error, "execute transport failure");
             }

@@ -6,10 +6,10 @@ pub use terminal_output::progress::{
 
 use indicatif::ProgressStyle;
 
-/// Build a progress bar style for the currently active flash action.
+/// Build a compact progress bar style for the currently active flash action.
 pub fn active_flash_style(bar_width: usize, message_width: usize) -> ProgressStyle {
     let template = format!(
-        "{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.blue/black}}] {{byte_pair}} eta {{eta_mmss}} {{msg:<{message_width}}}"
+        "{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.blue/black}}] {{byte_pair}} {{msg:<{message_width}}}"
     );
     ProgressStyle::with_template(&template).unwrap()
 }

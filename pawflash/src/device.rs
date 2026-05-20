@@ -54,6 +54,30 @@ pub fn resolve_max_download_size_from_vars(vars: &HashMap<String, String>) -> an
     Ok(max_download)
 }
 
+/// Resolve a flash target to the partition name the device most likely exposes.
+///
+/// This keeps the exact scatter/device name when present, but falls back to the
+/// unsuffixed base partition for slot-suffixed names such as `vbmeta_a` when the
+/// device only advertises `vbmeta`.
+pub fn resolve_flash_partition_target(partition: &str, vars: &HashMap<String, String>) -> String {
+    let exact_key = format!("partition-size:{partition}");
+    if vars.contains_key(&exact_key) {
+        return partition.to_string();
+    }
+
+    if let Some(base) = partition
+        .strip_suffix("_a")
+        .or_else(|| partition.strip_suffix("_b"))
+    {
+        let base_key = format!("partition-size:{base}");
+        if vars.contains_key(&base_key) {
+            return base.to_string();
+        }
+    }
+
+    partition.to_string()
+}
+
 /// Set the active boot slot on the device.
 pub async fn set_fastboot_active_slot(dev: &mut FastbootDevice, slot: &str) -> anyhow::Result<()> {
     with_device_context(dev.set_active(slot).await, || {
@@ -165,5 +189,26 @@ mod tests {
         let error = super::resolve_max_download_size_from_vars(&HashMap::new()).unwrap_err();
 
         assert!(error.to_string().contains("max-download-size"));
+    }
+
+    #[test]
+    fn resolve_flash_partition_target_keeps_exact_match() {
+        let vars = HashMap::from([
+            ("partition-size:vbmeta_a".to_string(), "0x1000".to_string()),
+            ("partition-size:vbmeta".to_string(), "0x1000".to_string()),
+        ]);
+
+        let resolved = super::resolve_flash_partition_target("vbmeta_a", &vars);
+
+        assert_eq!(resolved, "vbmeta_a");
+    }
+
+    #[test]
+    fn resolve_flash_partition_target_falls_back_to_unsuffixed_base() {
+        let vars = HashMap::from([("partition-size:vbmeta".to_string(), "0x1000".to_string())]);
+
+        let resolved = super::resolve_flash_partition_target("vbmeta_a", &vars);
+
+        assert_eq!(resolved, "vbmeta");
     }
 }

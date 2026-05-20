@@ -862,8 +862,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "indicatif",
  "pawflash-core",
  "serde_json",
+ "terminal-output",
  "tokio",
  "tracing",
  "tracing-subscriber",

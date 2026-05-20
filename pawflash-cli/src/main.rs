@@ -2,12 +2,13 @@ use clap::Parser;
 use std::collections::HashMap;
 
 use pawflash::{
+    cli::{confirm_scatter_plan, scatter_plan_preview_lines},
     cli::{flash_mode_from_flags, validate_args, Args, Command},
     connect::connect_fastboot,
     device::{
         read_all_variables, read_variable, reboot_device, reboot_device_bootloader,
-        resolve_max_download_size_from_vars, send_flashing_lock, send_flashing_unlock,
-        set_fastboot_active_slot,
+        resolve_flash_partition_target, resolve_max_download_size_from_vars, send_flashing_lock,
+        send_flashing_unlock, set_fastboot_active_slot,
     },
     domain::{FlashEvent, FlashRunControl},
     format::{FormatTools, FormatUserdataOptions, WipeDataOptions},
@@ -19,6 +20,8 @@ use pawflash::{
         wipe_data_flow,
     },
 };
+
+mod progress;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -56,7 +59,17 @@ async fn run(args: Args) -> anyhow::Result<()> {
         }) => {
             let mode = flash_mode_from_flags(false, firmware_upgrade, clean_flash, selective)
                 .map_err(anyhow::Error::msg)?;
-            run_scatter(scatter, mode, slot, include_preloader, vec![], args.dry_run).await
+            run_scatter(
+                scatter,
+                mode,
+                slot,
+                include_preloader,
+                vec![],
+                args.dry_run,
+                true,
+                args.yes,
+            )
+            .await
         }
         Some(Command::Flash {
             partition,
@@ -86,6 +99,8 @@ async fn run_legacy(args: Args) -> anyhow::Result<()> {
             args.include_preloader,
             vec![],
             args.dry_run,
+            false,
+            args.yes,
         )
         .await;
     }
@@ -144,13 +159,12 @@ async fn run_scatter(
     include_preloader: bool,
     partitions: Vec<String>,
     dry_run: bool,
+    prompt_for_confirmation: bool,
+    yes: bool,
 ) -> anyhow::Result<()> {
     let plan = build_plan_checked(&scatter, mode, slot, include_preloader, &partitions, true)?;
     let control = FlashRunControl::default();
-    let mut emit = |event: FlashEvent| {
-        print_flash_event(&event);
-        Ok(())
-    };
+    let mut emit = make_flash_emit();
     let image_overrides = HashMap::new();
 
     if dry_run {
@@ -160,12 +174,25 @@ async fn run_scatter(
         return Ok(());
     }
 
+    if prompt_for_confirmation {
+        for line in scatter_plan_preview_lines(&plan) {
+            println!("{line}");
+        }
+        if !confirm_scatter_plan(yes)? {
+            print_flash_event(&FlashEvent::Cancelled {
+                message: "scatter run cancelled by user".to_string(),
+            });
+            return Ok(());
+        }
+    }
+
     let mut dev = connect_fastboot().await?;
     let _summary = run_scatter_flash(
         &mut dev,
         &plan,
         &partitions,
         &image_overrides,
+        !prompt_for_confirmation,
         false,
         &control,
         &mut emit,
@@ -182,10 +209,7 @@ async fn run_manual_flash(
 ) -> anyhow::Result<()> {
     let actions = manual_flash_actions(partition, image, slot)?;
     let control = FlashRunControl::default();
-    let mut emit = |event: FlashEvent| {
-        print_flash_event(&event);
-        Ok(())
-    };
+    let mut emit = make_flash_emit();
     let mut dev = connect_fastboot().await?;
     let vars = read_all_variables(&mut dev).await?;
     let max_download = resolve_max_download_size_from_vars(&vars)?;
@@ -211,6 +235,7 @@ async fn run_manual_flash(
         &actions,
         &mut dev,
         max_download,
+        &|partition| partition.to_string(),
         &control,
         &mut emit,
         &mut summary,
@@ -227,15 +252,12 @@ async fn run_manual_flash(
 
 async fn run_disable_vbmeta() -> anyhow::Result<()> {
     let image = resolved_disable_vbmeta_image_path()?;
-    let actions = disable_vbmeta_actions(&image)?;
     let control = FlashRunControl::default();
-    let mut emit = |event: FlashEvent| {
-        print_flash_event(&event);
-        Ok(())
-    };
+    let mut emit = make_flash_emit();
     let mut dev = connect_fastboot().await?;
     let vars = read_all_variables(&mut dev).await?;
     let max_download = resolve_max_download_size_from_vars(&vars)?;
+    let actions = disable_vbmeta_actions(&image)?;
     let total_bytes: u64 = actions.iter().map(|a| a.size).sum();
     let mut summary = pawflash::domain::FlashSummaryDto {
         flash_count: 0,
@@ -258,6 +280,7 @@ async fn run_disable_vbmeta() -> anyhow::Result<()> {
         &actions,
         &mut dev,
         max_download,
+        &|partition| resolve_flash_partition_target(partition, &vars),
         &control,
         &mut emit,
         &mut summary,
@@ -278,10 +301,7 @@ async fn run_format(partition: String, erase_fallback: bool) -> anyhow::Result<(
         "format currently only supports userdata"
     );
     let control = FlashRunControl::default();
-    let mut emit = |event: FlashEvent| {
-        print_flash_event(&event);
-        Ok(())
-    };
+    let mut emit = make_flash_emit();
     let mut dev = connect_fastboot().await?;
     let tools = FormatTools::from_cli_assets()?;
     let _summary = format_userdata_flow(
@@ -305,10 +325,7 @@ async fn run_wipe_data(
     erase_fallback: bool,
 ) -> anyhow::Result<()> {
     let control = FlashRunControl::default();
-    let mut emit = |event: FlashEvent| {
-        print_flash_event(&event);
-        Ok(())
-    };
+    let mut emit = make_flash_emit();
     let mut dev = connect_fastboot().await?;
     let tools = FormatTools::from_cli_assets()?;
     let _summary = wipe_data_flow(
@@ -416,5 +433,15 @@ fn print_flash_event(event: &FlashEvent) {
         }
         FlashEvent::GsiStatus { status } => println!("gsi: {status}"),
         FlashEvent::Rebooting { target } => println!("rebooting to {target}"),
+    }
+}
+
+fn make_flash_emit() -> impl FnMut(FlashEvent) -> Result<(), String> {
+    let mut renderer = progress::CliProgressRenderer::new();
+    move |event: FlashEvent| {
+        if !renderer.handle(&event) {
+            print_flash_event(&event);
+        }
+        Ok(())
     }
 }

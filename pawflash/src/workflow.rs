@@ -10,6 +10,7 @@ use mtk_scatter_parser::FlashAction;
 use tracing::warn;
 
 use crate::{
+    device::resolve_flash_partition_target,
     device::{read_all_variables, reboot_device, resolve_max_download_size_from_vars},
     flash::{erase_one_partition, flash_one_partition, is_scatter_skippable_error},
     format::{
@@ -175,6 +176,7 @@ where
         &mut self,
         actions: &[&mtk_scatter_parser::FlashAction],
         image_overrides: &HashMap<String, String>,
+        device_vars: &HashMap<String, String>,
     ) -> Result<(), String> {
         let mut completed_before = 0_u64;
 
@@ -204,9 +206,10 @@ where
                             }
                             Err(e) => return Err(e),
                         };
+                    let partition = resolve_scatter_flash_target(&action.partition, device_vars);
                     let outcome = self
                         .flash_partition(
-                            &action.partition,
+                            &partition,
                             &image_path,
                             action_bytes,
                             completed_before,
@@ -302,6 +305,10 @@ where
         .await?;
         Ok(())
     }
+}
+
+fn resolve_scatter_flash_target(partition: &str, device_vars: &HashMap<String, String>) -> String {
+    resolve_flash_partition_target(partition, device_vars)
 }
 
 fn emit_overall_progress<E>(
@@ -436,6 +443,7 @@ pub async fn run_scatter_flash(
     plan: &mtk_scatter_parser::FlashPlan,
     partitions: &[String],
     image_overrides: &HashMap<String, String>,
+    announce_plan: bool,
     reboot: bool,
     control: &FlashRunControl,
     emit: &mut impl FnMut(FlashEvent) -> Result<(), String>,
@@ -443,10 +451,12 @@ pub async fn run_scatter_flash(
     let actions = filter_actions(plan, partitions);
     let total_bytes = total_bytes_for_actions(&actions);
 
-    emit(FlashEvent::PlanBuilt {
-        actions: actions.len(),
-        total_bytes,
-    })?;
+    if announce_plan {
+        emit(FlashEvent::PlanBuilt {
+            actions: actions.len(),
+            total_bytes,
+        })?;
+    }
     emit(FlashEvent::Overall {
         bytes: 0,
         total: total_bytes,
@@ -474,7 +484,7 @@ pub async fn run_scatter_flash(
         overall_total: total_bytes,
     };
     flash
-        .execute_plan_actions(&actions, image_overrides)
+        .execute_plan_actions(&actions, image_overrides, &vars)
         .await?;
 
     if reboot {
@@ -497,6 +507,7 @@ pub async fn execute_manual_actions(
     actions: &[ManualFlashAction],
     dev: &mut FastbootDevice,
     max_download_size: u32,
+    partition_resolver: &dyn Fn(&str) -> String,
     control: &FlashRunControl,
     emit: &mut impl FnMut(FlashEvent) -> Result<(), String>,
     summary: &mut FlashSummaryDto,
@@ -514,9 +525,10 @@ pub async fn execute_manual_actions(
             max_download_size,
             overall_total,
         };
+        let partition = partition_resolver(&action.partition);
         flash
             .flash_partition(
-                &action.partition,
+                &partition,
                 &action.image,
                 action.size,
                 completed_before,
@@ -784,11 +796,12 @@ async fn erase_optional_partition_and_emit(
 #[cfg(test)]
 mod tests {
     use super::{
-        action_is_skip_eligible, partition_flash_failure_disposition,
+        action_is_skip_eligible, partition_flash_failure_disposition, resolve_scatter_flash_target,
         wipe_failure_is_skip_eligible, PartitionFlashFailureDisposition,
     };
     use fastboot_rs::{transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError};
     use serde_json::json;
+    use std::collections::HashMap;
 
     use crate::FlashAction;
 
@@ -817,6 +830,13 @@ mod tests {
         anyhow::Error::new(FastbootExecutionError::Fastboot(FastbootError::Nusb(
             NusbFastBootError::FastbootFailed("rejected".to_string()),
         )))
+    }
+
+    fn vars_with_partitions(parts: &[&str]) -> HashMap<String, String> {
+        parts
+            .iter()
+            .map(|part| (format!("partition-size:{part}"), "0x1000".to_string()))
+            .collect()
     }
 
     fn should_skip_failure(action: &FlashAction, error: &anyhow::Error) -> bool {
@@ -893,5 +913,19 @@ mod tests {
             &action,
             &fastboot_failed_error()
         ));
+    }
+
+    #[test]
+    fn resolve_scatter_flash_target_keeps_exact_partition_when_available() {
+        let vars = vars_with_partitions(&["vbmeta_a", "vbmeta"]);
+
+        assert_eq!(resolve_scatter_flash_target("vbmeta_a", &vars), "vbmeta_a");
+    }
+
+    #[test]
+    fn resolve_scatter_flash_target_falls_back_to_unsuffixed_partition() {
+        let vars = vars_with_partitions(&["vbmeta"]);
+
+        assert_eq!(resolve_scatter_flash_target("vbmeta_a", &vars), "vbmeta");
     }
 }
