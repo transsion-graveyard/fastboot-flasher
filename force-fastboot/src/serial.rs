@@ -160,6 +160,15 @@ pub fn wait_for_port(
     discovery: &dyn PortDiscovery,
     auto_udev: bool,
 ) -> anyhow::Result<PortCandidate> {
+    wait_for_port_with_feedback(discovery, auto_udev, true)
+}
+
+/// Poll for a preloader serial port to appear with optional spinner feedback.
+pub fn wait_for_port_with_feedback(
+    discovery: &dyn PortDiscovery,
+    auto_udev: bool,
+    show_spinner: bool,
+) -> anyhow::Result<PortCandidate> {
     let previous_devices: HashSet<String> = discovery
         .list_candidates()
         .into_iter()
@@ -167,7 +176,8 @@ pub fn wait_for_port(
         .collect();
     let mut tried_udev_for: HashSet<String> = HashSet::new();
 
-    let _spinner = StatusSpinner::new("Waiting for MTK preloader serial port...");
+    let _spinner =
+        show_spinner.then(|| StatusSpinner::new("Waiting for MTK preloader serial port..."));
 
     loop {
         match find_new_port(&previous_devices, discovery) {

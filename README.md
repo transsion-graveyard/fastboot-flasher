@@ -77,25 +77,25 @@ Common examples:
 
 ```bash
 # Build a flash plan only
-cargo run -p pawflash -- scatter path/to/MTxxxx_Android_scatter.xml --dry-run
+cargo run -p pawflash -- inspect plan path/to/MTxxxx_Android_scatter.xml --mode dry-run
 
-# Execute a firmware-upgrade style scatter flash
-cargo run -p pawflash -- scatter path/to/MTxxxx_Android_scatter.xml --firmware-upgrade --yes
+# Inspect the currently connected device
+cargo run -p pawflash -- device status
 
 # Flash a single partition image directly
-cargo run -p pawflash -- flash boot path/to/boot.img --slot active --yes
+cargo run -p pawflash -- flash partition boot path/to/boot.img --slot active
+
+# Execute a firmware-upgrade style package flash
+cargo run -p pawflash -- flash package path/to/MTxxxx_Android_scatter.xml --mode firmware-upgrade
 
 # Disable vbmeta verification on both slots
-cargo run -p pawflash -- disable-vbmeta
+cargo run -p pawflash -- flash vbmeta disable
 
 # Wipe user data and best-effort erase metadata/cache
-cargo run -p pawflash -- wipe-data --yes
-```
+cargo run -p pawflash -- wipe data
 
-The CLI also supports a legacy flag-driven scatter entrypoint:
-
-```bash
-cargo run -p pawflash -- --flash path/to/MTxxxx_Android_scatter.xml --dry-run
+# Force an MTK preloader session into fastboot
+cargo run -p pawflash -- bootloader force-fastboot
 ```
 
 ### `mtk-scatter-parser`

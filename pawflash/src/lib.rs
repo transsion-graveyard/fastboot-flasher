@@ -45,7 +45,9 @@ pub use domain::{
 pub use fastboot_rs::{FastbootDevice, FastbootError, FastbootExecutionError, FlashProgress};
 
 // Re-export from force-fastboot
-pub use force_fastboot::{run_force_fastboot, ForceFastbootError, ForceFastbootOptions};
+pub use force_fastboot::{
+    run_force_fastboot, run_force_fastboot_quiet, ForceFastbootError, ForceFastbootOptions,
+};
 
 // Re-export from mtk-scatter-parser
 pub use mtk_scatter_parser::{

@@ -1084,7 +1084,7 @@ mod tests {
 
     #[tokio::test]
     async fn simulate_dry_run_actions_counts_format_userdata_as_wipe() {
-        let actions = vec![FlashAction {
+        let actions = [FlashAction {
             action: "wipe".to_string(),
             execution_kind: FlashActionExecutionKind::FormatUserdata,
             partition: "userdata".to_string(),

@@ -428,10 +428,7 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
                 .and_then(|value| value.as_str())
                 .unwrap_or("missing")
                 .to_string();
-            (
-                action.partition.clone(),
-                execution_kind,
-            )
+            (action.partition.clone(), execution_kind)
         })
         .collect::<Vec<_>>();
     assert_eq!(

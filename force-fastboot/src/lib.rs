@@ -56,6 +56,11 @@ pub fn run_force_fastboot(options: &ForceFastbootOptions) -> Result<(), ForceFas
     run_force_fastboot_with_discovery(options, &SystemPortDiscovery)
 }
 
+/// Run the force-fastboot flow without presenter-owned terminal chrome.
+pub fn run_force_fastboot_quiet(options: &ForceFastbootOptions) -> Result<(), ForceFastbootError> {
+    run_force_fastboot_with_discovery_mode(options, &SystemPortDiscovery, false)
+}
+
 /// Detect an MTK preloader serial port (via `--port` or by waiting for a new device),
 /// handle permission issues with optional udev installation, then perform the fastboot
 /// handshake protocol.
@@ -63,7 +68,15 @@ pub fn run_force_fastboot_with_discovery(
     options: &ForceFastbootOptions,
     discovery: &dyn PortDiscovery,
 ) -> Result<(), ForceFastbootError> {
-    if permissions::is_running_as_root() && !cfg!(windows) {
+    run_force_fastboot_with_discovery_mode(options, discovery, true)
+}
+
+fn run_force_fastboot_with_discovery_mode(
+    options: &ForceFastbootOptions,
+    discovery: &dyn PortDiscovery,
+    show_ui: bool,
+) -> Result<(), ForceFastbootError> {
+    if show_ui && permissions::is_running_as_root() && !cfg!(windows) {
         eprintln!(
             "{}",
 notice_box(
@@ -74,19 +87,23 @@ notice_box(
         );
     }
 
-    println!("{}", banner("FORCE FASTBOOT"));
+    if show_ui {
+        println!("{}", banner("FORCE FASTBOOT"));
+    }
     let auto_udev = !options.no_auto_udev;
     let candidate = if let Some(port) = &options.port {
         serial::candidate_for_device(port, discovery)
     } else {
-        serial::wait_for_port(discovery, auto_udev)
+        serial::wait_for_port_with_feedback(discovery, auto_udev, show_ui)
             .map_err(|e| ForceFastbootError::NoDevice(format!("{e:#}")))?
     };
 
-    println!(
-        "{}",
-        status_line(Tone::Info, "port", &format!("opening {}", candidate.device))
-    );
+    if show_ui {
+        println!(
+            "{}",
+            status_line(Tone::Info, "port", &format!("opening {}", candidate.device))
+        );
+    }
     let mut port = serial::open_with_permission_recovery(&candidate, discovery, auto_udev)
         .map_err(|e| {
             if permissions::is_permission_error(&e) {
@@ -96,17 +113,24 @@ notice_box(
             }
         })?;
 
-    {
+    if show_ui {
         let _spinner = spinner::StatusSpinner::new("Waiting for preloader handshake byte...");
+        protocol::force_fastboot(port.as_mut()).map_err(|e| match e.kind() {
+            io::ErrorKind::TimedOut => ForceFastbootError::Protocol(format!("timed out: {e}")),
+            _ => ForceFastbootError::Protocol(format!("{e}")),
+        })?;
+    } else {
         protocol::force_fastboot(port.as_mut()).map_err(|e| match e.kind() {
             io::ErrorKind::TimedOut => ForceFastbootError::Protocol(format!("timed out: {e}")),
             _ => ForceFastbootError::Protocol(format!("{e}")),
         })?;
     }
 
-    println!(
-        "{}",
-        status_line(Tone::Success, "handshake", "FASTBOOT command sent")
-    );
+    if show_ui {
+        println!(
+            "{}",
+            status_line(Tone::Success, "handshake", "FASTBOOT command sent")
+        );
+    }
     Ok(())
 }
