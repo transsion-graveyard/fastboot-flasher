@@ -77,10 +77,10 @@ export const FlashOptions = memo(function FlashOptions({
   };
 
   return (
-    <div className="panel-shell grid gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
+    <div className="flex flex-col gap-3 lg:gap-4">
+      <div className="grid grid-cols-2 gap-3 lg:hidden">
         <Select value={mode} onValueChange={(v) => v !== null && onModeChange(v)}>
-          <SelectTrigger aria-label="Flash mode" className="min-w-0 max-w-48">
+          <SelectTrigger aria-label="Flash mode" className="min-w-0 max-w-40 sm:max-w-48">
             <SelectValue>{flashModeLabel(mode)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -92,17 +92,6 @@ export const FlashOptions = memo(function FlashOptions({
           </SelectContent>
         </Select>
 
-        <div className="flex shrink-0 items-center gap-3 px-1 py-1">
-          <Checkbox
-            id="reboot"
-            checked={reboot}
-            onCheckedChange={(v) => onRebootChange(!!v)}
-          />
-          <Label htmlFor="reboot">Reboot after flash</Label>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-start gap-2 justify-start lg:justify-end">
         <Button
           type="button"
           variant="outline"
@@ -113,6 +102,16 @@ export const FlashOptions = memo(function FlashOptions({
           <RotateCcw className="h-4 w-4" />
           {rebooting ? "Rebooting..." : "Reboot"}
         </Button>
+
+        <div className="flex shrink-0 items-center gap-3">
+          <Checkbox
+            id="reboot"
+            checked={reboot}
+            onCheckedChange={(v) => onRebootChange(!!v)}
+          />
+          <Label htmlFor="reboot">Reboot after flash</Label>
+        </div>
+
         <Button
           type="button"
           variant={advanced ? "secondary" : "outline"}
@@ -124,70 +123,122 @@ export const FlashOptions = memo(function FlashOptions({
         >
           Advanced
         </Button>
-        <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Advanced plan filters</DialogTitle>
-            </DialogHeader>
+      </div>
 
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 px-1 py-1">
-                <Checkbox
-                  id="advanced-include-preloader"
-                  checked={includePreloader}
-                  onCheckedChange={(v) => {
-                    onAdvancedChange(true);
-                    onIncludePreloaderChange(!!v);
-                  }}
-                />
-                <Label htmlFor="advanced-include-preloader">Include preloader</Label>
-              </div>
+      <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_1fr] lg:grid-rows-1 lg:items-center lg:gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Select value={mode} onValueChange={(v) => v !== null && onModeChange(v)}>
+            <SelectTrigger aria-label="Flash mode" className="min-w-0 max-w-none">
+              <SelectValue>{flashModeLabel(mode)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {modeOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-              <div className="space-y-2">
-                <Label htmlFor="advanced-slot">Slot override</Label>
-                <Select
-                  value={slot}
-                  onValueChange={(value) => {
-                    onAdvancedChange(true);
-                    onSlotChange(value as "" | "a" | "b" | "active" | "inactive" | "all");
-                  }}
-                >
-                  <SelectTrigger aria-label="Slot override">
-                    <SelectValue placeholder="Use plan default">
-                      {slotLabel || undefined}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="a">_a</SelectItem>
-                    <SelectItem value="b">_b</SelectItem>
-                    <SelectItem value="active">active slot</SelectItem>
-                    <SelectItem value="inactive">inactive slot</SelectItem>
-                    <SelectItem value="all">all slots</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <Checkbox
+              id="reboot-lg"
+              checked={reboot}
+              onCheckedChange={(v) => onRebootChange(!!v)}
+            />
+            <Label htmlFor="reboot-lg">Reboot after flash</Label>
+          </div>
+        </div>
+
+        <div></div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="gap-2"
+          disabled={rebooting}
+          onClick={handleReboot}
+        >
+          <RotateCcw className="h-4 w-4" />
+          {rebooting ? "Rebooting..." : "Reboot"}
+        </Button>
+
+        <Button
+          type="button"
+          variant={advanced ? "secondary" : "outline"}
+          className={cn("gap-2", advancedEnabled && "animate-pulse")}
+          onClick={() => {
+            onAdvancedChange(true);
+            setAdvancedOpen(true);
+          }}
+        >
+          Advanced
+        </Button>
+      </div>
+
+      <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Advanced plan filters</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="advanced-include-preloader"
+                checked={includePreloader}
+                onCheckedChange={(v) => {
+                  onAdvancedChange(true);
+                  onIncludePreloaderChange(!!v);
+                }}
+              />
+              <Label htmlFor="advanced-include-preloader">Include preloader</Label>
             </div>
 
-            <DialogFooter className="sm:justify-between">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  onAdvancedChange(false);
-                  onIncludePreloaderChange(false);
-                  onSlotChange("");
-                  setAdvancedOpen(false);
+            <div className="space-y-2">
+              <Label htmlFor="advanced-slot">Slot override</Label>
+              <Select
+                value={slot}
+                onValueChange={(value) => {
+                  onAdvancedChange(true);
+                  onSlotChange(value as "" | "a" | "b" | "active" | "inactive" | "all");
                 }}
               >
-                Reset
-              </Button>
-              <Button type="button" onClick={() => setAdvancedOpen(false)}>
-                Done
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
+                <SelectTrigger aria-label="Slot override">
+                  <SelectValue placeholder="Use plan default">
+                    {slotLabel || undefined}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="a">_a</SelectItem>
+                  <SelectItem value="b">_b</SelectItem>
+                  <SelectItem value="active">active slot</SelectItem>
+                  <SelectItem value="inactive">inactive slot</SelectItem>
+                  <SelectItem value="all">all slots</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                onAdvancedChange(false);
+                onIncludePreloaderChange(false);
+                onSlotChange("");
+                setAdvancedOpen(false);
+              }}
+            >
+              Reset
+            </Button>
+            <Button type="button" onClick={() => setAdvancedOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });

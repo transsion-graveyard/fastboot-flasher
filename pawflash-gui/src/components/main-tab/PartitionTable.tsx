@@ -50,11 +50,11 @@ export const PartitionTable = memo(function PartitionTable({
     return (
       <div
         className={cn(
-          "panel-shell flex min-h-0 flex-1 items-center justify-center p-8 text-center",
+          "panel-shell flex min-h-0 flex-1 items-center justify-center p-12 text-center",
           className,
         )}
       >
-        <div className="max-w-[40ch] space-y-2">
+        <div className="max-w-[40ch] space-y-3">
           <p className="text-base font-medium text-foreground">
             {isParsingPlan ? "Refreshing flash plan" : "No flash plan loaded"}
           </p>
@@ -71,7 +71,7 @@ export const PartitionTable = memo(function PartitionTable({
   return (
     <div className={cn("panel-shell flex min-h-0 flex-1 flex-col overflow-x-auto", className)}>
       <div className="border-b border-border/80 bg-card/96">
-        <Table className="table-fixed">
+        <Table className="table-fixed min-w-max">
           <colgroup>
             {columnWidths.map((width, i) => (
               <col key={width} className={cn(width, (i === 2 || i === 4) && "max-lg:hidden")} />
@@ -98,7 +98,7 @@ export const PartitionTable = memo(function PartitionTable({
         </Table>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <Table className="table-fixed">
+        <Table className="table-fixed min-w-max">
           <colgroup>
             {columnWidths.map((width, i) => (
               <col key={width} className={cn(width, (i === 2 || i === 4) && "max-lg:hidden")} />

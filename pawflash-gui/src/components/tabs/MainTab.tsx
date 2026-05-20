@@ -2,6 +2,7 @@ import { ScatterPicker } from "@/components/main-tab/ScatterPicker";
 import { FlashOptions } from "@/components/main-tab/FlashOptions";
 import { PartitionTable } from "@/components/main-tab/PartitionTable";
 import { FlashFab } from "@/components/main-tab/FlashFab";
+import { cn } from "@/lib/utils";
 import { AlertTriangle, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { FlashPlanDto, PartitionDto } from "@/types/api";
@@ -59,7 +60,7 @@ export function MainTab({
   setFlashConfirmOpen,
 }: MainTabProps) {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 lg:gap-6">
       <ScatterPicker path={scatterPath} onChange={loadScatter} />
       <FlashOptions
         mode={mode}
@@ -84,7 +85,7 @@ export function MainTab({
         onPickImage={pickCustomImage}
       />
       {advanced && plan && (
-        <div className="shrink-0 space-y-2 text-sm text-muted-foreground">
+        <div className="shrink-0 space-y-2 px-2 text-sm text-muted-foreground">
           {plan.warnings.map((warning, index) => (
             <p key={index} className="flex items-start gap-2 leading-6 text-warning">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -99,28 +100,29 @@ export function MainTab({
           ))}
         </div>
       )}
-      <div className="panel-shell grid shrink-0 gap-4 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <SummaryCard label="Chipset" value={plan?.chipset ?? "—"} />
-          <SummaryCard label="Storage" value={plan?.storage ?? "—"} />
-          <SummaryCard label="Slot" value={plan?.slot_policy ?? "—"} />
+      <div className="panel-shell shrink-0 px-5 py-4 sm:px-6 sm:py-5">
+        <div className="grid grid-cols-6 items-center gap-3 lg:grid-cols-5 lg:gap-4">
+          <SummaryCard label="Chipset" value={plan?.chipset ?? "—"} className="col-span-2 lg:col-span-1" />
+          <SummaryCard label="Storage" value={plan?.storage ?? "—"} className="col-span-2 lg:col-span-1" />
+          <SummaryCard label="Slot" value={plan?.slot_policy ?? "—"} className="col-span-2 lg:col-span-1" />
           <SummaryCard
             label="Actions"
             value={plan ? (
               <span className="inline-flex items-center gap-1.5">
-                <Badge variant="success" className="h-5 text-[10px] px-1.5 py-0">
+                <Badge variant="success" className="px-2 py-0">
                   F {selectedSummary.flashCount}
                 </Badge>
-                <Badge variant="warning" className="h-5 text-[10px] px-1.5 py-0">
+                <Badge variant="warning" className="px-2 py-0">
                   W {selectedSummary.wipeCount}
                 </Badge>
               </span>
             ) : isParsingPlan ? "Parsing..." : "—"}
             accent
+            className="col-span-3 lg:col-span-1"
           />
-        </div>
-        <div className="xl:text-right">
-          <FlashFab onClick={() => setFlashConfirmOpen(true)} disabled={flashDisabled} />
+          <div className="col-span-3 lg:col-span-1 flex overflow-hidden">
+            <FlashFab onClick={() => setFlashConfirmOpen(true)} disabled={flashDisabled} />
+          </div>
         </div>
       </div>
     </div>
@@ -131,15 +133,17 @@ function SummaryCard({
   label,
   value,
   accent = false,
+  className,
 }: {
   label: string;
   value: React.ReactNode;
   accent?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="panel-inset flex h-12 flex-col justify-center px-3">
-      <p className="text-[10px] leading-tight font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
-      <div className={accent ? "mt-0.5 text-sm leading-tight font-semibold text-accent-soft-foreground" : "mt-0.5 text-sm leading-tight font-semibold"}>
+    <div className={cn("panel-inset flex h-12 flex-col justify-center gap-0.5 px-3", className)}>
+      <p className="text-[11px] leading-tight font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+      <div className={accent ? "text-sm leading-tight font-semibold text-accent-soft-foreground" : "text-sm leading-tight font-semibold"}>
         {value}
       </div>
     </div>

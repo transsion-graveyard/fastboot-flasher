@@ -50,21 +50,19 @@ export const ScatterPicker = memo(function ScatterPicker({ path, onChange }: Sca
   };
 
   return (
-    <section className="panel-shell p-4">
-      <div className="grid min-w-0 gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
-        <Button variant="outline" onClick={pick} disabled={picking} className="gap-2">
-          <FolderOpen className="h-4 w-4" />
-          {picking ? "Opening picker..." : "Select manifest"}
-        </Button>
-        <Input
-          value={path}
-          readOnly
-          placeholder="No scatter file selected"
-          className="min-w-0 flex-1"
-          aria-label="Selected scatter file path"
-          title={path || "No scatter file selected"}
-        />
-      </div>
+    <section className="flex flex-col gap-3 sm:flex-row">
+      <Button variant="outline" onClick={pick} disabled={picking} className="gap-2 shrink-0 sm:w-auto">
+        <FolderOpen className="h-4 w-4" />
+        {picking ? "Opening picker..." : "Select manifest"}
+      </Button>
+      <Input
+        value={path}
+        readOnly
+        placeholder="No scatter file selected"
+        className="min-w-0 flex-1"
+        aria-label="Selected scatter file path"
+        title={path || "No scatter file selected"}
+      />
     </section>
   );
 });
