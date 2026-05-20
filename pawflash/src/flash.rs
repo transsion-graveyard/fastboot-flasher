@@ -5,9 +5,39 @@ use std::path::Path;
 use anyhow::Context;
 use fastboot_rs::{
     flash_prepared_image, prepare_image, FastbootDevice, FastbootError, FastbootExecutionError,
-    FlashProgress,
+    FlashProgress, ImagePreparationError,
 };
+use fastboot_rs::transport::nusb::NusbFastBootError;
 use tracing::{debug, warn};
+
+/// Whether a scatter-flash partition error should be skipped (non-fatal).
+///
+/// Returns `true` when the error is recoverable – device command rejection,
+/// missing/corrupt image files, or payload materialisation issues.  Returns
+/// `false` for transport-level failures (USB disconnects, protocol errors)
+/// that should abort the entire flash run.
+pub fn is_scatter_skippable_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|source| {
+        // Device rejected the fastboot command – skip safely.
+        if let Some(FastbootExecutionError::Fastboot(fe)) =
+            source.downcast_ref::<FastbootExecutionError>()
+        {
+            return matches!(fe, FastbootError::Nusb(NusbFastBootError::FastbootFailed(_)));
+        }
+        // Payload materialisation failed (I/O, size too large) – skip.
+        if matches!(
+            source.downcast_ref::<FastbootExecutionError>(),
+            Some(FastbootExecutionError::Payload(_))
+        ) {
+            return true;
+        }
+        // Image preparation failed (file not found, bad sparse, etc.) – skip.
+        if source.downcast_ref::<ImagePreparationError>().is_some() {
+            return true;
+        }
+        false
+    })
+}
 
 /// Check whether a [`FastbootExecutionError`] represents a "fastboot
 /// command failed" response that the caller can safely skip.
@@ -29,12 +59,7 @@ pub fn should_skip_failed_partition_error(err: &anyhow::Error) -> bool {
 }
 
 fn is_fastboot_failed(err: &FastbootError) -> bool {
-    match err {
-        FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => {
-            true
-        }
-        _ => false,
-    }
+    matches!(err, FastbootError::Nusb(NusbFastBootError::FastbootFailed(_)))
 }
 
 #[allow(async_fn_in_trait)]
@@ -183,12 +208,12 @@ pub async fn erase_one_partition(dev: &mut FastbootDevice, partition: &str) -> a
 mod tests {
     use fastboot_rs::{
         transport::nusb::{NusbFastBootError, TransferError},
-        FastbootError, FastbootExecutionError, ImagePayloadError,
+        FastbootError, FastbootExecutionError, ImagePayloadError, ImagePreparationError,
     };
 
     use super::{
-        resize_logical_partition_if_needed, should_skip_failed_partition,
-        should_skip_failed_partition_error, LogicalPartitionOps,
+        is_scatter_skippable_error, resize_logical_partition_if_needed,
+        should_skip_failed_partition, should_skip_failed_partition_error, LogicalPartitionOps,
     };
 
     fn fastboot_failed_error() -> FastbootExecutionError {
@@ -199,6 +224,12 @@ mod tests {
 
     fn non_skippable_error() -> FastbootExecutionError {
         FastbootExecutionError::Payload(ImagePayloadError::SizeTooLarge(1024))
+    }
+
+    fn transport_error() -> FastbootExecutionError {
+        FastbootExecutionError::Fastboot(FastbootError::Nusb(NusbFastBootError::Transfer(
+            TransferError::Fault,
+        )))
     }
 
     #[test]
@@ -223,6 +254,35 @@ mod tests {
         let err = anyhow::Error::new(non_skippable_error());
 
         assert!(!should_skip_failed_partition_error(&err));
+    }
+
+    #[test]
+    fn is_scatter_skippable_error_accepts_fastboot_failed() {
+        let err = anyhow::Error::new(fastboot_failed_error());
+        assert!(is_scatter_skippable_error(&err));
+    }
+
+    #[test]
+    fn is_scatter_skippable_error_accepts_payload_errors() {
+        let err = anyhow::Error::new(FastbootExecutionError::Payload(
+            ImagePayloadError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "no file")),
+        ));
+        assert!(is_scatter_skippable_error(&err));
+    }
+
+    #[test]
+    fn is_scatter_skippable_error_accepts_image_preparation_errors() {
+        let err = anyhow::Error::new(ImagePreparationError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "no file",
+        )));
+        assert!(is_scatter_skippable_error(&err));
+    }
+
+    #[test]
+    fn is_scatter_skippable_error_rejects_transport_errors() {
+        let err = anyhow::Error::new(transport_error());
+        assert!(!is_scatter_skippable_error(&err));
     }
 
     struct LogicalPartitionOpsMock {

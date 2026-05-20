@@ -5,17 +5,6 @@ use std::time::Duration;
 use fastboot_rs::{open_fastboot_with_observer, FastbootDevice};
 use tokio::time::sleep;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn fastboot_connect_retry_delay_matches_shared_policy() {
-        assert_eq!(
-            super::fastboot_connect_retry_delay(),
-            std::time::Duration::from_millis(250)
-        );
-    }
-}
-
 /// Shared retry delay used when reconnecting to a fastboot device.
 pub const FASTBOOT_RETRY_DELAY_MS: u64 = 250;
 
@@ -41,4 +30,15 @@ pub async fn try_connect_fastboot() -> anyhow::Result<FastbootDevice> {
     open_fastboot_with_observer(|_| {})
         .await
         .map_err(anyhow::Error::from)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn fastboot_connect_retry_delay_matches_shared_policy() {
+        assert_eq!(
+            super::fastboot_connect_retry_delay(),
+            std::time::Duration::from_millis(250)
+        );
+    }
 }

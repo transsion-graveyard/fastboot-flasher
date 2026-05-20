@@ -6,9 +6,13 @@ use std::path::Path;
 use anyhow::Context;
 use fastboot_rs::{FastbootDevice, FlashProgress};
 
+use tracing::warn;
+
 use crate::{
     device::{read_all_variables, reboot_device, resolve_max_download_size_from_vars},
-    flash::{erase_one_partition, flash_one_partition, should_skip_failed_partition_error},
+    flash::{
+        erase_one_partition, flash_one_partition, is_scatter_skippable_error,
+    },
     format::{
         detect_userdata, erase_optional_partition, generate_userdata_image, FormatTools,
         FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
@@ -30,13 +34,13 @@ pub enum PartitionFlashOutcome {
 
 /// Whether a partition flash failure can be skipped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PartitionFlashFailureDisposition {
+pub enum PartitionFlashFailureDisposition {
     Skip,
     Fatal,
 }
 
-fn partition_flash_failure_disposition(error: &anyhow::Error) -> PartitionFlashFailureDisposition {
-    if should_skip_failed_partition_error(error) {
+pub fn partition_flash_failure_disposition(error: &anyhow::Error) -> PartitionFlashFailureDisposition {
+    if is_scatter_skippable_error(error) {
         PartitionFlashFailureDisposition::Skip
     } else {
         PartitionFlashFailureDisposition::Fatal
@@ -95,6 +99,7 @@ where
             ) {
                 (true, PartitionFlashFailureDisposition::Skip) => {
                     let reason = format!("{error:#}");
+                    warn!(partition, error = %error, "skipping failed partition");
                     self.summary.skipped_count += 1;
                     emit_overall_progress(
                         &mut self.emit,
@@ -104,7 +109,7 @@ where
                     )?;
                     (self.emit)(FlashEvent::PartitionSkipped {
                         partition: partition.to_string(),
-                        reason: reason.clone(),
+                        reason,
                     })?;
                     Ok(PartitionFlashOutcome::Skipped)
                 }
@@ -167,8 +172,22 @@ where
             match action.action.as_str() {
                 "flash" => {
                     let image_path =
-                        crate::domain::resolve_image_path_for_action(action, image_overrides)?;
-                    let _ = self
+                        match crate::domain::resolve_image_path_for_action(action, image_overrides)
+                        {
+                            Ok(p) => p,
+                            Err(e) => {
+                                warn!(partition = action.partition, "skipping partition with missing image path");
+                                (self.emit)(FlashEvent::PartitionSkipped {
+                                    partition: action.partition.clone(),
+                                    reason: e,
+                                })?;
+                                self.summary.skipped_count += 1;
+                                completed_before =
+                                    completed_before.saturating_add(action_bytes);
+                                continue;
+                            }
+                        };
+                    let outcome = self
                         .flash_partition(
                             &action.partition,
                             &image_path,
@@ -177,14 +196,18 @@ where
                             true,
                         )
                         .await?;
+                    completed_before = completed_before.saturating_add(action_bytes);
+                    if outcome == PartitionFlashOutcome::Skipped {
+                        continue;
+                    }
                 }
                 "wipe" => {
                     self.erase_partition(&action.partition, action_bytes, completed_before)
                         .await?;
+                    completed_before = completed_before.saturating_add(action_bytes);
                 }
                 other => return Err(format!("unsupported plan action: {other}")),
             }
-            completed_before = completed_before.saturating_add(action_bytes);
         }
 
         Ok(())
