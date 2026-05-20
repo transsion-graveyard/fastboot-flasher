@@ -55,6 +55,10 @@ fn action_is_skip_eligible(action: &FlashAction) -> bool {
     )
 }
 
+fn wipe_failure_is_skip_eligible(action: &FlashAction, error: &anyhow::Error) -> bool {
+    action_is_skip_eligible(action) && is_scatter_skippable_error(error)
+}
+
 /// Progress context for flash operations that emit shared events.
 pub struct FlashProgressContext<'a, E>
 where
@@ -214,11 +218,45 @@ where
                         continue;
                     }
                 }
-                "wipe" => {
-                    self.erase_partition(&action.partition, action_bytes, completed_before)
-                        .await?;
-                    completed_before = completed_before.saturating_add(action_bytes);
-                }
+                "wipe" => match erase_one_partition(self.dev, &action.partition).await {
+                    Ok(()) => {
+                        self.summary.wipe_count += 1;
+                        emit_overall_progress(
+                            &mut self.emit,
+                            completed_before,
+                            action_bytes,
+                            self.overall_total,
+                        )?;
+                        (self.emit)(FlashEvent::EraseComplete {
+                            partition: action.partition.clone(),
+                        })?;
+                        completed_before = completed_before.saturating_add(action_bytes);
+                    }
+                    Err(error) if wipe_failure_is_skip_eligible(action, &error) => {
+                        let reason = format!("{error:#}");
+                        warn!(partition = action.partition, error = %error, "skipping failed wipe");
+                        self.summary.skipped_count += 1;
+                        emit_overall_progress(
+                            &mut self.emit,
+                            completed_before,
+                            action_bytes,
+                            self.overall_total,
+                        )?;
+                        (self.emit)(FlashEvent::PartitionSkipped {
+                            partition: action.partition.clone(),
+                            reason,
+                        })?;
+                        completed_before = completed_before.saturating_add(action_bytes);
+                    }
+                    Err(error) => {
+                        let msg = format!("{error:#}");
+                        (self.emit)(FlashEvent::PartitionFailed {
+                            partition: action.partition.clone(),
+                            error: msg.clone(),
+                        })?;
+                        return Err(msg);
+                    }
+                },
                 other => return Err(format!("unsupported plan action: {other}")),
             }
         }
@@ -747,7 +785,7 @@ async fn erase_optional_partition_and_emit(
 mod tests {
     use super::{
         action_is_skip_eligible, partition_flash_failure_disposition,
-        PartitionFlashFailureDisposition,
+        wipe_failure_is_skip_eligible, PartitionFlashFailureDisposition,
     };
     use fastboot_rs::{transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError};
     use serde_json::json;
@@ -835,5 +873,25 @@ mod tests {
         let action = test_action("boot", "boot_critical");
 
         assert!(!should_skip_failure(&action, &fastboot_failed_error()));
+    }
+
+    #[test]
+    fn wipe_failures_are_skippable_for_noncritical_partitions() {
+        let action = test_action("cache", "wipe_only");
+
+        assert!(wipe_failure_is_skip_eligible(
+            &action,
+            &fastboot_failed_error()
+        ));
+    }
+
+    #[test]
+    fn wipe_failures_remain_fatal_for_boot_critical_partitions() {
+        let action = test_action("boot", "boot_critical");
+
+        assert!(!wipe_failure_is_skip_eligible(
+            &action,
+            &fastboot_failed_error()
+        ));
     }
 }

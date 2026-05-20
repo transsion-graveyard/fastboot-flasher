@@ -238,19 +238,9 @@ fn clean_flash_userdata_wipe_should_keep_source_file_metadata() {
 }
 
 #[test]
-fn clean_flash_should_synthesize_missing_user_state_wipes() {
+fn clean_flash_should_synthesize_missing_declared_user_state_wipes() {
     let temp = tempfile::tempdir().unwrap();
-    let scatter = ScatterFile {
-        path: temp.path().join("scatter.xml"),
-        format: "test".to_string(),
-        text_hash: String::new(),
-        platform: None,
-        project: None,
-        general: json!({}),
-        layouts: Default::default(),
-        warnings: Vec::new(),
-        errors: Vec::new(),
-    };
+    let scatter = synthetic_userdata_scatter(temp.path().join("scatter.xml"));
 
     let plan = build_flash_plan(
         &scatter,
@@ -268,8 +258,34 @@ fn clean_flash_should_synthesize_missing_user_state_wipes() {
         .map(|action| action.partition.as_str())
         .collect::<Vec<_>>();
 
-    assert_eq!(wipe_partitions, vec!["userdata", "metadata", "cache"]);
-    assert_eq!(plan.summary.wipe_count, 3);
+    assert_eq!(wipe_partitions, vec!["userdata"]);
+    assert_eq!(plan.summary.wipe_count, 1);
+    assert!(plan.errors.is_empty(), "{:?}", plan.errors);
+}
+
+#[test]
+fn clean_flash_should_not_synthesize_cache_when_scatter_lacks_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let scatter = synthetic_userdata_metadata_scatter(temp.path().join("scatter.xml"));
+
+    let plan = build_flash_plan(
+        &scatter,
+        FlashPlanOptions {
+            mode: Mode::CleanFlash,
+            firmware_dir: Some(temp.path().to_path_buf()),
+            ..FlashPlanOptions::default()
+        },
+    );
+
+    let wipe_partitions = plan
+        .actions
+        .iter()
+        .filter(|action| action.action == "wipe")
+        .map(|action| action.partition.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(wipe_partitions, vec!["metadata", "userdata"]);
+    assert_eq!(plan.summary.wipe_count, 2);
     assert!(plan.errors.is_empty(), "{:?}", plan.errors);
 }
 
@@ -580,6 +596,28 @@ fn synthetic_userdata_scatter(path: PathBuf) -> ScatterFile {
         layouts: [(
             "UFS".to_string(),
             vec![synthetic_part("userdata", Some("userdata.img"), true, 4096)],
+        )]
+        .into_iter()
+        .collect(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    }
+}
+
+fn synthetic_userdata_metadata_scatter(path: PathBuf) -> ScatterFile {
+    ScatterFile {
+        path,
+        format: "test".to_string(),
+        text_hash: String::new(),
+        platform: None,
+        project: None,
+        general: json!({}),
+        layouts: [(
+            "UFS".to_string(),
+            vec![
+                synthetic_part("metadata", None, true, 4096),
+                synthetic_part("userdata", Some("userdata.img"), true, 4096),
+            ],
         )]
         .into_iter()
         .collect(),

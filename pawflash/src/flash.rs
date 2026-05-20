@@ -3,11 +3,11 @@
 use std::path::Path;
 
 use anyhow::Context;
+use fastboot_rs::transport::nusb::NusbFastBootError;
 use fastboot_rs::{
     flash_prepared_image, prepare_image, FastbootDevice, FastbootError, FastbootExecutionError,
     FlashProgress, ImagePreparationError,
 };
-use fastboot_rs::transport::nusb::NusbFastBootError;
 use tracing::{debug, warn};
 
 /// Whether a scatter-flash partition error should be skipped (non-fatal).
@@ -22,7 +22,10 @@ pub fn is_scatter_skippable_error(err: &anyhow::Error) -> bool {
         if let Some(FastbootExecutionError::Fastboot(fe)) =
             source.downcast_ref::<FastbootExecutionError>()
         {
-            return matches!(fe, FastbootError::Nusb(NusbFastBootError::FastbootFailed(_)));
+            return matches!(
+                fe,
+                FastbootError::Nusb(NusbFastBootError::FastbootFailed(_))
+            );
         }
         // Payload materialisation failed (I/O, size too large) – skip.
         if matches!(
@@ -59,7 +62,10 @@ pub fn should_skip_failed_partition_error(err: &anyhow::Error) -> bool {
 }
 
 fn is_fastboot_failed(err: &FastbootError) -> bool {
-    matches!(err, FastbootError::Nusb(NusbFastBootError::FastbootFailed(_)))
+    matches!(
+        err,
+        FastbootError::Nusb(NusbFastBootError::FastbootFailed(_))
+    )
 }
 
 #[allow(async_fn_in_trait)]
@@ -264,9 +270,9 @@ mod tests {
 
     #[test]
     fn is_scatter_skippable_error_accepts_payload_errors() {
-        let err = anyhow::Error::new(FastbootExecutionError::Payload(
-            ImagePayloadError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "no file")),
-        ));
+        let err = anyhow::Error::new(FastbootExecutionError::Payload(ImagePayloadError::Io(
+            std::io::Error::new(std::io::ErrorKind::NotFound, "no file"),
+        )));
         assert!(is_scatter_skippable_error(&err));
     }
 

@@ -761,7 +761,17 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
         .filter(|action| action.action == "wipe")
         .map(|action| canonical_name(&action.partition))
         .collect::<BTreeSet<_>>();
-    append_missing_clean_flash_wipes(options.mode, &existing_wipes, &mut actions);
+    let available_wipes = selected_parts
+        .iter()
+        .map(ScatterPartition::canonical)
+        .filter(|partition| WIPE_CANONICAL.contains(&partition.as_str()))
+        .collect::<BTreeSet<_>>();
+    append_missing_clean_flash_wipes(
+        options.mode,
+        &available_wipes,
+        &existing_wipes,
+        &mut actions,
+    );
 
     warn_for_missing_selective_requests(
         options.mode,
@@ -1034,6 +1044,7 @@ fn append_clean_flash_wipes(
 
 fn append_missing_clean_flash_wipes(
     mode: Mode,
+    available_wipes: &BTreeSet<String>,
     existing_wipes: &BTreeSet<String>,
     actions: &mut Vec<FlashAction>,
 ) {
@@ -1042,6 +1053,9 @@ fn append_missing_clean_flash_wipes(
     }
 
     for partition in WIPE_CANONICAL {
+        if !available_wipes.contains(*partition) {
+            continue;
+        }
         if existing_wipes.contains(*partition) {
             continue;
         }
