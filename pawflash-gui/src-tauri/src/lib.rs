@@ -15,13 +15,12 @@ use pawflash;
 use pawflash::cli::{FlashMode, SlotArg};
 use pawflash::{
     describe_fastboot_probe_failure,
-    format::{
-        detect_userdata, erase_optional_partition, generate_userdata_image, FormatTools,
-        FormatUserdataOptions, OptionalEraseOutcome, WipeDataOptions,
-    },
+    format::{FormatTools, WipeDataOptions},
     gsi::detect_fastboot_mode,
     manual::{disable_vbmeta_actions, standalone_disable_vbmeta_path},
-    resolve_max_download_size_from_vars, FastbootDevice, FlashPlan,
+    resolve_max_download_size_from_vars,
+    workflow::wipe_data_flow,
+    FastbootDevice, FlashPlan,
 };
 
 const CANCELLED_MESSAGE: &str = "cancelled by user";
@@ -589,58 +588,6 @@ async fn check_device_with_diagnostics(
     }
 }
 
-async fn erase_optional_partition_and_emit(
-    dev: &mut FastbootDevice,
-    app: &tauri::AppHandle,
-    summary: &mut FlashSummaryDto,
-    control: &FlashRunControl,
-    partition: &str,
-    completed_before: u64,
-    overall_total: u64,
-) -> Result<(), String> {
-    control.ensure_not_cancelled()?;
-    app.emit(
-        "flash-progress",
-        FlashEvent::Erasing {
-            partition: partition.to_string(),
-        },
-    )
-    .map_err(|e| format!("emit: {e}"))?;
-    emit_overall_progress(app, completed_before, 0, overall_total)?;
-
-    match erase_optional_partition(dev, partition)
-        .await
-        .map_err(|e| format!("erase {partition}: {e}"))?
-    {
-        OptionalEraseOutcome::Erased => {
-            summary.wipe_count += 1;
-            emit_overall_progress(app, completed_before, 1, overall_total)?;
-            app.emit(
-                "flash-progress",
-                FlashEvent::EraseComplete {
-                    partition: partition.to_string(),
-                },
-            )
-            .map_err(|e| format!("emit: {e}"))?;
-        }
-        OptionalEraseOutcome::Skipped { reason } => {
-            summary.skipped_count += 1;
-            emit_overall_progress(app, completed_before, 1, overall_total)?;
-            app.emit(
-                "flash-progress",
-                FlashEvent::PartitionSkipped {
-                    partition: partition.to_string(),
-                    operation: FlashOperation::Erase,
-                    reason,
-                },
-            )
-            .map_err(|e| format!("emit: {e}"))?;
-        }
-    }
-
-    Ok(())
-}
-
 #[tauri::command]
 async fn connect_device(
     state: tauri::State<'_, AppState>,
@@ -999,11 +946,8 @@ async fn disable_vbmeta_inner(
 async fn format_data(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
-    no_metadata: bool,
-    no_cache: bool,
-    erase_fallback: bool,
 ) -> Result<FlashSummaryDto, String> {
-    format_data_inner(state, app.clone(), no_metadata, no_cache, erase_fallback)
+    format_data_inner(state, app.clone())
         .await
         .map_err(|error| emit_flash_error(&app, error))
 }
@@ -1022,149 +966,25 @@ fn resolve_format_tools(app: &tauri::AppHandle) -> Result<FormatTools, String> {
 async fn format_data_inner(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
-    no_metadata: bool,
-    no_cache: bool,
-    erase_fallback: bool,
 ) -> Result<FlashSummaryDto, String> {
     let _guard = FlashGuard::new(&state)?;
     let control = begin_flash_run(&state);
     let mut dev =
         ensure_device_with_policy(&state, &app, &control, session_policy_for_flash_run()).await?;
     let tools = resolve_format_tools(&app)?;
-    let info = detect_userdata(&mut dev)
-        .await
-        .map_err(|e| format!("detect userdata: {e}"))?;
-    let max_download_size = info
-        .max_download_size
-        .ok_or_else(|| "detect userdata: missing max-download-size".to_string())
-        .and_then(|value| {
-            u32::try_from(value).map_err(|_| {
-                "detect userdata: max-download-size exceeds supported range".to_string()
-            })
-        })?;
-
-    app.emit(
-        "flash-progress",
-        FlashEvent::PreparingImage {
-            partition: "userdata".to_string(),
-            operation: FlashOperation::FormatData,
-        },
+    let mut emit = |event: FlashEvent| -> Result<(), String> {
+        app.emit("flash-progress", event)
+            .map_err(|e| format!("emit: {e}"))
+    };
+    let summary = wipe_data_flow(
+        &mut dev,
+        &tools,
+        &WipeDataOptions::default(),
+        &control,
+        &mut emit,
     )
-    .map_err(|e| format!("emit: {e}"))?;
-
-    let format_options = FormatUserdataOptions {
-        erase_fallback,
-        casefold: false,
-    };
-    let generated = generate_userdata_image(&tools, &info, &format_options);
-    let erase_steps = usize::from(!no_metadata) + usize::from(!no_cache);
-    let base_bytes = match &generated {
-        Ok(image) => image
-            .image_len()
-            .map_err(|e| format!("generated image: {e}"))?,
-        Err(_) if erase_fallback => 1,
-        Err(_) => 0,
-    };
-    let total_bytes = base_bytes + u64::try_from(erase_steps).unwrap_or(0);
-
-    emit_plan_built(&app, 1 + erase_steps, total_bytes)?;
-    emit_overall_progress(&app, 0, 0, total_bytes)?;
-
-    let mut summary = FlashSummaryDto {
-        flash_count: 0,
-        wipe_count: 0,
-        skipped_count: 0,
-        total_bytes,
-    };
-
-    match generated {
-        Ok(image) => {
-            let emit = |event: FlashEvent| -> Result<(), String> {
-                app.emit("flash-progress", event)
-                    .map_err(|e| format!("emit: {e}"))
-            };
-            let mut flash = pawflash::workflow::FlashProgressContext {
-                dev: &mut dev,
-                emit,
-                summary: &mut summary,
-                control: &control,
-                max_download_size,
-                overall_total: total_bytes.max(1),
-            };
-            flash
-                .flash_partition(
-                    "userdata",
-                    image.path(),
-                    base_bytes.max(1),
-                    0,
-                    false,
-                    FlashOperation::FormatData,
-                )
-                .await?;
-        }
-        Err(_error) if erase_fallback => {
-            let emit = |event: FlashEvent| -> Result<(), String> {
-                app.emit("flash-progress", event)
-                    .map_err(|e| format!("emit: {e}"))
-            };
-            let mut flash = pawflash::workflow::FlashProgressContext {
-                dev: &mut dev,
-                emit,
-                summary: &mut summary,
-                control: &control,
-                max_download_size,
-                overall_total: total_bytes.max(1),
-            };
-            flash
-                .erase_partition("userdata", base_bytes.max(1), 0)
-                .await?;
-        }
-        Err(error) => return Err(format!("generate userdata image: {error:#}")),
-    }
-
-    let mut completed_before = base_bytes.max(1);
-    let wipe_options = WipeDataOptions {
-        erase_metadata: !no_metadata,
-        erase_cache: !no_cache,
-        erase_fallback,
-        casefold: false,
-    };
-
-    if wipe_options.erase_metadata {
-        erase_optional_partition_and_emit(
-            &mut dev,
-            &app,
-            &mut summary,
-            &control,
-            "metadata",
-            completed_before,
-            total_bytes.max(1),
-        )
-        .await?;
-        completed_before = completed_before.saturating_add(1);
-    }
-    if wipe_options.erase_cache {
-        erase_optional_partition_and_emit(
-            &mut dev,
-            &app,
-            &mut summary,
-            &control,
-            "cache",
-            completed_before,
-            total_bytes.max(1),
-        )
-        .await?;
-    }
-
+    .await?;
     drop(dev);
-    app.emit(
-        "flash-progress",
-        FlashEvent::Complete {
-            summary: summary.clone(),
-        },
-    )
-    .map_err(|e| format!("emit: {e}"))?;
-
     Ok(summary)
 }
 

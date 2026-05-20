@@ -218,11 +218,7 @@ async fn run_flash(session: &Session, args: FlashArgs) -> anyhow::Result<()> {
 
 async fn run_data(session: &Session, args: DataArgs) -> anyhow::Result<()> {
     match args.command {
-        DataCommand::Format {
-            no_metadata,
-            no_cache,
-            erase_fallback,
-        } => run_format_data(session, no_metadata, no_cache, erase_fallback).await,
+        DataCommand::Format => run_format_data(session).await,
     }
 }
 
@@ -442,12 +438,7 @@ async fn run_disable_vbmeta(session: &Session) -> anyhow::Result<()> {
     finish_summary(session, &summary)
 }
 
-async fn run_format_data(
-    session: &Session,
-    no_metadata: bool,
-    no_cache: bool,
-    erase_fallback: bool,
-) -> anyhow::Result<()> {
+async fn run_format_data(session: &Session) -> anyhow::Result<()> {
     ensure_device_or_offer_force_fastboot(session).await?;
     if session.mode() == UiMode::Human
         && !session.confirm("Format data and clear optional partitions?", false)?
@@ -462,12 +453,7 @@ async fn run_format_data(
     let summary = wipe_data_flow(
         &mut dev,
         &tools,
-        &WipeDataOptions {
-            erase_metadata: !no_metadata,
-            erase_cache: !no_cache,
-            erase_fallback,
-            casefold: false,
-        },
+        &WipeDataOptions::default(),
         &control,
         &mut emit,
     )

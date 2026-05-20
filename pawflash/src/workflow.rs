@@ -13,9 +13,8 @@ use crate::{
     execution::{ExecutionPlan, ExecutionRoute, ExecutionStep},
     flash::{erase_one_partition, flash_one_partition, is_scatter_skippable_error},
     format::{
-        detect_ext4_partition, detect_userdata, erase_optional_partition,
-        generate_ext4_partition_image, generate_userdata_image, FormatTools, FormatUserdataOptions,
-        OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
+        detect_userdata, generate_userdata_image, prepare_partition_reset, FormatTools,
+        FormatUserdataOptions, PreparedPartitionReset, UserdataInfo, WipeDataOptions,
     },
     manual::ManualFlashAction,
 };
@@ -225,6 +224,56 @@ where
         }
     }
 
+    async fn execute_prepared_reset(
+        &mut self,
+        partition: &str,
+        prepared: PreparedPartitionReset,
+        bytes: u64,
+        completed_before: u64,
+    ) -> Result<(), String> {
+        match prepared {
+            PreparedPartitionReset::Format {
+                image,
+                max_download_size,
+            } => {
+                let original_max_download_size = self.max_download_size;
+                self.max_download_size = max_download_size;
+                let result = self
+                    .flash_partition(
+                        partition,
+                        image.path(),
+                        bytes.max(1),
+                        completed_before,
+                        false,
+                        FlashOperation::FormatData,
+                    )
+                    .await
+                    .map(|_| ());
+                self.max_download_size = original_max_download_size;
+                result
+            }
+            PreparedPartitionReset::Erase => {
+                self.erase_partition(partition, bytes.max(1), completed_before)
+                    .await
+            }
+            PreparedPartitionReset::Skip { reason } => {
+                self.summary.skipped_count += 1;
+                emit_overall_progress(
+                    &mut self.emit,
+                    completed_before,
+                    bytes.max(1),
+                    self.overall_total,
+                )?;
+                (self.emit)(FlashEvent::PartitionSkipped {
+                    partition: partition.to_string(),
+                    operation: FlashOperation::Erase,
+                    reason,
+                })?;
+                Ok(())
+            }
+        }
+    }
+
     /// Execute a filtered set of scatter plan actions.
     pub async fn execute_plan_actions(
         &mut self,
@@ -284,53 +333,21 @@ where
                             "missing format tools for clean-flash format action".to_string()
                         );
                     };
-                    let generated = if action.partition == "metadata" {
-                        let info = detect_ext4_partition(self.dev, &action.partition)
-                            .await
-                            .map_err(|error| format!("detect metadata: {error:#}"))?;
-                        generate_ext4_partition_image(tools, &info)
-                            .map_err(|error| format!("generate metadata image: {error:#}"))?
-                    } else {
-                        let info = detect_userdata(self.dev)
-                            .await
-                            .map_err(|error| format!("detect userdata: {error:#}"))?;
-                        generate_userdata_image(tools, &info, &FormatUserdataOptions::default())
-                            .map_err(|error| format!("generate userdata image: {error:#}"))?
-                    };
-                    self.control.ensure_not_cancelled()?;
-                    (self.emit)(FlashEvent::PreparingImage {
-                        partition: action.partition.clone(),
-                        operation: FlashOperation::FormatData,
-                    })?;
-                    emit_overall_progress(&mut self.emit, completed_before, 0, self.overall_total)?;
-                    self.flash_one_partition_evented(
+                    let prepared = prepare_partition_reset(
+                        self.dev,
+                        tools,
                         &action.partition,
-                        generated.path(),
-                        action_bytes.max(1),
-                        completed_before,
-                        FlashOperation::FormatData,
+                        &FormatUserdataOptions::default(),
                     )
                     .await
-                    .map_err(|error| {
-                        let msg = format!("{error:#}");
-                        let _ = (self.emit)(FlashEvent::PartitionFailed {
-                            partition: action.partition.clone(),
-                            operation: FlashOperation::FormatData,
-                            error: msg.clone(),
-                        });
-                        msg
-                    })?;
-                    self.summary.wipe_count += 1;
-                    emit_overall_progress(
-                        &mut self.emit,
+                    .map_err(|error| format!("prepare {} reset: {error:#}", action.partition))?;
+                    self.execute_prepared_reset(
+                        &action.partition,
+                        prepared,
+                        action_bytes,
                         completed_before,
-                        action_bytes.max(1),
-                        self.overall_total,
-                    )?;
-                    (self.emit)(FlashEvent::PartitionComplete {
-                        partition: action.partition.clone(),
-                        operation: FlashOperation::FormatData,
-                    })?;
+                    )
+                    .await?;
                     completed_before = completed_before.saturating_add(action_bytes);
                 }
                 FlashActionExecutionKind::EraseIfPresent => {
@@ -467,53 +484,21 @@ where
                             "missing format tools for clean-flash format action".to_string()
                         );
                     };
-                    let generated = if action.partition == "metadata" {
-                        let info = detect_ext4_partition(self.dev, &step.partition_on_device)
-                            .await
-                            .map_err(|error| format!("detect metadata: {error:#}"))?;
-                        generate_ext4_partition_image(tools, &info)
-                            .map_err(|error| format!("generate metadata image: {error:#}"))?
-                    } else {
-                        let info = detect_userdata(self.dev)
-                            .await
-                            .map_err(|error| format!("detect userdata: {error:#}"))?;
-                        generate_userdata_image(tools, &info, &FormatUserdataOptions::default())
-                            .map_err(|error| format!("generate userdata image: {error:#}"))?
-                    };
-                    self.control.ensure_not_cancelled()?;
-                    (self.emit)(FlashEvent::PreparingImage {
-                        partition: action.partition.clone(),
-                        operation: FlashOperation::FormatData,
-                    })?;
-                    emit_overall_progress(&mut self.emit, completed_before, 0, self.overall_total)?;
-                    self.flash_one_partition_evented(
+                    let prepared = prepare_partition_reset(
+                        self.dev,
+                        tools,
                         &step.partition_on_device,
-                        generated.path(),
-                        action_bytes.max(1),
-                        completed_before,
-                        FlashOperation::FormatData,
+                        &FormatUserdataOptions::default(),
                     )
                     .await
-                    .map_err(|error| {
-                        let msg = format!("{error:#}");
-                        let _ = (self.emit)(FlashEvent::PartitionFailed {
-                            partition: action.partition.clone(),
-                            operation: FlashOperation::FormatData,
-                            error: msg.clone(),
-                        });
-                        msg
-                    })?;
-                    self.summary.wipe_count += 1;
-                    emit_overall_progress(
-                        &mut self.emit,
+                    .map_err(|error| format!("prepare {} reset: {error:#}", action.partition))?;
+                    self.execute_prepared_reset(
+                        &action.partition,
+                        prepared,
+                        action_bytes,
                         completed_before,
-                        action_bytes.max(1),
-                        self.overall_total,
-                    )?;
-                    (self.emit)(FlashEvent::PartitionComplete {
-                        partition: action.partition.clone(),
-                        operation: FlashOperation::FormatData,
-                    })?;
+                    )
+                    .await?;
                     completed_before = completed_before.saturating_add(action_bytes);
                 }
                 ExecutionRoute::EraseIfPresent => {
@@ -970,27 +955,38 @@ pub async fn wipe_data_flow(
     control: &FlashRunControl,
     emit: &mut impl FnMut(FlashEvent) -> Result<(), String>,
 ) -> Result<FlashSummaryDto, String> {
-    let info = detect_userdata(dev)
-        .await
-        .map_err(|e| format!("detect userdata: {e}"))?;
-
     let format_options = FormatUserdataOptions {
         erase_fallback: options.erase_fallback,
         casefold: options.casefold,
     };
-    let generated = generate_userdata_image(tools, &info, &format_options);
-    let erase_steps = usize::from(options.erase_metadata) + usize::from(options.erase_cache);
-    let base_bytes = match &generated {
-        Ok(image) => image
-            .image_len()
-            .map_err(|e| format!("generated image: {e}"))?,
-        Err(_) if options.erase_fallback => 1,
-        Err(_) => 0,
-    };
-    let total_bytes = base_bytes + u64::try_from(erase_steps).unwrap_or(0);
+    let reset_targets = [
+        ("userdata", true),
+        ("cache", options.erase_cache),
+        ("metadata", options.erase_metadata),
+    ];
+    let mut prepared = Vec::new();
+    let mut total_bytes = 0_u64;
+
+    for (partition, enabled) in reset_targets {
+        if !enabled {
+            continue;
+        }
+        let action = prepare_partition_reset(dev, tools, partition, &format_options)
+            .await
+            .map_err(|e| format!("prepare {partition} reset: {e:#}"))?;
+        let bytes = match &action {
+            PreparedPartitionReset::Format { image, .. } => image
+                .image_len()
+                .map_err(|e| format!("generated image for {partition}: {e}"))?
+                .max(1),
+            PreparedPartitionReset::Erase | PreparedPartitionReset::Skip { .. } => 1,
+        };
+        total_bytes = total_bytes.saturating_add(bytes);
+        prepared.push((partition, action, bytes));
+    }
 
     emit(FlashEvent::PlanBuilt {
-        actions: 1 + erase_steps,
+        actions: prepared.len(),
         total_bytes,
     })?;
     emit(FlashEvent::Overall {
@@ -1004,123 +1000,26 @@ pub async fn wipe_data_flow(
         skipped_count: 0,
         total_bytes,
     };
-
-    match generated {
-        Ok(image) => {
-            let max_download_size = info
-                .max_download_size
-                .context("missing userdata max-download-size")
-                .and_then(|value| {
-                    u32::try_from(value)
-                        .context("userdata max-download-size exceeds supported range")
-                })
-                .map_err(|e| format!("{e:#}"))?;
-            let mut flash = FlashProgressContext {
-                dev,
-                emit: &mut *emit,
-                summary: &mut summary,
-                control,
-                max_download_size,
-                overall_total: total_bytes.max(1),
-            };
-            flash
-                .flash_partition(
-                    "userdata",
-                    image.path(),
-                    base_bytes.max(1),
-                    0,
-                    false,
-                    FlashOperation::FormatData,
-                )
-                .await?;
-        }
-        Err(_error) if options.erase_fallback => {
-            let mut flash = FlashProgressContext {
-                dev,
-                emit: &mut *emit,
-                summary: &mut summary,
-                control,
-                max_download_size: 0,
-                overall_total: total_bytes.max(1),
-            };
-            flash
-                .erase_partition("userdata", base_bytes.max(1), 0)
-                .await?;
-        }
-        Err(error) => return Err(format!("generate userdata image: {error:#}")),
-    }
-
-    let mut completed_before = base_bytes.max(1);
-    if options.erase_metadata {
-        erase_optional_partition_and_emit(
-            dev,
-            emit,
-            &mut summary,
-            control,
-            "metadata",
-            completed_before,
-            total_bytes.max(1),
-        )
-        .await?;
-        completed_before = completed_before.saturating_add(1);
-    }
-    if options.erase_cache {
-        erase_optional_partition_and_emit(
-            dev,
-            emit,
-            &mut summary,
-            control,
-            "cache",
-            completed_before,
-            total_bytes.max(1),
-        )
-        .await?;
+    let mut flash = FlashProgressContext {
+        dev,
+        emit: &mut *emit,
+        summary: &mut summary,
+        control,
+        max_download_size: 0,
+        overall_total: total_bytes.max(1),
+    };
+    let mut completed_before = 0_u64;
+    for (partition, action, bytes) in prepared {
+        flash
+            .execute_prepared_reset(partition, action, bytes, completed_before)
+            .await?;
+        completed_before = completed_before.saturating_add(bytes);
     }
 
     emit(FlashEvent::Complete {
         summary: summary.clone(),
     })?;
     Ok(summary)
-}
-
-async fn erase_optional_partition_and_emit(
-    dev: &mut FastbootDevice,
-    emit: &mut impl FnMut(FlashEvent) -> Result<(), String>,
-    summary: &mut FlashSummaryDto,
-    control: &FlashRunControl,
-    partition: &'static str,
-    completed_before: u64,
-    overall_total: u64,
-) -> Result<(), String> {
-    control.ensure_not_cancelled()?;
-    emit(FlashEvent::Erasing {
-        partition: partition.to_string(),
-    })?;
-    emit_overall_progress(emit, completed_before, 0, overall_total)?;
-
-    match erase_optional_partition(dev, partition)
-        .await
-        .map_err(|e| format!("erase {partition}: {e}"))?
-    {
-        OptionalEraseOutcome::Erased => {
-            summary.wipe_count += 1;
-            emit_overall_progress(emit, completed_before, 1, overall_total)?;
-            emit(FlashEvent::EraseComplete {
-                partition: partition.to_string(),
-            })?;
-        }
-        OptionalEraseOutcome::Skipped { reason } => {
-            summary.skipped_count += 1;
-            emit_overall_progress(emit, completed_before, 1, overall_total)?;
-            emit(FlashEvent::PartitionSkipped {
-                partition: partition.to_string(),
-                operation: FlashOperation::Erase,
-                reason,
-            })?;
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

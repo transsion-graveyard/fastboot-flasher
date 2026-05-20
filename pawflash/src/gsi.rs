@@ -21,8 +21,9 @@ use crate::{
     connect::try_connect_fastboot,
     flash_one_partition_with_resize,
     format::{
-        detect_userdata, erase_optional_partition, generate_userdata_image, parse_fastboot_u64,
-        FormatTools, FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
+        detect_userdata, erase_optional_partition, parse_fastboot_u64, prepare_partition_reset,
+        FormatTools, FormatUserdataOptions, OptionalEraseOutcome, PreparedPartitionReset,
+        UserdataInfo, WipeDataOptions,
     },
     manual::resolved_disable_vbmeta_image_path,
     read_all_variables, reboot_device_bootloader, reboot_device_fastboot,
@@ -840,7 +841,6 @@ async fn erase_optional_partition_logged(
 async fn wipe_userdata_logged(
     dev: &mut FastbootDevice,
     tools: &FormatTools,
-    info: &crate::format::UserdataInfo,
     wipe_data: &WipeDataOptions,
     summary: &mut GsiFlashSummary,
     report: &mut impl FnMut(GsiEvent),
@@ -848,16 +848,22 @@ async fn wipe_userdata_logged(
 ) -> anyhow::Result<()> {
     check_cancelled(&options.cancel_token)?;
     report(GsiEvent::Step(GsiStep::WipingUserdata));
-    match generate_userdata_image(
+    match prepare_partition_reset(
+        dev,
         tools,
-        info,
+        "userdata",
         &FormatUserdataOptions {
             erase_fallback: wipe_data.erase_fallback,
             casefold: wipe_data.casefold,
         },
-    ) {
-        Ok(generated) => {
-            let userdata_bytes = generated.image_len()?;
+    )
+    .await?
+    {
+        PreparedPartitionReset::Format {
+            image,
+            max_download_size,
+        } => {
+            let userdata_bytes = image.image_len()?;
             let mut flash = PartitionFlashContext {
                 dev,
                 summary,
@@ -865,22 +871,11 @@ async fn wipe_userdata_logged(
                 options,
             };
             flash
-                .flash_partition_logged(
-                    "userdata",
-                    generated.path(),
-                    userdata_bytes,
-                    info.max_download_size
-                        .and_then(|value| u32::try_from(value).ok())
-                        .context("missing userdata max-download-size")?,
-                )
+                .flash_partition_logged("userdata", image.path(), userdata_bytes, max_download_size)
                 .await?;
             summary.wipe_count += 1;
         }
-        Err(_error) if wipe_data.erase_fallback || info.fs_type.eq_ignore_ascii_case("raw") => {
-            check_cancelled(&options.cancel_token)?;
-            report(GsiEvent::UserdataEraseFallback {
-                fs_type: info.fs_type.clone(),
-            });
+        PreparedPartitionReset::Erase => {
             report(GsiEvent::Erasing {
                 partition: "userdata",
             });
@@ -894,14 +889,21 @@ async fn wipe_userdata_logged(
                 partition: "userdata",
             });
         }
-        Err(error) => return Err(error).context("generate userdata image"),
+        PreparedPartitionReset::Skip { reason } => {
+            summary.skipped_count += 1;
+            summary.total_bytes = summary.total_bytes.saturating_add(1);
+            report(GsiEvent::PartitionSkipped {
+                partition: "userdata",
+                reason,
+            });
+        }
     }
 
-    if wipe_data.erase_metadata {
-        erase_optional_partition_logged(dev, "metadata", summary, report, options).await?;
-    }
     if wipe_data.erase_cache {
         erase_optional_partition_logged(dev, "cache", summary, report, options).await?;
+    }
+    if wipe_data.erase_metadata {
+        erase_optional_partition_logged(dev, "metadata", summary, report, options).await?;
     }
 
     Ok(())
@@ -945,7 +947,7 @@ pub async fn execute_gsi_flash_with_vars(
     let mut capabilities = resolve_fastboot_capabilities(&vars)?;
     report(GsiEvent::ModeDetected(start_mode));
 
-    let userdata = detect_userdata(&mut dev).await?;
+    let _userdata = detect_userdata(&mut dev).await?;
     let vbmeta_image = resolved_disable_vbmeta_image_path()?;
     let vbmeta_size = std::fs::metadata(&vbmeta_image)
         .with_context(|| format!("read image metadata for {}", vbmeta_image.display()))?
@@ -973,7 +975,6 @@ pub async fn execute_gsi_flash_with_vars(
             wipe_userdata_logged(
                 &mut dev,
                 tools,
-                &userdata,
                 &options.wipe_data,
                 &mut summary,
                 &mut report,
@@ -1054,7 +1055,6 @@ pub async fn execute_gsi_flash_with_vars(
             wipe_userdata_logged(
                 &mut dev,
                 tools,
-                &userdata,
                 &options.wipe_data,
                 &mut summary,
                 &mut report,

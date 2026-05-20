@@ -40,6 +40,53 @@ pub struct Ext4PartitionInfo {
     pub logical_block_size: Option<u64>,
 }
 
+/// Reset-relevant information discovered for a partition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartitionResetInfo {
+    /// Target partition name.
+    pub partition: String,
+    /// Filesystem type reported by fastboot, if any.
+    pub fs_type: Option<String>,
+    /// Partition size in bytes, if reported by fastboot.
+    pub size: Option<u64>,
+    /// Maximum download size reported by the device.
+    pub max_download_size: Option<u64>,
+    /// Erase block size (optional).
+    pub erase_block_size: Option<u64>,
+    /// Logical block size (optional).
+    pub logical_block_size: Option<u64>,
+}
+
+/// High-level action to use when resetting a partition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartitionResetAction {
+    /// Generate a filesystem image and flash it.
+    Format,
+    /// Reset by issuing a fastboot erase.
+    Erase,
+    /// Skip the partition entirely.
+    Skip,
+}
+
+/// Prepared reset operation for a partition.
+#[derive(Debug)]
+pub enum PreparedPartitionReset {
+    /// Flash a generated filesystem image.
+    Format {
+        /// Generated filesystem image to flash.
+        image: GeneratedUserdataImage,
+        /// Max download size used for the flash operation.
+        max_download_size: u32,
+    },
+    /// Reset by issuing a fastboot erase.
+    Erase,
+    /// Skip the partition entirely.
+    Skip {
+        /// User-facing reason for skipping.
+        reason: String,
+    },
+}
+
 /// Options for formatting the userdata partition.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FormatUserdataOptions {
@@ -156,6 +203,63 @@ async fn get_var_optional(dev: &mut FastbootDevice, name: &str) -> anyhow::Resul
         .map(|value| value.trim().to_string()))
 }
 
+async fn detect_partition_reset_info(
+    dev: &mut FastbootDevice,
+    partition: &str,
+) -> anyhow::Result<PartitionResetInfo> {
+    let fs_type = get_var_optional(dev, &format!("partition-type:{partition}"))
+        .await?
+        .map(|value| value.to_ascii_lowercase());
+    let size = get_var_optional(dev, &format!("partition-size:{partition}"))
+        .await?
+        .map(|value| parse_fastboot_u64(&value))
+        .transpose()
+        .with_context(|| format!("parse partition-size:{partition}"))?;
+    let max_download_size = get_var_optional(dev, "max-download-size")
+        .await?
+        .and_then(|value| parse_fastboot_u64(&value).ok());
+    let erase_block_size = get_var_optional(dev, "erase-block-size")
+        .await?
+        .and_then(|value| parse_fastboot_u64(&value).ok());
+    let logical_block_size = get_var_optional(dev, "logical-block-size")
+        .await?
+        .and_then(|value| parse_fastboot_u64(&value).ok());
+
+    Ok(PartitionResetInfo {
+        partition: partition.to_string(),
+        fs_type,
+        size,
+        max_download_size,
+        erase_block_size,
+        logical_block_size,
+    })
+}
+
+/// Decide how a partition should be reset from the fastboot-visible metadata.
+pub fn partition_reset_action(info: &PartitionResetInfo) -> anyhow::Result<PartitionResetAction> {
+    let Some(fs_type) = info.fs_type.as_deref() else {
+        return if info.partition == "userdata" {
+            anyhow::bail!("missing partition-type:userdata")
+        } else {
+            Ok(PartitionResetAction::Skip)
+        };
+    };
+
+    if info.size.is_none() {
+        return if info.partition == "userdata" {
+            anyhow::bail!("missing partition-size:userdata")
+        } else {
+            Ok(PartitionResetAction::Skip)
+        };
+    }
+
+    Ok(match fs_type {
+        "ext4" | "f2fs" => PartitionResetAction::Format,
+        "raw" => PartitionResetAction::Erase,
+        _ => PartitionResetAction::Erase,
+    })
+}
+
 /// Read ext4 partition info (size and flash constraints) from the device.
 pub async fn detect_ext4_partition(
     dev: &mut FastbootDevice,
@@ -192,37 +296,77 @@ pub async fn detect_ext4_partition(
 /// Read userdata partition info (filesystem type, size, block sizes) from the
 /// device.
 pub async fn detect_userdata(dev: &mut FastbootDevice) -> anyhow::Result<UserdataInfo> {
-    let fs_type = dev
-        .get_var("partition-type:userdata")
-        .await
-        .map(|value| value.trim().to_ascii_lowercase())
-        .map_err(anyhow::Error::from)
-        .context("get partition-type:userdata")?;
-    let raw_size = dev
-        .get_var("partition-size:userdata")
-        .await
-        .map_err(anyhow::Error::from)
-        .context("get partition-size:userdata")?;
-    let size = parse_fastboot_u64(&raw_size)
-        .with_context(|| format!("parse partition-size:userdata ({raw_size})"))?;
-
-    let max_download_size = get_var_optional(dev, "max-download-size")
-        .await?
-        .and_then(|value| parse_fastboot_u64(&value).ok());
-    let erase_block_size = get_var_optional(dev, "erase-block-size")
-        .await?
-        .and_then(|value| parse_fastboot_u64(&value).ok());
-    let logical_block_size = get_var_optional(dev, "logical-block-size")
-        .await?
-        .and_then(|value| parse_fastboot_u64(&value).ok());
-
+    let info = detect_partition_reset_info(dev, "userdata").await?;
     Ok(UserdataInfo {
-        fs_type,
-        size,
-        max_download_size,
-        erase_block_size,
-        logical_block_size,
+        fs_type: info.fs_type.context("get partition-type:userdata")?,
+        size: info.size.context("get partition-size:userdata")?,
+        max_download_size: info.max_download_size,
+        erase_block_size: info.erase_block_size,
+        logical_block_size: info.logical_block_size,
     })
+}
+
+fn generate_partition_image(
+    tools: &FormatTools,
+    info: &PartitionResetInfo,
+    options: &FormatUserdataOptions,
+) -> anyhow::Result<GeneratedUserdataImage> {
+    tools.validate()?;
+
+    let temp_dir = tempfile::Builder::new()
+        .prefix("pawflash-format-")
+        .tempdir()
+        .with_context(|| format!("create temp directory for {} image", info.partition))?;
+    let path = temp_dir.path().join(format!("{}.img", info.partition));
+    let size = info
+        .size
+        .with_context(|| format!("missing partition-size:{}", info.partition))?;
+    let fs_type = info
+        .fs_type
+        .as_deref()
+        .with_context(|| format!("missing partition-type:{}", info.partition))?;
+
+    match fs_type {
+        "ext4" => build_ext4_image(
+            tools,
+            &path,
+            size,
+            info.erase_block_size,
+            info.logical_block_size,
+        )?,
+        "f2fs" => build_f2fs_image(tools, &path, size, options.casefold)?,
+        other => anyhow::bail!("unsupported userdata filesystem type: {other}"),
+    }
+
+    Ok(GeneratedUserdataImage { temp_dir, path })
+}
+
+/// Inspect a partition and prepare the correct reset action for it.
+pub async fn prepare_partition_reset(
+    dev: &mut FastbootDevice,
+    tools: &FormatTools,
+    partition: &str,
+    options: &FormatUserdataOptions,
+) -> anyhow::Result<PreparedPartitionReset> {
+    let info = detect_partition_reset_info(dev, partition).await?;
+    match partition_reset_action(&info)? {
+        PartitionResetAction::Format => {
+            let max_download_size = info
+                .max_download_size
+                .context("missing max-download-size")?;
+            let max_download_size = u32::try_from(max_download_size)
+                .context("max-download-size exceeds supported range")?;
+            let image = generate_partition_image(tools, &info, options)?;
+            Ok(PreparedPartitionReset::Format {
+                image,
+                max_download_size,
+            })
+        }
+        PartitionResetAction::Erase => Ok(PreparedPartitionReset::Erase),
+        PartitionResetAction::Skip => Ok(PreparedPartitionReset::Skip {
+            reason: "partition not reported by connected device".to_string(),
+        }),
+    }
 }
 
 /// Generate a formatted userdata image (ext4 or f2fs) in a temporary
@@ -232,27 +376,15 @@ pub fn generate_userdata_image(
     info: &UserdataInfo,
     options: &FormatUserdataOptions,
 ) -> anyhow::Result<GeneratedUserdataImage> {
-    tools.validate()?;
-
-    let temp_dir = tempfile::Builder::new()
-        .prefix("pawflash-format-")
-        .tempdir()
-        .context("create temp directory for userdata image")?;
-    let path = temp_dir.path().join("userdata.img");
-
-    match info.fs_type.as_str() {
-        "ext4" => build_ext4_image(
-            tools,
-            &path,
-            info.size,
-            info.erase_block_size,
-            info.logical_block_size,
-        )?,
-        "f2fs" => build_f2fs_image(tools, &path, info.size, options.casefold)?,
-        other => anyhow::bail!("unsupported userdata filesystem type: {other}"),
-    }
-
-    Ok(GeneratedUserdataImage { temp_dir, path })
+    let info = PartitionResetInfo {
+        partition: "userdata".to_string(),
+        fs_type: Some(info.fs_type.clone()),
+        size: Some(info.size),
+        max_download_size: info.max_download_size,
+        erase_block_size: info.erase_block_size,
+        logical_block_size: info.logical_block_size,
+    };
+    generate_partition_image(tools, &info, options)
 }
 
 /// Generate a formatted ext4 image for an arbitrary partition in a temporary
@@ -261,23 +393,15 @@ pub fn generate_ext4_partition_image(
     tools: &FormatTools,
     info: &Ext4PartitionInfo,
 ) -> anyhow::Result<GeneratedUserdataImage> {
-    tools.validate()?;
-
-    let temp_dir = tempfile::Builder::new()
-        .prefix("pawflash-format-")
-        .tempdir()
-        .context("create temp directory for ext4 image")?;
-    let path = temp_dir.path().join(format!("{}.img", info.partition));
-
-    build_ext4_image(
-        tools,
-        &path,
-        info.size,
-        info.erase_block_size,
-        info.logical_block_size,
-    )?;
-
-    Ok(GeneratedUserdataImage { temp_dir, path })
+    let info = PartitionResetInfo {
+        partition: info.partition.clone(),
+        fs_type: Some("ext4".to_string()),
+        size: Some(info.size),
+        max_download_size: info.max_download_size,
+        erase_block_size: info.erase_block_size,
+        logical_block_size: info.logical_block_size,
+    };
+    generate_partition_image(tools, &info, &FormatUserdataOptions::default())
 }
 
 /// Detect userdata info, generate a formatted image, and flash it to the
@@ -414,7 +538,7 @@ fn is_skippable_fastboot_error(error: &FastbootError) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_fastboot_u64;
+    use super::{parse_fastboot_u64, PartitionResetAction, PartitionResetInfo};
     use fastboot_rs::FastbootError;
 
     #[test]
@@ -445,5 +569,56 @@ mod tests {
         ));
 
         assert!(super::is_skippable_fastboot_error(&error));
+    }
+
+    #[test]
+    fn partition_reset_action_should_format_supported_filesystems() {
+        let info = PartitionResetInfo {
+            partition: "userdata".to_string(),
+            fs_type: Some("ext4".to_string()),
+            size: Some(4096 * 4),
+            max_download_size: Some(4096 * 4),
+            erase_block_size: Some(4096),
+            logical_block_size: Some(4096),
+        };
+
+        assert_eq!(
+            super::partition_reset_action(&info).unwrap(),
+            PartitionResetAction::Format
+        );
+    }
+
+    #[test]
+    fn partition_reset_action_should_erase_raw_partitions() {
+        let info = PartitionResetInfo {
+            partition: "metadata".to_string(),
+            fs_type: Some("raw".to_string()),
+            size: Some(4096 * 4),
+            max_download_size: Some(4096 * 4),
+            erase_block_size: Some(4096),
+            logical_block_size: Some(4096),
+        };
+
+        assert_eq!(
+            super::partition_reset_action(&info).unwrap(),
+            PartitionResetAction::Erase
+        );
+    }
+
+    #[test]
+    fn partition_reset_action_should_skip_missing_optional_partitions() {
+        let info = PartitionResetInfo {
+            partition: "cache".to_string(),
+            fs_type: None,
+            size: None,
+            max_download_size: None,
+            erase_block_size: None,
+            logical_block_size: None,
+        };
+
+        assert_eq!(
+            super::partition_reset_action(&info).unwrap(),
+            PartitionResetAction::Skip
+        );
     }
 }
