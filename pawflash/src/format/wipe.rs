@@ -134,12 +134,11 @@ pub fn parse_fastboot_u64(value: &str) -> anyhow::Result<u64> {
     }
 }
 
-async fn get_var_optional(dev: &mut FastbootDevice, name: &str) -> Option<String> {
-    dev.get_var_optional(name)
-        .await
-        .ok()
-        .flatten()
-        .map(|value| value.trim().to_string())
+async fn get_var_optional(dev: &mut FastbootDevice, name: &str) -> anyhow::Result<Option<String>> {
+    Ok(dev
+        .get_var_optional(name)
+        .await?
+        .map(|value| value.trim().to_string()))
 }
 
 /// Read userdata partition info (filesystem type, size, block sizes) from the
@@ -160,13 +159,13 @@ pub async fn detect_userdata(dev: &mut FastbootDevice) -> anyhow::Result<Userdat
         .with_context(|| format!("parse partition-size:userdata ({raw_size})"))?;
 
     let max_download_size = get_var_optional(dev, "max-download-size")
-        .await
+        .await?
         .and_then(|value| parse_fastboot_u64(&value).ok());
     let erase_block_size = get_var_optional(dev, "erase-block-size")
-        .await
+        .await?
         .and_then(|value| parse_fastboot_u64(&value).ok());
     let logical_block_size = get_var_optional(dev, "logical-block-size")
-        .await
+        .await?
         .and_then(|value| parse_fastboot_u64(&value).ok());
 
     Ok(UserdataInfo {

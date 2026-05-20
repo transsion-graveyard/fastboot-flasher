@@ -150,7 +150,6 @@ export function FlashDialog({
               <section className="status-shell space-y-4 px-4 py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="panel-meta">Overall progress</p>
                     <p className="mt-1 text-sm font-semibold leading-5">
                       {phase === "complete" ? "Finished" : "Cumulative transfer"}
                     </p>

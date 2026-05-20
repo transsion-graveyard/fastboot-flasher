@@ -449,13 +449,13 @@ async fn try_partition_size(
             .with_context(|| format!("parse {key}"));
     }
 
-    match dev.get_var_optional(&key).await {
-        Ok(Some(value)) => {
+    match dev.get_var_optional(&key).await? {
+        Some(value) => {
             let size = parse_fastboot_u64(&value).with_context(|| format!("parse {key}"))?;
             vars.insert(key, value);
             Ok(Some(size))
         }
-        Ok(None) | Err(_) => Ok(None),
+        None => Ok(None),
     }
 }
 

@@ -313,14 +313,8 @@ impl NusbFastBoot {
         self.send_command(cmd).await?;
         let result = match self.handle_responses().await {
             Ok(value) => Ok(Some(value)),
-            Err(NusbFastBootError::FastbootFailed(message))
-                if super::is_missing_variable_message(&message) =>
-            {
+            Err(error) if is_missing_optional_var_response(&error) => {
                 trace!(var, "get_var_optional missing");
-                Ok(None)
-            }
-            Err(error) if error.is_retryable() => {
-                debug!(var, error = %error, "get_var_optional retryable failure");
                 Ok(None)
             }
             Err(error) => Err(error),
@@ -536,9 +530,17 @@ impl NusbFastBoot {
     }
 }
 
+fn is_missing_optional_var_response(error: &NusbFastBootError) -> bool {
+    matches!(
+        error,
+        NusbFastBootError::FastbootFailed(message)
+            if super::is_missing_variable_message(message)
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{NusbFastBoot, NusbFastBootError};
+    use super::{is_missing_optional_var_response, NusbFastBoot, NusbFastBootError};
     use crate::transport::is_missing_variable_message;
 
     #[test]
@@ -568,6 +570,16 @@ mod tests {
         assert!(NusbFastBootError::Transfer(super::TransferError::Fault).is_retryable());
         assert!(NusbFastBootError::Transfer(super::TransferError::Disconnected).is_retryable());
         assert!(!NusbFastBootError::Transfer(super::TransferError::Stall).is_retryable());
+    }
+
+    #[test]
+    fn optional_var_missing_detection_only_accepts_missing_variable_responses() {
+        assert!(is_missing_optional_var_response(
+            &NusbFastBootError::FastbootFailed("Variable Not Found".to_string())
+        ));
+        assert!(!is_missing_optional_var_response(
+            &NusbFastBootError::Transfer(super::TransferError::Fault)
+        ));
     }
 }
 

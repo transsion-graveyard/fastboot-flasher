@@ -37,6 +37,64 @@ fn is_fastboot_failed(err: &FastbootError) -> bool {
     }
 }
 
+#[allow(async_fn_in_trait)]
+trait LogicalPartitionOps {
+    async fn is_logical(&mut self, partition: &str) -> Result<bool, FastbootError>;
+
+    async fn resize_logical_partition(
+        &mut self,
+        partition: &str,
+        size: u64,
+    ) -> Result<(), FastbootError>;
+}
+
+#[allow(async_fn_in_trait)]
+impl LogicalPartitionOps for FastbootDevice {
+    async fn is_logical(&mut self, partition: &str) -> Result<bool, FastbootError> {
+        FastbootDevice::is_logical(self, partition).await
+    }
+
+    async fn resize_logical_partition(
+        &mut self,
+        partition: &str,
+        size: u64,
+    ) -> Result<(), FastbootError> {
+        FastbootDevice::resize_logical_partition(self, partition, size).await
+    }
+}
+
+async fn resize_logical_partition_if_needed(
+    dev: &mut impl LogicalPartitionOps,
+    partition: &str,
+    expanded_size: u64,
+) -> anyhow::Result<bool> {
+    debug!(partition, "querying logical partition state");
+    if dev
+        .is_logical(partition)
+        .await
+        .map_err(anyhow::Error::from)
+        .with_context(|| format!("query logical partition state for {partition}"))?
+    {
+        debug!(
+            partition,
+            expanded_size = %expanded_size,
+            "resizing logical partition"
+        );
+        dev.resize_logical_partition(partition, expanded_size)
+            .await
+            .map_err(anyhow::Error::from)
+            .with_context(|| {
+                format!(
+                    "resize logical partition {partition} to {} bytes",
+                    expanded_size
+                )
+            })?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 /// Prompt the user (or auto-accept when `yes` is set) whether to skip a
 /// partition whose flash failed.
 pub fn handle_failed_partition(
@@ -106,28 +164,7 @@ pub async fn flash_one_partition(
         file_size = prepared.file_size,
         "prepared image"
     );
-    debug!(partition, "querying logical partition state");
-    if dev
-        .is_logical(partition)
-        .await
-        .map_err(anyhow::Error::from)
-        .with_context(|| format!("query logical partition state for {partition}"))?
-    {
-        debug!(
-            partition,
-            expanded_size = prepared.expanded_size,
-            "resizing logical partition"
-        );
-        dev.resize_logical_partition(partition, prepared.expanded_size)
-            .await
-            .map_err(anyhow::Error::from)
-            .with_context(|| {
-                format!(
-                    "resize logical partition {partition} to {} bytes",
-                    prepared.expanded_size
-                )
-            })?;
-    }
+    resize_logical_partition_if_needed(dev, partition, prepared.expanded_size).await?;
     debug!(partition, "starting flash_prepared_image");
     flash_prepared_image(dev, partition, &prepared, on_progress)
         .await
@@ -145,11 +182,14 @@ pub async fn erase_one_partition(dev: &mut FastbootDevice, partition: &str) -> a
 #[cfg(test)]
 mod tests {
     use fastboot_rs::{
-        transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError,
-        ImagePayloadError,
+        transport::nusb::{NusbFastBootError, TransferError},
+        FastbootError, FastbootExecutionError, ImagePayloadError,
     };
 
-    use super::{should_skip_failed_partition, should_skip_failed_partition_error};
+    use super::{
+        resize_logical_partition_if_needed, should_skip_failed_partition,
+        should_skip_failed_partition_error, LogicalPartitionOps,
+    };
 
     fn fastboot_failed_error() -> FastbootExecutionError {
         FastbootExecutionError::Fastboot(FastbootError::Nusb(NusbFastBootError::FastbootFailed(
@@ -183,5 +223,81 @@ mod tests {
         let err = anyhow::Error::new(non_skippable_error());
 
         assert!(!should_skip_failed_partition_error(&err));
+    }
+
+    struct LogicalPartitionOpsMock {
+        logical: Option<Result<bool, FastbootError>>,
+        calls: Vec<String>,
+    }
+
+    impl LogicalPartitionOpsMock {
+        fn new(logical: Result<bool, FastbootError>) -> Self {
+            Self {
+                logical: Some(logical),
+                calls: Vec::new(),
+            }
+        }
+    }
+
+    #[allow(async_fn_in_trait)]
+    impl LogicalPartitionOps for LogicalPartitionOpsMock {
+        async fn is_logical(&mut self, partition: &str) -> Result<bool, FastbootError> {
+            self.calls.push(format!("is_logical:{partition}"));
+            self.logical.take().expect("logical query should run once")
+        }
+
+        async fn resize_logical_partition(
+            &mut self,
+            partition: &str,
+            size: u64,
+        ) -> Result<(), FastbootError> {
+            self.calls
+                .push(format!("resize_logical_partition:{partition}:{size}"));
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn resize_logical_partition_if_needed_resizes_when_logical() {
+        let mut dev = LogicalPartitionOpsMock::new(Ok(true));
+
+        let resized = resize_logical_partition_if_needed(&mut dev, "userdata", 4096)
+            .await
+            .unwrap();
+
+        assert!(resized);
+        assert_eq!(
+            dev.calls,
+            vec![
+                "is_logical:userdata".to_string(),
+                "resize_logical_partition:userdata:4096".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn resize_logical_partition_if_needed_skips_when_not_logical() {
+        let mut dev = LogicalPartitionOpsMock::new(Ok(false));
+
+        let resized = resize_logical_partition_if_needed(&mut dev, "userdata", 4096)
+            .await
+            .unwrap();
+
+        assert!(!resized);
+        assert_eq!(dev.calls, vec!["is_logical:userdata".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn resize_logical_partition_if_needed_propagates_query_errors() {
+        let mut dev = LogicalPartitionOpsMock::new(Err(FastbootError::Nusb(
+            NusbFastBootError::Transfer(TransferError::Fault),
+        )));
+
+        let error = resize_logical_partition_if_needed(&mut dev, "userdata", 4096)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("query logical partition state"));
+        assert_eq!(dev.calls, vec!["is_logical:userdata".to_string()]);
     }
 }
