@@ -61,7 +61,8 @@ pub enum FastbootError {
 }
 
 pub(crate) fn is_missing_variable_message(message: &str) -> bool {
-    message.to_ascii_lowercase().contains("variable not found")
+    let lower = message.to_ascii_lowercase();
+    lower.contains("variable not found") || lower.contains("partition table doesn't exist")
 }
 
 /// Errors when opening a fastboot device.
@@ -296,10 +297,18 @@ impl fmt::Debug for FastbootDevice {
 
 #[cfg(test)]
 mod tests {
-    use super::BackendKind;
+    use super::{is_missing_variable_message, BackendKind};
 
     #[test]
     fn open_fastboot_uses_nusb_backend_label() {
         assert_eq!(BackendKind::Nusb.as_str(), "nusb");
+    }
+
+    #[test]
+    fn missing_variable_detection_accepts_partition_table_missing_messages() {
+        assert!(is_missing_variable_message("Partition table doesn't exist"));
+        assert!(is_missing_variable_message(
+            "Fastboot client failure: Partition table doesn't exist"
+        ));
     }
 }

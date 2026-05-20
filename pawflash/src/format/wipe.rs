@@ -335,6 +335,7 @@ fn is_skippable_fastboot_error(error: &FastbootError) -> bool {
         FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => {
             true
         }
+        FastbootError::Nusb(error) if error.is_retryable() => true,
         _ => false,
     }
 }
@@ -342,6 +343,7 @@ fn is_skippable_fastboot_error(error: &FastbootError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::parse_fastboot_u64;
+    use fastboot_rs::FastbootError;
 
     #[test]
     fn parse_fastboot_u64_should_accept_decimal() {
@@ -362,5 +364,14 @@ mod tests {
     fn parse_fastboot_u64_should_accept_unprefixed_hex_values() {
         assert_eq!(parse_fastboot_u64("7f000000").unwrap(), 0x7f000000);
         assert_eq!(parse_fastboot_u64("ABCDEF").unwrap(), 0xabcdef);
+    }
+
+    #[test]
+    fn is_skippable_fastboot_error_should_accept_retryable_transfer_errors() {
+        let error = FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::Transfer(
+            fastboot_rs::transport::nusb::TransferError::Fault,
+        ));
+
+        assert!(super::is_skippable_fastboot_error(&error));
     }
 }

@@ -15,8 +15,11 @@ use tempfile::TempDir;
 use tokio::time::{sleep, timeout, Duration as TokioDuration};
 use tracing::debug;
 
+#[cfg(windows)]
+use crate::WINDOWS_FASTBOOTD_DRIVER_HINT;
 use crate::{
-    connect::try_connect_fastboot, flash_one_partition,
+    connect::try_connect_fastboot,
+    flash_one_partition,
     format::{
         detect_userdata, erase_optional_partition, generate_userdata_image, parse_fastboot_u64,
         FormatTools, FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
@@ -25,8 +28,6 @@ use crate::{
     read_all_variables, reboot_device_bootloader, reboot_device_fastboot,
     resolve_max_download_size_from_vars, FastbootDevice,
 };
-#[cfg(windows)]
-use crate::WINDOWS_FASTBOOTD_DRIVER_HINT;
 
 /// Size in bytes of the product_gsi fallback image.
 pub const PRODUCT_GSI_SIZE_BYTES: u64 = 335_872;
@@ -1152,7 +1153,10 @@ mod tests {
 
     #[test]
     fn waiting_for_fastbootd_step_has_expected_label() {
-        assert_eq!(GsiStep::WaitingForFastbootd.as_str(), "waiting for fastbootd");
+        assert_eq!(
+            GsiStep::WaitingForFastbootd.as_str(),
+            "waiting for fastbootd"
+        );
     }
 
     #[test]

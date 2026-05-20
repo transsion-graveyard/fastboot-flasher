@@ -17,8 +17,8 @@ use crate::{
 };
 
 use crate::domain::{
-    filter_actions, total_bytes_for_actions, update_overall_progress, FlashEvent,
-    FlashRunControl, FlashSummaryDto,
+    filter_actions, total_bytes_for_actions, update_overall_progress, FlashEvent, FlashRunControl,
+    FlashSummaryDto,
 };
 
 /// Outcome of flashing a single partition.
@@ -166,10 +166,8 @@ where
             let action_bytes = u64::try_from(action.size).unwrap_or(0);
             match action.action.as_str() {
                 "flash" => {
-                    let image_path = crate::domain::resolve_image_path_for_action(
-                        action,
-                        image_overrides,
-                    )?;
+                    let image_path =
+                        crate::domain::resolve_image_path_for_action(action, image_overrides)?;
                     let _ = self
                         .flash_partition(
                             &action.partition,
@@ -270,7 +268,12 @@ pub async fn simulate_dry_run_actions(
                 for step in crate::progress::dry_run_steps(total, 1024) {
                     control.ensure_not_cancelled()?;
                     completed = completed.saturating_add(step.bytes);
-                    emit_overall_progress(emit, completed_before, completed.min(total), overall_total)?;
+                    emit_overall_progress(
+                        emit,
+                        completed_before,
+                        completed.min(total),
+                        overall_total,
+                    )?;
                     emit(FlashEvent::Simulating {
                         partition: partition.clone(),
                         action: "flash".to_string(),
@@ -293,7 +296,12 @@ pub async fn simulate_dry_run_actions(
                 for step in crate::progress::dry_run_steps(total, 1024) {
                     control.ensure_not_cancelled()?;
                     completed = completed.saturating_add(step.bytes);
-                    emit_overall_progress(emit, completed_before, completed.min(total), overall_total)?;
+                    emit_overall_progress(
+                        emit,
+                        completed_before,
+                        completed.min(total),
+                        overall_total,
+                    )?;
                     emit(FlashEvent::Simulating {
                         partition: partition.clone(),
                         action: "wipe".to_string(),
@@ -391,7 +399,9 @@ pub async fn run_scatter_flash(
         max_download_size,
         overall_total: total_bytes,
     };
-    flash.execute_plan_actions(&actions, image_overrides).await?;
+    flash
+        .execute_plan_actions(&actions, image_overrides)
+        .await?;
 
     if reboot {
         emit(FlashEvent::Rebooting {
@@ -503,7 +513,9 @@ async fn format_userdata_with_info_flow(
     let max_download = info
         .max_download_size
         .context("missing userdata max-download-size")
-        .and_then(|value| u32::try_from(value).context("userdata max-download-size exceeds supported range"))
+        .and_then(|value| {
+            u32::try_from(value).context("userdata max-download-size exceeds supported range")
+        })
         .map_err(|e| format!("{e:#}"))?;
 
     let total_bytes = generated
@@ -513,7 +525,10 @@ async fn format_userdata_with_info_flow(
         actions: 1,
         total_bytes,
     })?;
-    emit(FlashEvent::Overall { bytes: 0, total: total_bytes })?;
+    emit(FlashEvent::Overall {
+        bytes: 0,
+        total: total_bytes,
+    })?;
 
     let mut summary = FlashSummaryDto {
         flash_count: 0,
@@ -558,7 +573,9 @@ pub async fn wipe_data_flow(
     let generated = generate_userdata_image(tools, &info, &format_options);
     let erase_steps = usize::from(options.erase_metadata) + usize::from(options.erase_cache);
     let base_bytes = match &generated {
-        Ok(image) => image.image_len().map_err(|e| format!("generated image: {e}"))?,
+        Ok(image) => image
+            .image_len()
+            .map_err(|e| format!("generated image: {e}"))?,
         Err(_) if options.erase_fallback => 1,
         Err(_) => 0,
     };
@@ -568,7 +585,10 @@ pub async fn wipe_data_flow(
         actions: 1 + erase_steps,
         total_bytes,
     })?;
-    emit(FlashEvent::Overall { bytes: 0, total: total_bytes })?;
+    emit(FlashEvent::Overall {
+        bytes: 0,
+        total: total_bytes,
+    })?;
 
     let mut summary = FlashSummaryDto {
         flash_count: 0,
@@ -582,7 +602,10 @@ pub async fn wipe_data_flow(
             let max_download_size = info
                 .max_download_size
                 .context("missing userdata max-download-size")
-                .and_then(|value| u32::try_from(value).context("userdata max-download-size exceeds supported range"))
+                .and_then(|value| {
+                    u32::try_from(value)
+                        .context("userdata max-download-size exceeds supported range")
+                })
                 .map_err(|e| format!("{e:#}"))?;
             let mut flash = FlashProgressContext {
                 dev,

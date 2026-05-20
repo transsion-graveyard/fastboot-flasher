@@ -407,7 +407,9 @@ pub fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
                 .or_else(|| {
                     a.image
                         .as_ref()
-                        .and_then(|image| image.pointer("/file_name").and_then(|value| value.as_str()))
+                        .and_then(|image| {
+                            image.pointer("/file_name").and_then(|value| value.as_str())
+                        })
                         .map(ToOwned::to_owned)
                 });
 
@@ -436,7 +438,11 @@ pub fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
             flash_count: plan.summary.flash_count,
             wipe_count: plan.summary.wipe_count,
             skipped_count: plan.summary.skipped_count,
-            total_bytes: plan.actions.iter().map(|a| u64::try_from(a.size).unwrap_or(0)).sum(),
+            total_bytes: plan
+                .actions
+                .iter()
+                .map(|a| u64::try_from(a.size).unwrap_or(0))
+                .sum(),
         },
         partitions,
         warnings: plan.warnings.clone(),

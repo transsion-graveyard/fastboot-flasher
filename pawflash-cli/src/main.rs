@@ -5,8 +5,8 @@ use pawflash::{
     cli::{flash_mode_from_flags, validate_args, Args, Command},
     connect::connect_fastboot,
     device::{
-        read_all_variables, read_variable, resolve_max_download_size_from_vars, reboot_device,
-        reboot_device_bootloader, send_flashing_lock, send_flashing_unlock,
+        read_all_variables, read_variable, reboot_device, reboot_device_bootloader,
+        resolve_max_download_size_from_vars, send_flashing_lock, send_flashing_unlock,
         set_fastboot_active_slot,
     },
     domain::{FlashEvent, FlashRunControl},
@@ -54,22 +54,9 @@ async fn run(args: Args) -> anyhow::Result<()> {
             slot,
             include_preloader,
         }) => {
-            let mode = flash_mode_from_flags(
-                false,
-                firmware_upgrade,
-                clean_flash,
-                selective,
-            )
-            .map_err(anyhow::Error::msg)?;
-            run_scatter(
-                scatter,
-                mode,
-                slot,
-                include_preloader,
-                vec![],
-                args.dry_run,
-            )
-            .await
+            let mode = flash_mode_from_flags(false, firmware_upgrade, clean_flash, selective)
+                .map_err(anyhow::Error::msg)?;
+            run_scatter(scatter, mode, slot, include_preloader, vec![], args.dry_run).await
         }
         Some(Command::Flash {
             partition,
@@ -286,7 +273,10 @@ async fn run_disable_vbmeta() -> anyhow::Result<()> {
 }
 
 async fn run_format(partition: String, erase_fallback: bool) -> anyhow::Result<()> {
-    anyhow::ensure!(partition == "userdata", "format currently only supports userdata");
+    anyhow::ensure!(
+        partition == "userdata",
+        "format currently only supports userdata"
+    );
     let control = FlashRunControl::default();
     let mut emit = |event: FlashEvent| {
         print_flash_event(&event);
@@ -417,7 +407,11 @@ fn print_flash_event(event: &FlashEvent) {
         ),
         FlashEvent::Cancelled { message } => eprintln!("{message}"),
         FlashEvent::Error { message } => eprintln!("{message}"),
-        FlashEvent::DeviceCheckDiagnostic { stage, level, message } => {
+        FlashEvent::DeviceCheckDiagnostic {
+            stage,
+            level,
+            message,
+        } => {
             println!("[{level}] {stage}: {message}")
         }
         FlashEvent::GsiStatus { status } => println!("gsi: {status}"),

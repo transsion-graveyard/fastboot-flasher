@@ -9,11 +9,11 @@
 //! both the CLI and GUI binaries can depend on it cleanly.
 
 pub mod cli;
-/// Shared domain types and helpers for adapters.
-pub mod domain;
 pub mod connect;
 pub mod device;
 pub mod device_info;
+/// Shared domain types and helpers for adapters.
+pub mod domain;
 pub mod flash;
 pub mod format;
 pub mod gsi;
@@ -24,16 +24,17 @@ pub mod progress;
 pub mod workflow;
 
 // Re-export types from protocol crates
-pub use fastboot_rs::{FastbootDevice, FastbootError, FastbootExecutionError, FlashProgress};
 pub use domain::{
     build_device_check_diagnostic, default_partition_selected, describe_fastboot_probe_failure,
     display_safety_class, filter_actions, normalize_power_off_error, normalize_slot,
-    normalize_storage_label, parse_flash_mode, parse_plan_request, parse_slot, plan_requires_connected_device,
-    plan_to_dto, resolve_image_path_for_action, total_bytes_for_actions, update_overall_progress,
-    DeviceInfo, DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashPlanDto,
-    FlashSummaryDto, FlashRunControl, ForceFastbootEvent, ForceFastbootStartDto, ParsedPlanRequest,
-    PartitionDto, ParseScatterResponseDto, POWER_OFF_UNSUPPORTED_MESSAGE, WINDOWS_FASTBOOTD_DRIVER_HINT,
+    normalize_storage_label, parse_flash_mode, parse_plan_request, parse_slot,
+    plan_requires_connected_device, plan_to_dto, resolve_image_path_for_action,
+    total_bytes_for_actions, update_overall_progress, DeviceInfo, DeviceSessionPolicy,
+    FastbootProbeFailure, FlashEvent, FlashPlanDto, FlashRunControl, FlashSummaryDto,
+    ForceFastbootEvent, ForceFastbootStartDto, ParseScatterResponseDto, ParsedPlanRequest,
+    PartitionDto, POWER_OFF_UNSUPPORTED_MESSAGE, WINDOWS_FASTBOOTD_DRIVER_HINT,
 };
+pub use fastboot_rs::{FastbootDevice, FastbootError, FastbootExecutionError, FlashProgress};
 
 // Re-export from force-fastboot
 pub use force_fastboot::{run_force_fastboot, ForceFastbootError, ForceFastbootOptions};

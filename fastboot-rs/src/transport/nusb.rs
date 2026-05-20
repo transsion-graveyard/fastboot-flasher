@@ -6,8 +6,8 @@ use nusb::Endpoint;
 pub use nusb::{transfer::TransferError, Device, DeviceInfo, Interface};
 use std::{collections::HashMap, fmt::Display};
 use thiserror::Error;
-use tracing::{info, warn};
-use tracing::{instrument, trace};
+use tracing::instrument;
+use tracing::{debug, info, trace, warn};
 
 use crate::protocol::{FastBootCommand, FastBootResponse, FastBootResponseParseError};
 
@@ -52,6 +52,16 @@ pub enum NusbFastBootError {
         /// Human-readable error reason.
         reason: String,
     },
+}
+
+impl NusbFastBootError {
+    /// Whether this error is likely transient and can be retried by reconnecting.
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::Transfer(TransferError::Fault | TransferError::Disconnected)
+        )
+    }
 }
 
 /// Errors when opening the fastboot device
@@ -183,11 +193,20 @@ impl NusbFastBoot {
         Self::from_device(device, interface).await
     }
 
-    #[tracing::instrument(skip_all, err)]
+    #[tracing::instrument(skip_all)]
     async fn send_data(&mut self, data: Vec<u8>) -> Result<(), NusbFastBootError> {
         self.ep_out.submit(data.into());
-        self.ep_out.next_complete().await.into_result()?;
-        Ok(())
+        match self.ep_out.next_complete().await.into_result() {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                if error == TransferError::Fault || error == TransferError::Disconnected {
+                    debug!(error = %error, "send_data retryable transport failure");
+                } else {
+                    warn!(error = %error, "send_data transport failure");
+                }
+                Err(NusbFastBootError::Transfer(error))
+            }
+        }
     }
 
     async fn send_command<S: Display>(
@@ -202,15 +221,20 @@ impl NusbFastBoot {
         self.send_data(out).await
     }
 
-    #[tracing::instrument(skip_all, err)]
+    #[tracing::instrument(skip_all)]
     async fn read_response(&mut self) -> Result<FastBootResponse, NusbFastBootError> {
         self.ep_in.submit(Buffer::new(self.max_in));
-        let resp = self
-            .ep_in
-            .next_complete()
-            .await
-            .into_result()
-            .map_err(NusbFastBootError::Transfer)?;
+        let resp = match self.ep_in.next_complete().await.into_result() {
+            Ok(resp) => resp,
+            Err(error) => {
+                if error == TransferError::Fault || error == TransferError::Disconnected {
+                    debug!(error = %error, "read_response retryable transport failure");
+                } else {
+                    warn!(error = %error, "read_response transport failure");
+                }
+                return Err(NusbFastBootError::Transfer(error));
+            }
+        };
         Ok(FastBootResponse::from_bytes(&resp)?)
     }
 
@@ -232,13 +256,28 @@ impl NusbFastBoot {
         }
     }
 
-    #[tracing::instrument(skip_all, err)]
+    #[tracing::instrument(skip_all)]
     async fn execute<S: Display>(
         &mut self,
         cmd: FastBootCommand<S>,
     ) -> Result<String, NusbFastBootError> {
-        self.send_command(cmd).await?;
-        self.handle_responses().await
+        let result = async {
+            self.send_command(cmd).await?;
+            self.handle_responses().await
+        }
+        .await;
+
+        if let Err(error) = &result {
+            if error.is_retryable()
+                || matches!(error, NusbFastBootError::FastbootFailed(message) if super::is_missing_variable_message(message))
+            {
+                debug!(error = %error, "execute retryable transport failure");
+            } else {
+                warn!(error = %error, "execute transport failure");
+            }
+        }
+
+        result
     }
 
     fn allocate(&self) -> Buffer {
@@ -278,6 +317,10 @@ impl NusbFastBoot {
                 if super::is_missing_variable_message(&message) =>
             {
                 trace!(var, "get_var_optional missing");
+                Ok(None)
+            }
+            Err(error) if error.is_retryable() => {
+                debug!(var, error = %error, "get_var_optional retryable failure");
                 Ok(None)
             }
             Err(error) => Err(error),
@@ -354,7 +397,10 @@ impl NusbFastBoot {
     /// Return whether the given partition is logical.
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool, NusbFastBootError> {
         trace!(partition, "is_logical start");
-        let Some(value) = self.get_var_optional(&format!("is-logical:{partition}")).await? else {
+        let Some(value) = self
+            .get_var_optional(&format!("is-logical:{partition}"))
+            .await?
+        else {
             trace!(partition, "is_logical missing-var default=false");
             return Ok(false);
         };
@@ -492,7 +538,7 @@ impl NusbFastBoot {
 
 #[cfg(test)]
 mod tests {
-    use super::NusbFastBoot;
+    use super::{NusbFastBoot, NusbFastBootError};
     use crate::transport::is_missing_variable_message;
 
     #[test]
@@ -511,8 +557,17 @@ mod tests {
     #[test]
     fn missing_variable_detection_is_case_insensitive() {
         assert!(is_missing_variable_message("Variable Not Found"));
-        assert!(is_missing_variable_message("FASTBOOT client failure: variable not found"));
+        assert!(is_missing_variable_message(
+            "FASTBOOT client failure: variable not found"
+        ));
         assert!(!is_missing_variable_message("bootloader rejected flash"));
+    }
+
+    #[test]
+    fn retryable_transfer_errors_include_disconnect_and_fault() {
+        assert!(NusbFastBootError::Transfer(super::TransferError::Fault).is_retryable());
+        assert!(NusbFastBootError::Transfer(super::TransferError::Disconnected).is_retryable());
+        assert!(!NusbFastBootError::Transfer(super::TransferError::Stall).is_retryable());
     }
 }
 
