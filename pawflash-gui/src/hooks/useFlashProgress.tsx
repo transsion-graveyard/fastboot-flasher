@@ -101,7 +101,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
           case "GsiStatus":
             setState((p) => ({
               ...p,
-              statusText: gsiStatusMessage(ev.data.status),
+              statusText: "",
               operation: "",
               partition: "",
               bytes: 0,

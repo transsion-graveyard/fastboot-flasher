@@ -238,6 +238,42 @@ fn clean_flash_userdata_wipe_should_keep_source_file_metadata() {
 }
 
 #[test]
+fn clean_flash_should_synthesize_missing_user_state_wipes() {
+    let temp = tempfile::tempdir().unwrap();
+    let scatter = ScatterFile {
+        path: temp.path().join("scatter.xml"),
+        format: "test".to_string(),
+        text_hash: String::new(),
+        platform: None,
+        project: None,
+        general: json!({}),
+        layouts: Default::default(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+
+    let plan = build_flash_plan(
+        &scatter,
+        FlashPlanOptions {
+            mode: Mode::CleanFlash,
+            firmware_dir: Some(temp.path().to_path_buf()),
+            ..FlashPlanOptions::default()
+        },
+    );
+
+    let wipe_partitions = plan
+        .actions
+        .iter()
+        .filter(|action| action.action == "wipe")
+        .map(|action| action.partition.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(wipe_partitions, vec!["userdata", "metadata", "cache"]);
+    assert_eq!(plan.summary.wipe_count, 3);
+    assert!(plan.errors.is_empty(), "{:?}", plan.errors);
+}
+
+#[test]
 fn synthesized_slot_action_should_recheck_image_against_target_partition_size() {
     let temp = tempfile::tempdir().unwrap();
     let image_path = temp.path().join("boot.img");

@@ -756,6 +756,12 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
     }
 
     append_clean_flash_wipes(&selected_parts, options.mode, &mut actions);
+    let existing_wipes = actions
+        .iter()
+        .filter(|action| action.action == "wipe")
+        .map(|action| canonical_name(&action.partition))
+        .collect::<BTreeSet<_>>();
+    append_missing_clean_flash_wipes(options.mode, &existing_wipes, &mut actions);
 
     warn_for_missing_selective_requests(
         options.mode,
@@ -1023,6 +1029,44 @@ fn append_clean_flash_wipes(
                 Vec::new(),
             ));
         }
+    }
+}
+
+fn append_missing_clean_flash_wipes(
+    mode: Mode,
+    existing_wipes: &BTreeSet<String>,
+    actions: &mut Vec<FlashAction>,
+) {
+    if mode != Mode::CleanFlash {
+        return;
+    }
+
+    for partition in WIPE_CANONICAL {
+        if existing_wipes.contains(*partition) {
+            continue;
+        }
+        actions.push(synthetic_clean_flash_wipe(partition));
+    }
+}
+
+fn synthetic_clean_flash_wipe(partition: &str) -> FlashAction {
+    FlashAction {
+        action: "wipe".to_string(),
+        partition: partition.to_string(),
+        base_name: partition.to_string(),
+        slot: None,
+        layout: "SYNTHETIC".to_string(),
+        region: "SYNTHETIC".to_string(),
+        start: 0,
+        start_hex: "0x0".to_string(),
+        size: 1,
+        size_hex: "0x1".to_string(),
+        size_human: human_size(1),
+        image: None,
+        image_type: None,
+        safety_class: safety_class(partition),
+        reason: "clean-flash wipes user state".to_string(),
+        warnings: Vec::new(),
     }
 }
 

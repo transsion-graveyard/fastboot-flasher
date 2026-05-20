@@ -26,7 +26,7 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(34rem,calc(100vw-1rem))] !max-w-none gap-4 bg-background text-foreground sm:!max-w-none">
+      <DialogContent className="w-[min(34rem,calc(100vw-1rem))] !max-w-none gap-4 bg-background text-foreground sm:!max-w-none" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Confirm flash plan</DialogTitle>
         </DialogHeader>

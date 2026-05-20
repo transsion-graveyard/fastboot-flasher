@@ -5,14 +5,13 @@ use std::path::Path;
 
 use anyhow::Context;
 use fastboot_rs::{FastbootDevice, FlashProgress};
+use mtk_scatter_parser::FlashAction;
 
 use tracing::warn;
 
 use crate::{
     device::{read_all_variables, reboot_device, resolve_max_download_size_from_vars},
-    flash::{
-        erase_one_partition, flash_one_partition, is_scatter_skippable_error,
-    },
+    flash::{erase_one_partition, flash_one_partition, is_scatter_skippable_error},
     format::{
         detect_userdata, erase_optional_partition, generate_userdata_image, FormatTools,
         FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
@@ -39,12 +38,21 @@ pub enum PartitionFlashFailureDisposition {
     Fatal,
 }
 
-pub fn partition_flash_failure_disposition(error: &anyhow::Error) -> PartitionFlashFailureDisposition {
+pub fn partition_flash_failure_disposition(
+    error: &anyhow::Error,
+) -> PartitionFlashFailureDisposition {
     if is_scatter_skippable_error(error) {
         PartitionFlashFailureDisposition::Skip
     } else {
         PartitionFlashFailureDisposition::Fatal
     }
+}
+
+fn action_is_skip_eligible(action: &FlashAction) -> bool {
+    !matches!(
+        action.safety_class.as_str(),
+        "bootloader_critical" | "boot_critical" | "android_system"
+    )
 }
 
 /// Progress context for flash operations that emit shared events.
@@ -171,21 +179,26 @@ where
             let action_bytes = u64::try_from(action.size).unwrap_or(0);
             match action.action.as_str() {
                 "flash" => {
+                    let allow_skip = action_is_skip_eligible(action);
                     let image_path =
                         match crate::domain::resolve_image_path_for_action(action, image_overrides)
                         {
                             Ok(p) => p,
-                            Err(e) => {
-                                warn!(partition = action.partition, "skipping partition with missing image path");
+                            Err(e) if allow_skip => {
+                                warn!(
+                                    partition = action.partition,
+                                    safety_class = action.safety_class.as_str(),
+                                    "skipping partition with missing image path"
+                                );
                                 (self.emit)(FlashEvent::PartitionSkipped {
                                     partition: action.partition.clone(),
                                     reason: e,
                                 })?;
                                 self.summary.skipped_count += 1;
-                                completed_before =
-                                    completed_before.saturating_add(action_bytes);
+                                completed_before = completed_before.saturating_add(action_bytes);
                                 continue;
                             }
+                            Err(e) => return Err(e),
                         };
                     let outcome = self
                         .flash_partition(
@@ -193,7 +206,7 @@ where
                             &image_path,
                             action_bytes,
                             completed_before,
-                            true,
+                            allow_skip,
                         )
                         .await?;
                     completed_before = completed_before.saturating_add(action_bytes);
@@ -728,4 +741,99 @@ async fn erase_optional_partition_and_emit(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        action_is_skip_eligible, partition_flash_failure_disposition,
+        PartitionFlashFailureDisposition,
+    };
+    use fastboot_rs::{transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError};
+    use serde_json::json;
+
+    use crate::FlashAction;
+
+    fn test_action(partition: &str, safety_class: &str) -> FlashAction {
+        FlashAction {
+            action: "flash".to_string(),
+            partition: partition.to_string(),
+            base_name: partition.to_string(),
+            slot: None,
+            layout: "TEST".to_string(),
+            region: "TEST".to_string(),
+            start: 0,
+            start_hex: "0x0".to_string(),
+            size: 1,
+            size_hex: "0x1".to_string(),
+            size_human: "1 B".to_string(),
+            image: Some(json!({})),
+            image_type: None,
+            safety_class: safety_class.to_string(),
+            reason: "test".to_string(),
+            warnings: Vec::new(),
+        }
+    }
+
+    fn fastboot_failed_error() -> anyhow::Error {
+        anyhow::Error::new(FastbootExecutionError::Fastboot(FastbootError::Nusb(
+            NusbFastBootError::FastbootFailed("rejected".to_string()),
+        )))
+    }
+
+    fn should_skip_failure(action: &FlashAction, error: &anyhow::Error) -> bool {
+        action_is_skip_eligible(action)
+            && matches!(
+                partition_flash_failure_disposition(error),
+                PartitionFlashFailureDisposition::Skip
+            )
+    }
+
+    #[test]
+    fn skip_eligibility_blocks_boot_critical_partitions() {
+        assert!(!action_is_skip_eligible(&test_action(
+            "boot",
+            "boot_critical"
+        )));
+        assert!(!action_is_skip_eligible(&test_action(
+            "vbmeta",
+            "android_system"
+        )));
+    }
+
+    #[test]
+    fn skip_eligibility_allows_noncritical_partitions() {
+        assert!(action_is_skip_eligible(&test_action("modem", "firmware")));
+        assert!(action_is_skip_eligible(&test_action("logo", "regional")));
+    }
+
+    #[test]
+    fn partition_flash_failure_disposition_skips_fastboot_failed_responses() {
+        assert_eq!(
+            partition_flash_failure_disposition(&fastboot_failed_error()),
+            PartitionFlashFailureDisposition::Skip
+        );
+    }
+
+    #[test]
+    fn partition_flash_failure_disposition_keeps_other_errors_fatal() {
+        assert_eq!(
+            partition_flash_failure_disposition(&anyhow::Error::msg("boom")),
+            PartitionFlashFailureDisposition::Fatal
+        );
+    }
+
+    #[test]
+    fn recoverable_failures_are_skippable_for_noncritical_partitions() {
+        let action = test_action("modem", "firmware");
+
+        assert!(should_skip_failure(&action, &fastboot_failed_error()));
+    }
+
+    #[test]
+    fn recoverable_failures_remain_fatal_for_boot_critical_partitions() {
+        let action = test_action("boot", "boot_critical");
+
+        assert!(!should_skip_failure(&action, &fastboot_failed_error()));
+    }
 }

@@ -147,26 +147,23 @@ export function FlashDialog({
                 </section>
               )}
 
-              <section className="status-shell space-y-4 px-4 py-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="mt-1 text-sm font-semibold leading-5">
-                      {phase === "complete" ? "Finished" : "Cumulative transfer"}
-                    </p>
+              {phase !== "complete" && (
+                <section className="status-shell space-y-4 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="mt-1 text-sm font-semibold leading-5">Overall</p>
+                    </div>
                   </div>
-                  <span className="shrink-0 text-sm font-semibold tabular-nums text-muted-foreground">
-                    {overallPct}%
-                  </span>
-                </div>
 
-                <ProgressBlock
-                  label="Overall progress"
-                  value={overallPct}
-                  toneClass={tone.bar}
-                  caption={overallCaption(phase, overallBytes, overallTotal)}
-                  amount={overallTotal > 0 ? formatBytesProgress(overallBytes, overallTotal) : ""}
-                />
-              </section>
+                  <ProgressBlock
+                    label="Overall progress"
+                    value={overallPct}
+                    toneClass={tone.bar}
+                    caption={overallCaption(phase, overallBytes, overallTotal)}
+                    amount={overallTotal > 0 ? formatBytesProgress(overallBytes, overallTotal) : ""}
+                  />
+                </section>
+              )}
             </div>
 
             {summary && (
