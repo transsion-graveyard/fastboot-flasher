@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from "react";
 import { Copy, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useFlashLog } from "@/hooks/useFlashProgress";
 import { SectionCard } from "@/components/menu-tab/SectionCard";
 
@@ -83,8 +84,8 @@ export const LogSection = memo(function LogSection() {
         </>
       }
     >
-      <div className="panel-inset min-h-0 flex-1 overflow-y-auto">
-        <div className="space-y-1.5 p-4 font-mono text-sm" aria-live="polite" aria-atomic="false">
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="panel-inset space-y-1.5 p-4 font-mono text-sm" aria-live="polite" aria-atomic="false">
           {entries.length === 0 ? (
             <div className="max-w-[48ch] whitespace-pre-wrap text-muted-foreground italic">
               Run an action to populate the log.
@@ -98,7 +99,7 @@ export const LogSection = memo(function LogSection() {
           )}
           <div ref={bottomRef} />
         </div>
-      </div>
+      </ScrollArea>
     </SectionCard>
   );
 });

@@ -35,7 +35,7 @@ export function ExtraTab({
   onGetAllVariables,
 }: ExtraTabProps) {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5 lg:grid lg:grid-cols-2 lg:gap-6">
+    <div className="flex min-h-full min-h-0 flex-col gap-5 lg:grid lg:grid-cols-2 lg:gap-6">
       <div className="flex flex-col gap-4">
         <GsiFlasher
           imagePath={gsiImagePath}
@@ -62,6 +62,7 @@ export function ExtraTab({
           disabled={menuActionDisabled}
           onGetVariable={onGetVariable}
           onGetAllVariables={onGetAllVariables}
+          className="flex-1 min-h-0"
         />
       </div>
     </div>

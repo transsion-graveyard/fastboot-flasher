@@ -1,6 +1,7 @@
 import { memo, useState } from "react";
 import { Copy, Search, TerminalSquare } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SectionCard } from "@/components/menu-tab/SectionCard";
@@ -11,6 +12,7 @@ interface FastbootVarsProps {
   onGetVariable: (name: string) => Promise<string>;
   onGetAllVariables: () => Promise<Record<string, string>>;
   variant?: "default" | "flat";
+  className?: string;
 }
 
 export const FastbootVars = memo(function FastbootVars({
@@ -18,6 +20,7 @@ export const FastbootVars = memo(function FastbootVars({
   onGetVariable,
   onGetAllVariables,
   variant,
+  className,
 }: FastbootVarsProps) {
   const [variableName, setVariableName] = useState("");
   const [variableOutput, setVariableOutput] = useState("");
@@ -61,7 +64,7 @@ export const FastbootVars = memo(function FastbootVars({
   };
 
   return (
-    <SectionCard title="Fastboot vars" variant={variant} contentClassName="space-y-4">
+    <SectionCard title="Fastboot vars" variant={variant} className={cn("flex flex-col overflow-hidden", className)} contentClassName="mt-0 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden min-h-[300px]">
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
         <Input
           value={variableName}
@@ -103,7 +106,7 @@ export const FastbootVars = memo(function FastbootVars({
           Copy vars
         </Button>
       </div>
-      <pre className="min-h-32 overflow-auto rounded-md border border-border/70 bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+      <pre className="min-h-0 flex-1 overflow-auto rounded-md border border-border/70 bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
         {variableOutput || "Variable output will appear here."}
       </pre>
     </SectionCard>

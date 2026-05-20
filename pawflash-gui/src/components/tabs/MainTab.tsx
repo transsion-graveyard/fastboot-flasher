@@ -60,7 +60,7 @@ export function MainTab({
   setFlashConfirmOpen,
 }: MainTabProps) {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 lg:gap-6">
+    <div className="flex min-h-full min-h-0 flex-col gap-4 lg:gap-6">
       <ScatterPicker path={scatterPath} onChange={loadScatter} />
       <FlashOptions
         mode={mode}
