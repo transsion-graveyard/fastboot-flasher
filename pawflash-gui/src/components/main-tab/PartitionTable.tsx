@@ -69,12 +69,12 @@ export const PartitionTable = memo(function PartitionTable({
   }
 
   return (
-    <div className={cn("panel-shell flex min-h-0 flex-1 flex-col", className)}>
+    <div className={cn("panel-shell flex min-h-0 flex-1 flex-col overflow-x-auto", className)}>
       <div className="border-b border-border/80 bg-card/96">
         <Table className="table-fixed">
           <colgroup>
-            {columnWidths.map((width) => (
-              <col key={width} className={width} />
+            {columnWidths.map((width, i) => (
+              <col key={width} className={cn(width, (i === 2 || i === 4) && "max-lg:hidden")} />
             ))}
           </colgroup>
           <TableHeader className="[&_th]:text-muted-foreground">
@@ -90,9 +90,9 @@ export const PartitionTable = memo(function PartitionTable({
                 </div>
               </TableHead>
               <TableHead className={columnWidths[1]}>Partition</TableHead>
-              <TableHead className={columnWidths[2]}>Size</TableHead>
+              <TableHead className={cn(columnWidths[2], "hidden lg:table-cell")}>Size</TableHead>
               <TableHead className={columnWidths[3]}>Type</TableHead>
-              <TableHead className={columnWidths[4]}>Image</TableHead>
+              <TableHead className={cn(columnWidths[4], "hidden lg:table-cell")}>Image</TableHead>
             </TableRow>
           </TableHeader>
         </Table>
@@ -100,13 +100,17 @@ export const PartitionTable = memo(function PartitionTable({
       <ScrollArea className="min-h-0 flex-1">
         <Table className="table-fixed">
           <colgroup>
-            {columnWidths.map((width) => (
-              <col key={width} className={width} />
+            {columnWidths.map((width, i) => (
+              <col key={width} className={cn(width, (i === 2 || i === 4) && "max-lg:hidden")} />
             ))}
           </colgroup>
           <TableBody>
             {partitions.map((partition) => (
-              <TableRow key={partition.index}>
+              <TableRow key={partition.index}
+                className={cn(
+                  partition.action === "flash" && "row-tint-flash",
+                  partition.action === "wipe" && "row-tint-wipe",
+                )}>
                 <TableCell className="px-0 text-center">
                   <div className="flex justify-center">
                     <Checkbox
@@ -116,14 +120,14 @@ export const PartitionTable = memo(function PartitionTable({
                     />
                   </div>
                 </TableCell>
-                <TableCell className="truncate font-mono text-left" title={partition.partition}>
-                  {partition.partition}
+                <TableCell className="truncate text-left" title={partition.partition}>
+                    <span className="font-mono">{partition.partition}</span>
                 </TableCell>
-                <TableCell className="whitespace-nowrap text-center">{partition.size_human}</TableCell>
+                <TableCell className="hidden whitespace-nowrap text-center lg:table-cell">{partition.size_human}</TableCell>
                 <TableCell className="truncate text-center">
                   {partition.image_type ? partition.image_type : <span className="text-muted-foreground">—</span>}
                 </TableCell>
-                <TableCell className="text-left">
+                <TableCell className="hidden text-left lg:table-cell">
                   {partition.action === "flash" ? (
                     <Tooltip>
                       <TooltipTrigger

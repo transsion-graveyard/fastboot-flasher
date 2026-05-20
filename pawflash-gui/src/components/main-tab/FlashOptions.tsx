@@ -77,10 +77,10 @@ export const FlashOptions = memo(function FlashOptions({
   };
 
   return (
-    <div className="panel-shell grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_auto]">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+    <div className="panel-shell grid gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
         <Select value={mode} onValueChange={(v) => v !== null && onModeChange(v)}>
-          <SelectTrigger aria-label="Flash mode">
+          <SelectTrigger aria-label="Flash mode" className="min-w-0 max-w-48">
             <SelectValue>{flashModeLabel(mode)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -92,7 +92,7 @@ export const FlashOptions = memo(function FlashOptions({
           </SelectContent>
         </Select>
 
-        <div className="flex items-center gap-3 px-1 py-1">
+        <div className="flex shrink-0 items-center gap-3 px-1 py-1">
           <Checkbox
             id="reboot"
             checked={reboot}
@@ -102,7 +102,7 @@ export const FlashOptions = memo(function FlashOptions({
         </div>
       </div>
 
-      <div className="flex items-start gap-2 justify-start xl:justify-end">
+      <div className="flex flex-wrap items-start gap-2 justify-start lg:justify-end">
         <Button
           type="button"
           variant="outline"

@@ -21,27 +21,35 @@ export function MenuTab({
   onRebootTargetChange,
 }: MenuTabProps) {
   return (
-    <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-      <div className="flex min-h-0 flex-col gap-5">
+    <div className="grid h-full min-h-0 auto-rows-auto gap-5 lg:grid-cols-2">
+      <div className="lg:col-start-1 lg:row-start-1">
         <DeviceSection
           onForceFastboot={onForceFastboot}
           forceFastbootDisabled={menuActionDisabled}
           disableVbmetaDisabled={menuActionDisabled}
           disabled={menuActionDisabled}
         />
+      </div>
+      <div className="lg:col-start-1 lg:row-start-2">
         <BootloaderSection />
+      </div>
+      <div className="lg:col-start-1 lg:row-start-3">
         <DataSection
           onFormatData={onFormatData}
           disabled={menuActionDisabled}
         />
+      </div>
+      <div className="lg:col-start-1 lg:row-start-4">
         <SlotSection disabled={menuActionDisabled} />
       </div>
-      <div className="flex min-h-0 flex-col gap-5">
+      <div className="lg:col-start-2 lg:row-start-1">
         <RebootSection
           disabled={menuActionDisabled}
           target={rebootTarget}
           onTargetChange={onRebootTargetChange}
         />
+      </div>
+      <div className="h-full lg:col-start-2 lg:row-start-2 lg:row-span-3">
         <LogSection />
       </div>
     </div>

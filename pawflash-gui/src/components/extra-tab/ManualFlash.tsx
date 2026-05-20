@@ -67,12 +67,13 @@ export const ManualFlash = memo(function ManualFlash({
 
   return (
     <SectionCard title="Manual flash" contentClassName="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
+      <div className="flex flex-wrap items-center gap-3">
         <Input
           value={manualPartition}
           onChange={(event) => setManualPartition(event.target.value)}
           placeholder="partition name"
           aria-label="Manual flash partition"
+          className="min-w-0 flex-1"
           disabled={disabled || flashing}
         />
         <Select
@@ -81,7 +82,7 @@ export const ManualFlash = memo(function ManualFlash({
             setManualSlot(value as "" | "a" | "b" | "active" | "inactive" | "all")
           }
         >
-          <SelectTrigger aria-label="Manual flash slot" disabled={disabled || flashing}>
+          <SelectTrigger aria-label="Manual flash slot" className="shrink-0" disabled={disabled || flashing}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

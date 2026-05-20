@@ -127,7 +127,7 @@ export const FlashDialog = memo(function FlashDialog({
               </p>
             )}
 
-            <div className={cn("grid gap-3", showCurrentCard ? "xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]" : "grid-cols-1")}>
+            <div className={cn("grid gap-3", showCurrentCard ? "lg:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]" : "grid-cols-1")}>
               {showCurrentCard && (
                 <section className="status-shell grid gap-4 px-4 py-4">
                   <div className="min-w-0">
@@ -248,7 +248,7 @@ function phaseTone(phase: "idle" | "waiting" | "flashing" | "complete" | "cancel
     default:
       return {
         title: "text-foreground",
-        bar: "bg-accent-brand",
+        bar: "progress-gradient",
       };
   }
 }

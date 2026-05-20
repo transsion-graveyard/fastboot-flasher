@@ -5,6 +5,7 @@ import { Toaster, toast } from "sonner";
 import { LoaderCircle, MonitorUp, PlugZap } from "lucide-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { FlashDialog } from "@/components/flash/FlashDialog";
 import { FlashPlanConfirmDialog } from "@/components/flash/FlashPlanConfirmDialog";
@@ -178,7 +179,6 @@ export default function App() {
   const planRequestRef = useRef(0);
   const lastParsedScatterPathRef = useRef("");
   const partitionsRef = useRef(partitions);
-  partitionsRef.current = partitions;
 
   const device = useDevice();
   const flash = useFlashProgress();
@@ -186,9 +186,19 @@ export default function App() {
   const forceFastboot = useForceFastboot();
 
   const flashPhaseRef = useRef(flash.phase);
-  flashPhaseRef.current = flash.phase;
   const forcePhaseRef = useRef(forceFastboot.phase);
-  forcePhaseRef.current = forceFastboot.phase;
+
+  useEffect(() => {
+    partitionsRef.current = partitions;
+  }, [partitions]);
+
+  useEffect(() => {
+    flashPhaseRef.current = flash.phase;
+  }, [flash.phase]);
+
+  useEffect(() => {
+    forcePhaseRef.current = forceFastboot.phase;
+  }, [forceFastboot.phase]);
 
   const handleModeChange = useCallback(
     (newMode: string) => {
@@ -753,7 +763,14 @@ export default function App() {
       {activeFlashSession && (
         <div className="status-shell min-w-0 space-y-2 px-3 py-3">
           <div className="flex min-w-0 items-center gap-2 text-sm">
-            <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-accent-brand" />
+            <span className={cn(
+              "inline-block h-2.5 w-2.5 shrink-0 rounded-full",
+              flash.phase === "waiting" && "dot-waiting",
+              flash.phase === "flashing" && "dot-flashing",
+              flash.phase === "complete" && "dot-complete",
+              flash.phase === "error" && "dot-error",
+              flash.phase === "cancelled" && "dot-cancelled",
+            )} />
             <span className="truncate text-muted-foreground">{phaseLabel(flash.phase, flash.runMode, flash.operation)}</span>
           </div>
           {flashMinimized && (
@@ -793,16 +810,19 @@ export default function App() {
   );
 
   const sidebarActions = (
-    <Button
-      variant="outline"
-      size="sm"
-      className="w-full justify-start gap-2 overflow-hidden"
-      disabled={isCheckingDevice || activeFlashSession || activeForceSession}
-      onClick={checkDevice}
-    >
-      <PlugZap className="h-4 w-4 shrink-0" />
-      <span className="truncate">{isCheckingDevice ? "Checking device..." : "Check Device"}</span>
-    </Button>
+    <div className="space-y-3">
+
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full justify-start gap-2 overflow-hidden"
+        disabled={isCheckingDevice || activeFlashSession || activeForceSession}
+        onClick={checkDevice}
+      >
+        <PlugZap className="h-4 w-4 shrink-0" />
+        <span className="truncate">{isCheckingDevice ? "Checking device..." : "Check Device"}</span>
+      </Button>
+    </div>
   );
 
   return (

@@ -35,8 +35,8 @@ export function ExtraTab({
   onGetAllVariables,
 }: ExtraTabProps) {
   return (
-    <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-      <div className="flex min-h-0 flex-col gap-5">
+    <div className="grid h-full min-h-0 gap-5 lg:grid-cols-2">
+      <div className="lg:col-start-1 lg:row-start-1">
         <GsiFlasher
           imagePath={gsiImagePath}
           onImagePathChange={onGsiImagePathChange}
@@ -44,18 +44,22 @@ export function ExtraTab({
           disabled={menuActionDisabled}
           flashing={isStartingGsiFlash}
         />
+      </div>
+      <div className="lg:col-start-1 lg:row-start-2">
         <ManualFlash
           disabled={menuActionDisabled}
           flashing={isStartingFlash}
           onManualFlash={onManualFlash}
         />
       </div>
-      <div className="flex min-h-0 flex-col gap-5">
+      <div className="lg:col-start-2 lg:row-start-1">
         <RebootSection
           disabled={menuActionDisabled}
           target={rebootTarget}
           onTargetChange={onRebootTargetChange}
         />
+      </div>
+      <div className="lg:col-start-2 lg:row-start-2">
         <FastbootVars
           disabled={menuActionDisabled}
           onGetVariable={onGetVariable}

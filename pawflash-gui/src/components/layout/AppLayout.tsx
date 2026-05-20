@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Layers3, Moon, PanelLeftClose, PanelLeftOpen, Settings2, Sun, Zap } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,24 @@ export function AppLayout({
 }: AppLayoutProps) {
   const [tab, setTab] = useState<"main" | "extra" | "menu">("main");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const userOverride = useRef(false);
   const { append } = useFlashLog();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mq = window.matchMedia("(max-width: 1100px)");
+
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+      if (!userOverride.current) {
+        setSidebarOpen(!e.matches);
+      }
+    };
+
+    handler(mq);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   const handleTabChange = useCallback(
     (newTab: "main" | "extra" | "menu") => {
@@ -44,6 +61,7 @@ export function AppLayout({
   );
 
   const handleSidebarToggle = useCallback(() => {
+    userOverride.current = true;
     setSidebarOpen((prev) => {
       const next = !prev;
       append(`SidebarToggle ${next ? "open" : "closed"}`);
@@ -169,7 +187,7 @@ export function AppLayout({
       </aside>
 
       <main className="flex min-w-0 flex-1 overflow-hidden">
-        <div className="flex min-h-0 flex-1 flex-col p-4 xl:p-5">{children({ tab })}</div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3 lg:p-4 xl:p-5">{children({ tab })}</div>
       </main>
     </div>
   );
