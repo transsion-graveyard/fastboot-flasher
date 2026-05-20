@@ -10,12 +10,14 @@ interface FastbootVarsProps {
   disabled?: boolean;
   onGetVariable: (name: string) => Promise<string>;
   onGetAllVariables: () => Promise<Record<string, string>>;
+  variant?: "default" | "flat";
 }
 
 export const FastbootVars = memo(function FastbootVars({
   disabled = false,
   onGetVariable,
   onGetAllVariables,
+  variant,
 }: FastbootVarsProps) {
   const [variableName, setVariableName] = useState("");
   const [variableOutput, setVariableOutput] = useState("");
@@ -59,7 +61,7 @@ export const FastbootVars = memo(function FastbootVars({
   };
 
   return (
-    <SectionCard title="Fastboot vars" contentClassName="space-y-4">
+    <SectionCard title="Fastboot vars" variant={variant} contentClassName="space-y-4">
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
         <Input
           value={variableName}
@@ -101,7 +103,7 @@ export const FastbootVars = memo(function FastbootVars({
           Copy vars
         </Button>
       </div>
-      <pre className="min-h-48 overflow-auto rounded-md border border-border/70 bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+      <pre className="min-h-32 overflow-auto rounded-md border border-border/70 bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
         {variableOutput || "Variable output will appear here."}
       </pre>
     </SectionCard>

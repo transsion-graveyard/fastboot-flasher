@@ -33,9 +33,10 @@ interface RebootSectionProps {
   disabled?: boolean;
   target: RebootTarget;
   onTargetChange: (target: RebootTarget) => void;
+  variant?: "default" | "flat";
 }
 
-export const RebootSection = memo(function RebootSection({ disabled = false, target, onTargetChange }: RebootSectionProps) {
+export const RebootSection = memo(function RebootSection({ disabled = false, target, onTargetChange, variant }: RebootSectionProps) {
   const { reboot, rebootBootloader, rebootFastboot, rebootRecovery } = useDevice();
   const [busy, setBusy] = useState(false);
   const { append } = useFlashLog();
@@ -71,6 +72,7 @@ export const RebootSection = memo(function RebootSection({ disabled = false, tar
   return (
     <SectionCard
       title="Reboot"
+      variant={variant}
       contentClassName="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
     >
       <Select value={target} onValueChange={(value) => onTargetChange(value as RebootTarget)}>
