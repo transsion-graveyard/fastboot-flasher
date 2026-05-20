@@ -4,7 +4,9 @@
 //! Defines the [`SerialIo`] trait for abstracted serial I/O and the [`force_fastboot`]
 //! function that implements the preloader handshake.
 
-use std::io;
+use std::{io, time::Duration};
+
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Abstract serial I/O operations used by the fastboot handshake protocol.
 pub trait SerialIo {
@@ -20,6 +22,12 @@ pub trait SerialIo {
 /// Execute the MTK preloader fastboot handshake: read bytes until `0x59` (`'Y'`) is received,
 /// then flush the input buffer and send the `"FASTBOOT"` command.
 pub fn force_fastboot(port: &mut dyn SerialIo) -> io::Result<()> {
+    force_fastboot_with_timeout(port, HANDSHAKE_TIMEOUT)
+}
+
+fn force_fastboot_with_timeout(port: &mut dyn SerialIo, timeout: Duration) -> io::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+
     loop {
         match port.read_byte()? {
             Some(b'Y') => {
@@ -27,7 +35,17 @@ pub fn force_fastboot(port: &mut dyn SerialIo) -> io::Result<()> {
                 port.write_all(b"FASTBOOT")?;
                 return Ok(());
             }
-            _ => continue,
+            _ => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!(
+                            "timed out after {:?} waiting for preloader handshake byte",
+                            timeout
+                        ),
+                    ));
+                }
+            }
         }
     }
 }
@@ -76,5 +94,15 @@ mod tests {
 
         assert!(port.flushed);
         assert_eq!(port.writes, b"FASTBOOT");
+    }
+
+    #[test]
+    fn handshake_times_out_when_start_byte_never_arrives() {
+        let mut port = FakeSerial::new(vec![0x00, 0x00, 0x00]);
+
+        let error = force_fastboot_with_timeout(&mut port, std::time::Duration::from_millis(1))
+            .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
     }
 }

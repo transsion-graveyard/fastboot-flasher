@@ -14,6 +14,8 @@ use crate::udev;
 
 const BAUD: u32 = 115200;
 const TIMEOUT: Duration = Duration::from_millis(250);
+const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
+const PORT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// A discovered serial port that may be an MTK preloader device.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,12 +171,29 @@ pub fn wait_for_port_with_feedback(
     auto_udev: bool,
     show_spinner: bool,
 ) -> anyhow::Result<PortCandidate> {
+    wait_for_port_with_timeout_and_feedback(
+        discovery,
+        auto_udev,
+        show_spinner,
+        PORT_WAIT_TIMEOUT,
+        PORT_WAIT_POLL_INTERVAL,
+    )
+}
+
+fn wait_for_port_with_timeout_and_feedback(
+    discovery: &dyn PortDiscovery,
+    auto_udev: bool,
+    show_spinner: bool,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> anyhow::Result<PortCandidate> {
     let previous_devices: HashSet<String> = discovery
         .list_candidates()
         .into_iter()
         .map(|c| c.device)
         .collect();
     let mut tried_udev_for: HashSet<String> = HashSet::new();
+    let deadline = std::time::Instant::now() + timeout;
 
     let _spinner =
         show_spinner.then(|| StatusSpinner::new("Waiting for MTK preloader serial port..."));
@@ -199,7 +218,14 @@ pub fn wait_for_port_with_feedback(
             } => {}
         }
 
-        std::thread::sleep(Duration::from_millis(250));
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "timed out after {:?} waiting for MTK preloader serial port",
+                timeout
+            );
+        }
+
+        std::thread::sleep(poll_interval);
     }
 }
 
@@ -359,5 +385,21 @@ mod tests {
 
         assert_eq!(candidate.device, "/dev/ttyUSB0");
         assert_eq!(candidate.description, "selected by --port");
+    }
+
+    #[test]
+    fn wait_for_port_times_out_when_no_new_device_appears() {
+        let discovery = FakeDiscovery::new(vec![]);
+
+        let error = wait_for_port_with_timeout_and_feedback(
+            &discovery,
+            false,
+            false,
+            Duration::from_millis(1),
+            Duration::ZERO,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("timed out"));
     }
 }

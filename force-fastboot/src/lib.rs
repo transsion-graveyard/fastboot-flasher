@@ -116,12 +116,12 @@ notice_box(
     if show_ui {
         let _spinner = spinner::StatusSpinner::new("Waiting for preloader handshake byte...");
         protocol::force_fastboot(port.as_mut()).map_err(|e| match e.kind() {
-            io::ErrorKind::TimedOut => ForceFastbootError::Protocol(format!("timed out: {e}")),
+            io::ErrorKind::TimedOut => ForceFastbootError::Protocol(e.to_string()),
             _ => ForceFastbootError::Protocol(format!("{e}")),
         })?;
     } else {
         protocol::force_fastboot(port.as_mut()).map_err(|e| match e.kind() {
-            io::ErrorKind::TimedOut => ForceFastbootError::Protocol(format!("timed out: {e}")),
+            io::ErrorKind::TimedOut => ForceFastbootError::Protocol(e.to_string()),
             _ => ForceFastbootError::Protocol(format!("{e}")),
         })?;
     }

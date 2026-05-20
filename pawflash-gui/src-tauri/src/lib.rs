@@ -390,12 +390,20 @@ fn emit_force_fastboot_event(
         .map_err(|e| format!("emit: {e}"))
 }
 
-async fn wait_for_cancel(control: &FlashRunControl) -> String {
-    loop {
-        if control.cancel_requested.load(Ordering::SeqCst) {
-            return CANCELLED_MESSAGE.to_string();
-        }
-        sleep(Duration::from_millis(50)).await;
+async fn wait_for_device_or_cancel<T, F>(connect: F, control: &FlashRunControl) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    tokio::select! {
+        device = connect => device,
+        cancelled = async {
+            loop {
+                if control.cancel_requested.load(Ordering::SeqCst) {
+                    break CANCELLED_MESSAGE.to_string();
+                }
+                sleep(Duration::from_millis(50)).await;
+            }
+        } => Err(cancelled),
     }
 }
 
@@ -423,10 +431,15 @@ async fn connect_device_for_run(
 ) -> Result<FastbootDevice, String> {
     app.emit("flash-progress", FlashEvent::WaitingForDevice)
         .map_err(|e| format!("emit: {e}"))?;
-    tokio::select! {
-        device = pawflash::connect_fastboot() => device.map_err(|e| format!("connect: {e}")),
-        cancelled = wait_for_cancel(control) => Err(cancelled),
-    }
+    wait_for_device_or_cancel(
+        async {
+            pawflash::connect_fastboot()
+                .await
+                .map_err(|e| format!("connect: {e}"))
+        },
+        control,
+    )
+    .await
 }
 
 async fn connect_device_with_policy(
@@ -1407,9 +1420,10 @@ mod tests {
         parse_flash_mode, parse_plan_request, plan_requires_connected_device, plan_to_dto,
         prepare_for_gsi_worker_launch, session_policy_for_flash_run,
         session_policy_for_mutating_command, session_policy_for_read_only_command,
-        start_force_fastboot_session, store_flash_plan, update_overall_progress, AppState,
-        DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashRunControl, ForceFastbootState,
-        StoredPlans, DEVICE_CHECK_TIMEOUT_MS, DEVICE_RETRY_DELAY_MS,
+        start_force_fastboot_session, store_flash_plan, update_overall_progress,
+        wait_for_device_or_cancel, AppState, DeviceSessionPolicy, FastbootProbeFailure, FlashEvent,
+        FlashRunControl, ForceFastbootState, StoredPlans, CANCELLED_MESSAGE,
+        DEVICE_CHECK_TIMEOUT_MS, DEVICE_RETRY_DELAY_MS,
     };
     use fastboot_rs::{transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError};
     use mtk_scatter_parser::{FlashAction, FlashActionExecutionKind, FlashPlan, FlashPlanSummary};
@@ -1427,6 +1441,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
+    use tokio::time::{sleep, Duration};
 
     fn flash_action(partition: &str, action: &str) -> FlashAction {
         FlashAction {
@@ -1919,6 +1934,37 @@ mod tests {
         prepare_for_gsi_worker_launch(&state).await.unwrap();
 
         assert!(state.device.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn wait_for_device_or_cancel_returns_cancelled_when_requested() {
+        let control = FlashRunControl::default();
+        let cancel_control = control.clone();
+
+        tokio::spawn(async move {
+            sleep(Duration::from_millis(10)).await;
+            cancel_control
+                .cancel_requested
+                .store(true, Ordering::SeqCst);
+        });
+
+        let result =
+            wait_for_device_or_cancel(std::future::pending::<Result<(), String>>(), &control).await;
+
+        assert_eq!(result.unwrap_err(), CANCELLED_MESSAGE);
+    }
+
+    #[tokio::test]
+    async fn wait_for_device_or_cancel_returns_connect_error() {
+        let control = FlashRunControl::default();
+
+        let result = wait_for_device_or_cancel(
+            async { Err::<(), _>("connect: timed out after 120s".to_string()) },
+            &control,
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err(), "connect: timed out after 120s");
     }
 
     #[test]
