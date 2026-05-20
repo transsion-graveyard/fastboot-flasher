@@ -4,6 +4,8 @@
 //! Determines whether an error is permission-related and detects root execution.
 
 use std::io;
+#[cfg(unix)]
+use std::process::Command;
 
 /// Returns `true` if `error` is (or wraps) a permission-denied error, either via
 /// [`std::io::ErrorKind::PermissionDenied`], a POSIX `EACCES`/`EPERM` OS error code,
@@ -32,13 +34,16 @@ pub fn is_permission_error(error: &anyhow::Error) -> bool {
 
 /// Returns `true` if the process is running as root (uid 0) on Unix.
 /// Always returns `false` on non-Unix platforms.
-#[cfg_attr(unix, expect(unsafe_code))]
 pub fn is_running_as_root() -> bool {
     #[cfg(unix)]
     {
-        // SAFETY: `geteuid()` takes no arguments, returns a valid uid_t, and is safe to call from
-        // any context per POSIX. It cannot fail or cause undefined behavior.
-        unsafe { libc::geteuid() == 0 }
+        Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .is_some_and(|stdout| stdout.trim() == "0")
     }
 
     #[cfg(not(unix))]

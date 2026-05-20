@@ -384,7 +384,7 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
         FlashPlanOptions {
             mode: Mode::CleanFlash,
             firmware_dir: Some(fixture.clone()),
-            package_root: Some(fixture.clone()),
+            package_root: Some(fixture),
             check_images: true,
             ..FlashPlanOptions::default()
         },

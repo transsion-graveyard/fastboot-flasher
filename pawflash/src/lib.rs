@@ -1,6 +1,5 @@
 #![cfg_attr(not(windows), deny(unsafe_code))]
 #![deny(missing_docs)]
-#![allow(missing_docs)]
 
 //! Shared business logic for `pawflash` CLI and `pawflash-gui`.
 //!
@@ -8,17 +7,27 @@
 //! and format/wipe logic. It has **zero** terminal or UI dependencies so
 //! both the CLI and GUI binaries can depend on it cleanly.
 
+/// Command-line argument types and shared parsing helpers.
 pub mod cli;
+/// Device discovery and connection helpers.
 pub mod connect;
+/// Fastboot device operations and plan construction.
 pub mod device;
+/// Human-readable device information rendering.
 pub mod device_info;
 /// Shared domain types and helpers for adapters.
 pub mod domain;
+/// Partition flashing and erase helpers.
 pub mod flash;
+/// Formatting and wipe orchestration helpers.
 pub mod format;
+/// GSI-specific planning and flashing workflows.
 pub mod gsi;
+/// Manual flashing helpers and vbmeta utilities.
 pub mod manual;
+/// Flash-plan helpers and data shaping.
 pub mod plan;
+/// Shared progress formatting and simulation helpers.
 pub mod progress;
 /// Shared workflow helpers used by CLI and GUI adapters.
 pub mod workflow;

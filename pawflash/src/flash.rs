@@ -1,5 +1,6 @@
 //! Flash and erase helpers for single partitions.
 
+use std::future::Future;
 use std::path::Path;
 
 use anyhow::Context;
@@ -77,29 +78,33 @@ fn is_fastboot_failed(err: &FastbootError) -> bool {
     )
 }
 
-#[allow(async_fn_in_trait)]
 trait LogicalPartitionOps {
-    async fn is_logical(&mut self, partition: &str) -> Result<bool, FastbootError>;
+    fn is_logical(
+        &mut self,
+        partition: &str,
+    ) -> impl Future<Output = Result<bool, FastbootError>> + Send;
 
-    async fn resize_logical_partition(
+    fn resize_logical_partition(
         &mut self,
         partition: &str,
         size: u64,
-    ) -> Result<(), FastbootError>;
+    ) -> impl Future<Output = Result<(), FastbootError>> + Send;
 }
 
-#[allow(async_fn_in_trait)]
 impl LogicalPartitionOps for FastbootDevice {
-    async fn is_logical(&mut self, partition: &str) -> Result<bool, FastbootError> {
-        FastbootDevice::is_logical(self, partition).await
+    fn is_logical(
+        &mut self,
+        partition: &str,
+    ) -> impl Future<Output = Result<bool, FastbootError>> + Send {
+        FastbootDevice::is_logical(self, partition)
     }
 
-    async fn resize_logical_partition(
+    fn resize_logical_partition(
         &mut self,
         partition: &str,
         size: u64,
-    ) -> Result<(), FastbootError> {
-        FastbootDevice::resize_logical_partition(self, partition, size).await
+    ) -> impl Future<Output = Result<(), FastbootError>> + Send {
+        FastbootDevice::resize_logical_partition(self, partition, size)
     }
 }
 
@@ -350,21 +355,24 @@ mod tests {
         }
     }
 
-    #[allow(async_fn_in_trait)]
     impl LogicalPartitionOps for LogicalPartitionOpsMock {
-        async fn is_logical(&mut self, partition: &str) -> Result<bool, FastbootError> {
+        fn is_logical(
+            &mut self,
+            partition: &str,
+        ) -> impl std::future::Future<Output = Result<bool, FastbootError>> + Send {
             self.calls.push(format!("is_logical:{partition}"));
-            self.logical.take().expect("logical query should run once")
+            let result = self.logical.take().expect("logical query should run once");
+            async move { result }
         }
 
-        async fn resize_logical_partition(
+        fn resize_logical_partition(
             &mut self,
             partition: &str,
             size: u64,
-        ) -> Result<(), FastbootError> {
+        ) -> impl std::future::Future<Output = Result<(), FastbootError>> + Send {
             self.calls
                 .push(format!("resize_logical_partition:{partition}:{size}"));
-            Ok(())
+            async { Ok(()) }
         }
     }
 

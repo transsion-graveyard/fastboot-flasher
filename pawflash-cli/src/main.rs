@@ -17,11 +17,22 @@ use pawflash::{
     plan::build_plan_checked,
     workflow::{
         execute_manual_actions, format_userdata_flow, run_scatter_dry_run, run_scatter_flash,
-        wipe_data_flow,
+        wipe_data_flow, ManualActionExecution, ScatterFlashOptions,
     },
 };
 
 mod progress;
+
+struct ScatterRunRequest {
+    scatter: std::path::PathBuf,
+    mode: pawflash::cli::FlashMode,
+    slot: Option<pawflash::cli::SlotArg>,
+    include_preloader: bool,
+    partitions: Vec<String>,
+    dry_run: bool,
+    prompt_for_confirmation: bool,
+    yes: bool,
+}
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -59,16 +70,16 @@ async fn run(args: Args) -> anyhow::Result<()> {
         }) => {
             let mode = flash_mode_from_flags(false, firmware_upgrade, clean_flash, selective)
                 .map_err(anyhow::Error::msg)?;
-            run_scatter(
+            run_scatter(ScatterRunRequest {
                 scatter,
                 mode,
                 slot,
                 include_preloader,
-                vec![],
-                args.dry_run,
-                true,
-                args.yes,
-            )
+                partitions: vec![],
+                dry_run: args.dry_run,
+                prompt_for_confirmation: true,
+                yes: args.yes,
+            })
             .await
         }
         Some(Command::Flash {
@@ -92,16 +103,16 @@ async fn run(args: Args) -> anyhow::Result<()> {
 async fn run_legacy(args: Args) -> anyhow::Result<()> {
     if let Some(scatter) = args.flash.clone() {
         let mode = args.flash_mode();
-        return run_scatter(
+        return run_scatter(ScatterRunRequest {
             scatter,
             mode,
-            args.slot,
-            args.include_preloader,
-            vec![],
-            args.dry_run,
-            false,
-            args.yes,
-        )
+            slot: args.slot,
+            include_preloader: args.include_preloader,
+            partitions: vec![],
+            dry_run: args.dry_run,
+            prompt_for_confirmation: false,
+            yes: args.yes,
+        })
         .await;
     }
 
@@ -152,16 +163,17 @@ async fn run_legacy(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_scatter(
-    scatter: std::path::PathBuf,
-    mode: pawflash::cli::FlashMode,
-    slot: Option<pawflash::cli::SlotArg>,
-    include_preloader: bool,
-    partitions: Vec<String>,
-    dry_run: bool,
-    prompt_for_confirmation: bool,
-    yes: bool,
-) -> anyhow::Result<()> {
+async fn run_scatter(request: ScatterRunRequest) -> anyhow::Result<()> {
+    let ScatterRunRequest {
+        scatter,
+        mode,
+        slot,
+        include_preloader,
+        partitions,
+        dry_run,
+        prompt_for_confirmation,
+        yes,
+    } = request;
     let plan = build_plan_checked(&scatter, mode, slot, include_preloader, &partitions, true)?;
     let control = FlashRunControl::default();
     let mut emit = make_flash_emit();
@@ -190,11 +202,13 @@ async fn run_scatter(
     let _summary = run_scatter_flash(
         &mut dev,
         &plan,
-        &partitions,
-        &image_overrides,
-        !prompt_for_confirmation,
-        false,
-        &control,
+        ScatterFlashOptions {
+            partitions: &partitions,
+            image_overrides: &image_overrides,
+            announce_plan: !prompt_for_confirmation,
+            reboot: false,
+            control: &control,
+        },
         &mut emit,
     )
     .await
@@ -234,12 +248,14 @@ async fn run_manual_flash(
     execute_manual_actions(
         &actions,
         &mut dev,
-        max_download,
-        &|partition| partition.to_string(),
-        &control,
+        ManualActionExecution {
+            max_download_size: max_download,
+            partition_resolver: &|partition| partition.to_string(),
+            control: &control,
+            summary: &mut summary,
+            overall_total: total_bytes,
+        },
         &mut emit,
-        &mut summary,
-        total_bytes,
     )
     .await
     .map_err(anyhow::Error::msg)?;
@@ -279,12 +295,14 @@ async fn run_disable_vbmeta() -> anyhow::Result<()> {
     execute_manual_actions(
         &actions,
         &mut dev,
-        max_download,
-        &|partition| resolve_flash_partition_target(partition, &vars),
-        &control,
+        ManualActionExecution {
+            max_download_size: max_download,
+            partition_resolver: &|partition| resolve_flash_partition_target(partition, &vars),
+            control: &control,
+            summary: &mut summary,
+            overall_total: total_bytes,
+        },
         &mut emit,
-        &mut summary,
-        total_bytes,
     )
     .await
     .map_err(anyhow::Error::msg)?;

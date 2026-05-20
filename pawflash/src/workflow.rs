@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -28,17 +26,22 @@ use crate::domain::{
 /// Outcome of flashing a single partition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PartitionFlashOutcome {
+    /// The partition action completed successfully.
     Completed,
+    /// The partition action was skipped after a non-fatal failure.
     Skipped,
 }
 
 /// Whether a partition flash failure can be skipped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PartitionFlashFailureDisposition {
+    /// The failure can be skipped and the run may continue.
     Skip,
+    /// The failure is fatal and should stop the run.
     Fatal,
 }
 
+/// Classify whether a partition flash error should stop execution.
 pub fn partition_flash_failure_disposition(
     error: &anyhow::Error,
 ) -> PartitionFlashFailureDisposition {
@@ -65,11 +68,45 @@ pub struct FlashProgressContext<'a, E>
 where
     E: FnMut(FlashEvent) -> Result<(), String>,
 {
+    /// Connected fastboot device used for flash operations.
     pub dev: &'a mut FastbootDevice,
+    /// Event sink shared by CLI and GUI adapters.
     pub emit: E,
+    /// Mutable run summary to update as actions complete.
     pub summary: &'a mut FlashSummaryDto,
+    /// Cancellation token for the current run.
     pub control: &'a FlashRunControl,
+    /// Device-reported maximum download size.
     pub max_download_size: u32,
+    /// Total number of bytes represented by the full run.
+    pub overall_total: u64,
+}
+
+/// Options for executing a scatter flash plan on a connected device.
+pub struct ScatterFlashOptions<'a> {
+    /// Selected partition filters. Empty means all plan actions.
+    pub partitions: &'a [String],
+    /// Per-partition image path overrides.
+    pub image_overrides: &'a HashMap<String, String>,
+    /// Whether to emit a `PlanBuilt` event before execution.
+    pub announce_plan: bool,
+    /// Whether to reboot to system after flashing completes.
+    pub reboot: bool,
+    /// Cancellation token for the current run.
+    pub control: &'a FlashRunControl,
+}
+
+/// Mutable execution context for a manual flash sequence.
+pub struct ManualActionExecution<'a> {
+    /// Device-reported maximum download size.
+    pub max_download_size: u32,
+    /// Resolves the fastboot partition to use for each manual action.
+    pub partition_resolver: &'a dyn Fn(&str) -> String,
+    /// Cancellation token for the current run.
+    pub control: &'a FlashRunControl,
+    /// Mutable summary updated as each action completes.
+    pub summary: &'a mut FlashSummaryDto,
+    /// Total bytes represented by the manual action set.
     pub overall_total: u64,
 }
 
@@ -441,17 +478,13 @@ pub async fn run_scatter_dry_run(
 pub async fn run_scatter_flash(
     dev: &mut FastbootDevice,
     plan: &mtk_scatter_parser::FlashPlan,
-    partitions: &[String],
-    image_overrides: &HashMap<String, String>,
-    announce_plan: bool,
-    reboot: bool,
-    control: &FlashRunControl,
+    options: ScatterFlashOptions<'_>,
     emit: &mut impl FnMut(FlashEvent) -> Result<(), String>,
 ) -> Result<FlashSummaryDto, String> {
-    let actions = filter_actions(plan, partitions);
+    let actions = filter_actions(plan, options.partitions);
     let total_bytes = total_bytes_for_actions(&actions);
 
-    if announce_plan {
+    if options.announce_plan {
         emit(FlashEvent::PlanBuilt {
             actions: actions.len(),
             total_bytes,
@@ -479,15 +512,15 @@ pub async fn run_scatter_flash(
         dev,
         emit: &mut *emit,
         summary: &mut summary,
-        control,
+        control: options.control,
         max_download_size,
         overall_total: total_bytes,
     };
     flash
-        .execute_plan_actions(&actions, image_overrides, &vars)
+        .execute_plan_actions(&actions, options.image_overrides, &vars)
         .await?;
 
-    if reboot {
+    if options.reboot {
         emit(FlashEvent::Rebooting {
             target: "system".to_string(),
         })?;
@@ -506,26 +539,22 @@ pub async fn run_scatter_flash(
 pub async fn execute_manual_actions(
     actions: &[ManualFlashAction],
     dev: &mut FastbootDevice,
-    max_download_size: u32,
-    partition_resolver: &dyn Fn(&str) -> String,
-    control: &FlashRunControl,
+    execution: ManualActionExecution<'_>,
     emit: &mut impl FnMut(FlashEvent) -> Result<(), String>,
-    summary: &mut FlashSummaryDto,
-    overall_total: u64,
 ) -> Result<(), String> {
     let mut completed_before = 0_u64;
 
     for action in actions {
-        control.ensure_not_cancelled()?;
+        execution.control.ensure_not_cancelled()?;
         let mut flash = FlashProgressContext {
             dev,
             emit: &mut *emit,
-            summary,
-            control,
-            max_download_size,
-            overall_total,
+            summary: &mut *execution.summary,
+            control: execution.control,
+            max_download_size: execution.max_download_size,
+            overall_total: execution.overall_total,
         };
-        let partition = partition_resolver(&action.partition);
+        let partition = (execution.partition_resolver)(&action.partition);
         flash
             .flash_partition(
                 &partition,
