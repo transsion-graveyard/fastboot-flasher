@@ -58,7 +58,7 @@ export const LogSection = memo(function LogSection() {
   return (
     <SectionCard
       title="Log"
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden max-h-96"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden lg:h-full"
       contentClassName="flex min-h-0 flex-1 flex-col"
       headerActions={
         <>

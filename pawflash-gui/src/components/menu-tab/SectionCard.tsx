@@ -1,7 +1,21 @@
 import type { ReactNode } from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+
 import { cn } from "@/lib/utils";
 
-interface SectionCardProps {
+const sectionCardVariants = cva("", {
+  variants: {
+    variant: {
+      default: "panel-shell p-4 md:p-5",
+      flat: "rounded-md border border-border/60 bg-card/60 p-4 md:p-5",
+    },
+  },
+  defaultVariants: {
+    variant: "default",
+  },
+});
+
+interface SectionCardProps extends VariantProps<typeof sectionCardVariants> {
   title: string;
   description?: string;
   headerActions?: ReactNode;
@@ -17,9 +31,10 @@ export function SectionCard({
   children,
   className,
   contentClassName,
+  variant,
 }: SectionCardProps) {
   return (
-    <section className={cn("panel-shell p-4 md:p-5", className)}>
+    <section className={cn(sectionCardVariants({ variant }), className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <h3 className="text-sm font-semibold tracking-[0.04em] text-foreground">{title}</h3>

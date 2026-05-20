@@ -32,7 +32,7 @@ export function SlotSection({ disabled = false }: SlotSectionProps) {
   };
 
   return (
-    <SectionCard title="Slot" contentClassName="grid grid-cols-2 gap-3">
+    <SectionCard title="Slot" variant="flat" contentClassName="grid grid-cols-2 gap-3">
       <Button
         variant="outline"
         className="w-full gap-3"
