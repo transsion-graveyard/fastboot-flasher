@@ -22,11 +22,21 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
   selectedPartitions,
   isPending = false,
 }: FlashPlanConfirmDialogProps) {
-  const { flashPartitions, wipePartitions, includesUserdata } = useMemo(() => ({
-    flashPartitions: selectedPartitions.filter((partition) => partition.action === "flash"),
-    wipePartitions: selectedPartitions.filter((partition) => partition.action === "wipe"),
-    includesUserdata: selectedPartitions.some((partition) => partition.partition === "userdata"),
-  }), [selectedPartitions]);
+  const { flashPartitions, effectiveWipeCount, includesUserdata } = useMemo(() => {
+    const flashPartitions = selectedPartitions.filter((partition) => partition.action === "flash");
+    const visibleWipeCount = selectedPartitions.filter((partition) => partition.action === "wipe").length;
+    const includesUserdata = selectedPartitions.some((partition) => partition.partition === "userdata");
+    const hiddenCleanFlashWipes =
+      plan?.mode === "clean-flash" && includesUserdata
+        ? (plan.partitions ?? []).filter(
+            (partition) => !partition.user_visible && partition.action === "wipe",
+          ).length
+        : 0;
+    const effectiveWipeCount =
+      visibleWipeCount + hiddenCleanFlashWipes;
+
+    return { flashPartitions, effectiveWipeCount, includesUserdata };
+  }, [plan, selectedPartitions]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -39,7 +49,7 @@ export const FlashPlanConfirmDialog = memo(function FlashPlanConfirmDialog({
           <SummaryCard label="Mode" value={plan ? flashModeLabel(plan.mode.replaceAll("-", "_")) : "flash"} />
           <SummaryCard label="Selected" value={`${selectedPartitions.length} partition${selectedPartitions.length === 1 ? "" : "s"}`} />
           <SummaryCard label="Flash" value={`${flashPartitions.length} partition${flashPartitions.length === 1 ? "" : "s"}`} />
-          <SummaryCard label="Wipe" value={`${wipePartitions.length} partition${wipePartitions.length === 1 ? "" : "s"}`} />
+          <SummaryCard label="Wipe" value={`${effectiveWipeCount} partition${effectiveWipeCount === 1 ? "" : "s"}`} />
         </div>
 
         {plan?.mode === "clean-flash" ? (

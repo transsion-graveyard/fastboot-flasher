@@ -25,6 +25,21 @@ pub struct UserdataInfo {
     pub logical_block_size: Option<u64>,
 }
 
+/// Information about an ext4 partition generated from live device vars.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ext4PartitionInfo {
+    /// Target partition name.
+    pub partition: String,
+    /// Partition size in bytes.
+    pub size: u64,
+    /// Maximum download size reported by the device (optional).
+    pub max_download_size: Option<u64>,
+    /// Erase block size (optional).
+    pub erase_block_size: Option<u64>,
+    /// Logical block size (optional).
+    pub logical_block_size: Option<u64>,
+}
+
 /// Options for formatting the userdata partition.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FormatUserdataOptions {
@@ -141,6 +156,39 @@ async fn get_var_optional(dev: &mut FastbootDevice, name: &str) -> anyhow::Resul
         .map(|value| value.trim().to_string()))
 }
 
+/// Read ext4 partition info (size and flash constraints) from the device.
+pub async fn detect_ext4_partition(
+    dev: &mut FastbootDevice,
+    partition: &str,
+) -> anyhow::Result<Ext4PartitionInfo> {
+    let size_var = format!("partition-size:{partition}");
+    let raw_size = dev
+        .get_var(&size_var)
+        .await
+        .map_err(anyhow::Error::from)
+        .with_context(|| format!("get {size_var}"))?;
+    let size =
+        parse_fastboot_u64(&raw_size).with_context(|| format!("parse {size_var} ({raw_size})"))?;
+
+    let max_download_size = get_var_optional(dev, "max-download-size")
+        .await?
+        .and_then(|value| parse_fastboot_u64(&value).ok());
+    let erase_block_size = get_var_optional(dev, "erase-block-size")
+        .await?
+        .and_then(|value| parse_fastboot_u64(&value).ok());
+    let logical_block_size = get_var_optional(dev, "logical-block-size")
+        .await?
+        .and_then(|value| parse_fastboot_u64(&value).ok());
+
+    Ok(Ext4PartitionInfo {
+        partition: partition.to_string(),
+        size,
+        max_download_size,
+        erase_block_size,
+        logical_block_size,
+    })
+}
+
 /// Read userdata partition info (filesystem type, size, block sizes) from the
 /// device.
 pub async fn detect_userdata(dev: &mut FastbootDevice) -> anyhow::Result<UserdataInfo> {
@@ -203,6 +251,31 @@ pub fn generate_userdata_image(
         "f2fs" => build_f2fs_image(tools, &path, info.size, options.casefold)?,
         other => anyhow::bail!("unsupported userdata filesystem type: {other}"),
     }
+
+    Ok(GeneratedUserdataImage { temp_dir, path })
+}
+
+/// Generate a formatted ext4 image for an arbitrary partition in a temporary
+/// directory.
+pub fn generate_ext4_partition_image(
+    tools: &FormatTools,
+    info: &Ext4PartitionInfo,
+) -> anyhow::Result<GeneratedUserdataImage> {
+    tools.validate()?;
+
+    let temp_dir = tempfile::Builder::new()
+        .prefix("pawflash-format-")
+        .tempdir()
+        .context("create temp directory for ext4 image")?;
+    let path = temp_dir.path().join(format!("{}.img", info.partition));
+
+    build_ext4_image(
+        tools,
+        &path,
+        info.size,
+        info.erase_block_size,
+        info.logical_block_size,
+    )?;
 
     Ok(GeneratedUserdataImage { temp_dir, path })
 }

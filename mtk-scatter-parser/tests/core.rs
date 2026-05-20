@@ -310,11 +310,40 @@ fn clean_flash_should_add_conditional_metadata_and_cache_wipes_even_when_scatter
     assert_eq!(wipe_partitions, vec!["metadata", "userdata", "cache"]);
     assert_eq!(plan.summary.wipe_count, 3);
     assert_eq!(plan.summary.flash_count, 0);
+    let wipe_kinds = plan
+        .actions
+        .iter()
+        .filter(|action| action.action == "wipe")
+        .map(|action| {
+            (
+                action.partition.clone(),
+                serde_json::to_value(action)
+                    .unwrap()
+                    .get("execution_kind")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("missing")
+                    .to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        wipe_kinds,
+        vec![
+            ("metadata".to_string(), "format_data".to_string()),
+            ("userdata".to_string(), "format_data".to_string()),
+            ("cache".to_string(), "erase_if_present".to_string()),
+        ]
+    );
     assert!(plan
         .actions
         .iter()
-        .filter(|action| action.partition == "metadata" || action.partition == "cache")
+        .filter(|action| action.partition == "cache")
         .all(|action| action.reason.contains("if present on connected device")));
+    assert!(plan
+        .actions
+        .iter()
+        .filter(|action| action.partition == "metadata")
+        .all(|action| action.reason.contains("formats metadata using live device partition info")));
     assert!(plan.errors.is_empty(), "{:?}", plan.errors);
 }
 
@@ -464,7 +493,7 @@ fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
             ("dtbo_a".to_string(), "flash".to_string()),
             ("dtbo_b".to_string(), "flash".to_string()),
             ("super".to_string(), "flash".to_string()),
-            ("metadata".to_string(), "erase_if_present".to_string()),
+            ("metadata".to_string(), "format_data".to_string()),
             ("userdata".to_string(), "flash".to_string()),
             ("userdata".to_string(), "format_data".to_string()),
             ("cache".to_string(), "erase_if_present".to_string()),

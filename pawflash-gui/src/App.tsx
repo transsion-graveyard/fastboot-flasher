@@ -61,6 +61,51 @@ function buildDeviceSummary(info: DeviceInfo) {
   ].join(" ");
 }
 
+function countEffectiveSelectedWipes(plan: FlashPlanDto | null, partitions: PartitionDto[]) {
+  if (!plan) {
+    return 0;
+  }
+
+  const selectedVisibleNames = new Set(
+    partitions
+      .filter((partition) => partition.user_visible && partition.selected)
+      .map((partition) => partition.partition),
+  );
+
+  if (selectedVisibleNames.size === 0) {
+    return 0;
+  }
+
+  if (plan.mode !== "clean-flash") {
+    return partitions.filter(
+      (partition) =>
+        partition.user_visible &&
+        partition.selected &&
+        partition.action === "wipe",
+    ).length;
+  }
+
+  return partitions.filter((partition) => {
+    if (partition.action !== "wipe") {
+      return false;
+    }
+
+    if (partition.user_visible) {
+      return partition.selected;
+    }
+
+    if (partition.partition === "userdata") {
+      return selectedVisibleNames.has("userdata");
+    }
+
+    if (partition.partition === "metadata" || partition.partition === "cache") {
+      return selectedVisibleNames.has("userdata");
+    }
+
+    return false;
+  }).length;
+}
+
 function appendParsedPlanLog(appendLog: (entry: string) => void, plan: FlashPlanDto) {
   appendLog(
     `ParseSummary mode=${plan.mode} storage=${plan.storage} slot=${plan.slot_policy} chipset=${plan.chipset ?? "unknown"}`,
@@ -683,9 +728,9 @@ export default function App() {
   const selectedSummary = useMemo(
     () => ({
       flashCount: selectedPartitions.filter((partition) => partition.action === "flash").length,
-      wipeCount: selectedPartitions.filter((partition) => partition.action === "wipe").length,
+      wipeCount: countEffectiveSelectedWipes(plan, partitions),
     }),
-    [selectedPartitions],
+    [plan, partitions, selectedPartitions],
   );
 
   const allPartitionsSelected =

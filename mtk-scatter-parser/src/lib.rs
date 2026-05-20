@@ -541,7 +541,7 @@ pub struct FlashPlanSummary {
 pub enum FlashActionExecutionKind {
     /// Flash an image file to a partition.
     Flash,
-    /// Generate and flash a formatted userdata image.
+    /// Generate and flash a formatted partition image from live device info.
     FormatData,
     /// Erase a partition only when it exists on the connected device.
     EraseIfPresent,
@@ -1037,8 +1037,11 @@ fn append_clean_flash_wipes(
     if !matches!(mode, Mode::CleanFlash | Mode::DryRun) {
         return;
     }
-    for part in selected_parts {
-        if WIPE_CANONICAL.contains(&part.canonical().as_str()) {
+    for canonical in ["metadata", "userdata", "cache"] {
+        for part in selected_parts
+            .iter()
+            .filter(|part| part.canonical() == canonical)
+        {
             if part.canonical() == "userdata" {
                 let (image, warnings) = resolve_images_for_plan(part, scatter_dir, options);
                 let image_exists = image
@@ -1074,7 +1077,11 @@ fn append_clean_flash_wipes(
                     "wipe",
                     part,
                     image,
-                    "clean-flash wipes user state if present on connected device",
+                    if part.canonical() == "metadata" {
+                        "clean-flash formats metadata using live device partition info"
+                    } else {
+                        "clean-flash wipes user state if present on connected device"
+                    },
                     Vec::new(),
                 ));
             }
@@ -1091,7 +1098,7 @@ fn append_missing_clean_flash_wipes(
         return;
     }
 
-    for partition in ["userdata", "metadata", "cache"] {
+    for partition in ["metadata", "userdata", "cache"] {
         if existing_wipes.contains(partition) {
             continue;
         }
@@ -1102,7 +1109,7 @@ fn append_missing_clean_flash_wipes(
 fn synthetic_clean_flash_wipe(partition: &str) -> FlashAction {
     FlashAction {
         action: "wipe".to_string(),
-        execution_kind: if partition == "userdata" {
+        execution_kind: if matches!(partition, "userdata" | "metadata") {
             FlashActionExecutionKind::FormatData
         } else {
             FlashActionExecutionKind::EraseIfPresent
@@ -1120,10 +1127,14 @@ fn synthetic_clean_flash_wipe(partition: &str) -> FlashAction {
         image: None,
         image_type: None,
         safety_class: safety_class(partition),
-        reason: if partition == "userdata" {
-            "clean-flash formats userdata when no bundled image is available".to_string()
-        } else {
-            "clean-flash wipes user state if present on connected device".to_string()
+        reason: match partition {
+            "userdata" => {
+                "clean-flash formats userdata when no bundled image is available".to_string()
+            }
+            "metadata" => {
+                "clean-flash formats metadata using live device partition info".to_string()
+            }
+            _ => "clean-flash wipes user state if present on connected device".to_string(),
         },
         warnings: Vec::new(),
     }
@@ -2508,7 +2519,9 @@ fn flash_action(
 fn execution_kind_for_action(action: &str, part: &ScatterPartition) -> FlashActionExecutionKind {
     match action {
         "flash" => FlashActionExecutionKind::Flash,
-        "wipe" if part.canonical() == "userdata" => FlashActionExecutionKind::FormatData,
+        "wipe" if matches!(part.canonical().as_str(), "userdata" | "metadata") => {
+            FlashActionExecutionKind::FormatData
+        }
         "wipe" => FlashActionExecutionKind::EraseIfPresent,
         _ => FlashActionExecutionKind::Flash,
     }

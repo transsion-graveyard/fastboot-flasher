@@ -12,7 +12,8 @@ use crate::{
     device::{read_all_variables, reboot_device, resolve_max_download_size_from_vars},
     flash::{erase_one_partition, flash_one_partition, is_scatter_skippable_error},
     format::{
-        detect_userdata, erase_optional_partition, generate_userdata_image, FormatTools,
+        detect_ext4_partition, detect_userdata, erase_optional_partition,
+        generate_ext4_partition_image, generate_userdata_image, FormatTools,
         FormatUserdataOptions, OptionalEraseOutcome, UserdataInfo, WipeDataOptions,
     },
     manual::ManualFlashAction,
@@ -283,15 +284,22 @@ where
                 FlashActionExecutionKind::FormatData => {
                     let Some(tools) = format_tools else {
                         return Err(
-                            "missing format tools for clean-flash userdata wipe".to_string()
+                            "missing format tools for clean-flash format action".to_string()
                         );
                     };
-                    let info = detect_userdata(self.dev)
-                        .await
-                        .map_err(|error| format!("detect userdata: {error:#}"))?;
-                    let generated =
+                    let generated = if action.partition == "metadata" {
+                        let info = detect_ext4_partition(self.dev, &action.partition)
+                            .await
+                            .map_err(|error| format!("detect metadata: {error:#}"))?;
+                        generate_ext4_partition_image(tools, &info)
+                            .map_err(|error| format!("generate metadata image: {error:#}"))?
+                    } else {
+                        let info = detect_userdata(self.dev)
+                            .await
+                            .map_err(|error| format!("detect userdata: {error:#}"))?;
                         generate_userdata_image(tools, &info, &FormatUserdataOptions::default())
-                            .map_err(|error| format!("generate userdata image: {error:#}"))?;
+                            .map_err(|error| format!("generate userdata image: {error:#}"))?
+                    };
                     self.control.ensure_not_cancelled()?;
                     (self.emit)(FlashEvent::PreparingImage {
                         partition: action.partition.clone(),
@@ -964,7 +972,7 @@ mod tests {
     fn test_action(partition: &str, safety_class: &str) -> FlashAction {
         FlashAction {
             action: "flash".to_string(),
-            execution_kind: if partition == "userdata" {
+            execution_kind: if matches!(partition, "userdata" | "metadata") {
                 FlashActionExecutionKind::FormatData
             } else if safety_class == "wipe_only" {
                 FlashActionExecutionKind::EraseIfPresent
