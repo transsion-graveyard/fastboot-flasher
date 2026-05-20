@@ -51,18 +51,20 @@ export interface DeviceInfo {
   all_vars: Record<string, string>;
 }
 
+export type FlashOperation = "flash" | "format_userdata" | "erase";
+
 export type FlashEvent =
   | { event: "WaitingForDevice" }
   | { event: "DeviceCheckDiagnostic"; data: { stage: string; level: string; message: string } }
   | { event: "GsiStatus"; data: { status: string } }
   | { event: "Rebooting"; data: { target: string } }
   | { event: "PlanBuilt"; data: { actions: number; total_bytes: number } }
-  | { event: "PreparingImage"; data: { partition: string } }
-  | { event: "Flashing"; data: { partition: string; bytes: number; total: number; speed_bps: number } }
-  | { event: "Simulating"; data: { partition: string; action: string; bytes: number; total: number; speed_bps: number } }
-  | { event: "PartitionComplete"; data: { partition: string } }
-  | { event: "PartitionSkipped"; data: { partition: string; reason: string } }
-  | { event: "PartitionFailed"; data: { partition: string; error: string } }
+  | { event: "PreparingImage"; data: { partition: string; operation: FlashOperation } }
+  | { event: "Flashing"; data: { partition: string; operation: FlashOperation; bytes: number; total: number; speed_bps: number } }
+  | { event: "Simulating"; data: { partition: string; operation: FlashOperation; bytes: number; total: number; speed_bps: number } }
+  | { event: "PartitionComplete"; data: { partition: string; operation: FlashOperation } }
+  | { event: "PartitionSkipped"; data: { partition: string; operation: FlashOperation; reason: string } }
+  | { event: "PartitionFailed"; data: { partition: string; operation: FlashOperation; error: string } }
   | { event: "Erasing"; data: { partition: string } }
   | { event: "EraseComplete"; data: { partition: string } }
   | { event: "Overall"; data: { bytes: number; total: number } }

@@ -19,8 +19,8 @@ use crate::{
 };
 
 use crate::domain::{
-    filter_actions, total_bytes_for_actions, update_overall_progress, FlashEvent, FlashRunControl,
-    FlashSummaryDto,
+    filter_actions, total_bytes_for_actions, update_overall_progress, FlashEvent, FlashOperation,
+    FlashRunControl, FlashSummaryDto,
 };
 
 /// Outcome of flashing a single partition.
@@ -126,24 +126,32 @@ where
         bytes: u64,
         completed_before: u64,
         allow_skip_failed_partition: bool,
+        operation: FlashOperation,
     ) -> Result<PartitionFlashOutcome, String> {
         self.control.ensure_not_cancelled()?;
         (self.emit)(FlashEvent::PreparingImage {
             partition: partition.to_string(),
+            operation,
         })?;
 
         emit_overall_progress(&mut self.emit, completed_before, 0, self.overall_total)?;
 
         let result = self
-            .flash_one_partition_evented(partition, image_path, bytes, completed_before)
+            .flash_one_partition_evented(partition, image_path, bytes, completed_before, operation)
             .await;
 
         match result {
             Ok(()) => {
-                self.summary.flash_count += 1;
+                match operation {
+                    FlashOperation::Flash => self.summary.flash_count += 1,
+                    FlashOperation::FormatUserdata | FlashOperation::Erase => {
+                        self.summary.wipe_count += 1
+                    }
+                }
                 emit_overall_progress(&mut self.emit, completed_before, bytes, self.overall_total)?;
                 (self.emit)(FlashEvent::PartitionComplete {
                     partition: partition.to_string(),
+                    operation,
                 })?;
                 Ok(PartitionFlashOutcome::Completed)
             }
@@ -163,6 +171,7 @@ where
                     )?;
                     (self.emit)(FlashEvent::PartitionSkipped {
                         partition: partition.to_string(),
+                        operation,
                         reason,
                     })?;
                     Ok(PartitionFlashOutcome::Skipped)
@@ -171,6 +180,7 @@ where
                     let msg = format!("{error:#}");
                     (self.emit)(FlashEvent::PartitionFailed {
                         partition: partition.to_string(),
+                        operation,
                         error: msg.clone(),
                     })?;
                     Err(msg)
@@ -205,6 +215,7 @@ where
                 let msg = format!("{e:#}");
                 (self.emit)(FlashEvent::PartitionFailed {
                     partition: partition.to_string(),
+                    operation: FlashOperation::Erase,
                     error: msg.clone(),
                 })?;
                 Err(msg)
@@ -240,6 +251,7 @@ where
                                 );
                                 (self.emit)(FlashEvent::PartitionSkipped {
                                     partition: action.partition.clone(),
+                                    operation: FlashOperation::Flash,
                                     reason: e,
                                 })?;
                                 self.summary.skipped_count += 1;
@@ -256,6 +268,7 @@ where
                             action_bytes,
                             completed_before,
                             allow_skip,
+                            FlashOperation::Flash,
                         )
                         .await?;
                     completed_before = completed_before.saturating_add(action_bytes);
@@ -265,16 +278,20 @@ where
                 }
                 FlashActionExecutionKind::FormatUserdata => {
                     let Some(tools) = format_tools else {
-                        return Err("missing format tools for clean-flash userdata wipe".to_string());
+                        return Err(
+                            "missing format tools for clean-flash userdata wipe".to_string()
+                        );
                     };
                     let info = detect_userdata(self.dev)
                         .await
                         .map_err(|error| format!("detect userdata: {error:#}"))?;
-                    let generated = generate_userdata_image(tools, &info, &FormatUserdataOptions::default())
-                        .map_err(|error| format!("generate userdata image: {error:#}"))?;
+                    let generated =
+                        generate_userdata_image(tools, &info, &FormatUserdataOptions::default())
+                            .map_err(|error| format!("generate userdata image: {error:#}"))?;
                     self.control.ensure_not_cancelled()?;
                     (self.emit)(FlashEvent::PreparingImage {
                         partition: action.partition.clone(),
+                        operation: FlashOperation::FormatUserdata,
                     })?;
                     emit_overall_progress(&mut self.emit, completed_before, 0, self.overall_total)?;
                     self.flash_one_partition_evented(
@@ -282,12 +299,14 @@ where
                         generated.path(),
                         action_bytes.max(1),
                         completed_before,
+                        FlashOperation::FormatUserdata,
                     )
                     .await
                     .map_err(|error| {
                         let msg = format!("{error:#}");
                         let _ = (self.emit)(FlashEvent::PartitionFailed {
                             partition: action.partition.clone(),
+                            operation: FlashOperation::FormatUserdata,
                             error: msg.clone(),
                         });
                         msg
@@ -301,48 +320,53 @@ where
                     )?;
                     (self.emit)(FlashEvent::PartitionComplete {
                         partition: action.partition.clone(),
+                        operation: FlashOperation::FormatUserdata,
                     })?;
                     completed_before = completed_before.saturating_add(action_bytes);
                 }
-                FlashActionExecutionKind::EraseOptional => match erase_one_partition(self.dev, &action.partition).await {
-                    Ok(()) => {
-                        self.summary.wipe_count += 1;
-                        emit_overall_progress(
-                            &mut self.emit,
-                            completed_before,
-                            action_bytes,
-                            self.overall_total,
-                        )?;
-                        (self.emit)(FlashEvent::EraseComplete {
-                            partition: action.partition.clone(),
-                        })?;
-                        completed_before = completed_before.saturating_add(action_bytes);
+                FlashActionExecutionKind::EraseOptional => {
+                    match erase_one_partition(self.dev, &action.partition).await {
+                        Ok(()) => {
+                            self.summary.wipe_count += 1;
+                            emit_overall_progress(
+                                &mut self.emit,
+                                completed_before,
+                                action_bytes,
+                                self.overall_total,
+                            )?;
+                            (self.emit)(FlashEvent::EraseComplete {
+                                partition: action.partition.clone(),
+                            })?;
+                            completed_before = completed_before.saturating_add(action_bytes);
+                        }
+                        Err(error) if wipe_failure_is_skip_eligible(action, &error) => {
+                            let reason = format!("{error:#}");
+                            warn!(partition = action.partition, error = %error, "skipping failed wipe");
+                            self.summary.skipped_count += 1;
+                            emit_overall_progress(
+                                &mut self.emit,
+                                completed_before,
+                                action_bytes,
+                                self.overall_total,
+                            )?;
+                            (self.emit)(FlashEvent::PartitionSkipped {
+                                partition: action.partition.clone(),
+                                operation: FlashOperation::Erase,
+                                reason,
+                            })?;
+                            completed_before = completed_before.saturating_add(action_bytes);
+                        }
+                        Err(error) => {
+                            let msg = format!("{error:#}");
+                            (self.emit)(FlashEvent::PartitionFailed {
+                                partition: action.partition.clone(),
+                                operation: FlashOperation::Erase,
+                                error: msg.clone(),
+                            })?;
+                            return Err(msg);
+                        }
                     }
-                    Err(error) if wipe_failure_is_skip_eligible(action, &error) => {
-                        let reason = format!("{error:#}");
-                        warn!(partition = action.partition, error = %error, "skipping failed wipe");
-                        self.summary.skipped_count += 1;
-                        emit_overall_progress(
-                            &mut self.emit,
-                            completed_before,
-                            action_bytes,
-                            self.overall_total,
-                        )?;
-                        (self.emit)(FlashEvent::PartitionSkipped {
-                            partition: action.partition.clone(),
-                            reason,
-                        })?;
-                        completed_before = completed_before.saturating_add(action_bytes);
-                    }
-                    Err(error) => {
-                        let msg = format!("{error:#}");
-                        (self.emit)(FlashEvent::PartitionFailed {
-                            partition: action.partition.clone(),
-                            error: msg.clone(),
-                        })?;
-                        return Err(msg);
-                    }
-                },
+                }
             }
         }
 
@@ -355,6 +379,7 @@ where
         image: &Path,
         total_bytes: u64,
         completed_before: u64,
+        operation: FlashOperation,
     ) -> Result<(), anyhow::Error> {
         let p = partition.to_string();
         let p2 = p.clone();
@@ -377,6 +402,7 @@ where
                 };
                 let _ = emit(FlashEvent::Flashing {
                     partition: emit_partition.clone(),
+                    operation,
                     bytes: bytes_flashed,
                     total: total_bytes.max(1),
                     speed_bps,
@@ -421,11 +447,17 @@ pub async fn simulate_dry_run_actions(
         let partition = action.partition.clone();
         let total = u64::try_from(action.size).unwrap_or(0).max(1);
         let mut completed: u64 = 0;
+        let operation = match action.execution_kind {
+            FlashActionExecutionKind::Flash => FlashOperation::Flash,
+            FlashActionExecutionKind::FormatUserdata => FlashOperation::FormatUserdata,
+            FlashActionExecutionKind::EraseOptional => FlashOperation::Erase,
+        };
 
-        match action.action.as_str() {
-            "flash" => {
+        match operation {
+            FlashOperation::Flash | FlashOperation::FormatUserdata => {
                 emit(FlashEvent::PreparingImage {
                     partition: partition.clone(),
+                    operation,
                 })?;
 
                 for step in crate::progress::dry_run_steps(total, 1024) {
@@ -439,7 +471,7 @@ pub async fn simulate_dry_run_actions(
                     )?;
                     emit(FlashEvent::Simulating {
                         partition: partition.clone(),
-                        action: "flash".to_string(),
+                        operation,
                         bytes: completed.min(total),
                         total,
                         speed_bps: 1024 * 1024 * 1024,
@@ -447,11 +479,18 @@ pub async fn simulate_dry_run_actions(
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 }
 
-                summary.flash_count += 1;
+                match operation {
+                    FlashOperation::Flash => summary.flash_count += 1,
+                    FlashOperation::FormatUserdata => summary.wipe_count += 1,
+                    FlashOperation::Erase => {}
+                }
                 completed_before = completed_before.saturating_add(total);
-                emit(FlashEvent::PartitionComplete { partition })?;
+                emit(FlashEvent::PartitionComplete {
+                    partition,
+                    operation,
+                })?;
             }
-            "wipe" => {
+            FlashOperation::Erase => {
                 emit(FlashEvent::Erasing {
                     partition: partition.clone(),
                 })?;
@@ -467,7 +506,7 @@ pub async fn simulate_dry_run_actions(
                     )?;
                     emit(FlashEvent::Simulating {
                         partition: partition.clone(),
-                        action: "wipe".to_string(),
+                        operation,
                         bytes: completed.min(total),
                         total,
                         speed_bps: 1024 * 1024 * 1024,
@@ -479,7 +518,6 @@ pub async fn simulate_dry_run_actions(
                 completed_before = completed_before.saturating_add(total);
                 emit(FlashEvent::EraseComplete { partition })?;
             }
-            other => return Err(format!("unsupported plan action: {other}")),
         }
     }
 
@@ -562,7 +600,12 @@ pub async fn run_scatter_flash(
         overall_total: total_bytes,
     };
     flash
-        .execute_plan_actions(&actions, options.image_overrides, options.format_tools, &vars)
+        .execute_plan_actions(
+            &actions,
+            options.image_overrides,
+            options.format_tools,
+            &vars,
+        )
         .await?;
 
     if options.reboot {
@@ -607,6 +650,7 @@ pub async fn execute_manual_actions(
                 action.size,
                 completed_before,
                 false,
+                FlashOperation::Flash,
             )
             .await?;
         completed_before = completed_before.saturating_add(action.size);
@@ -705,7 +749,14 @@ async fn format_userdata_with_info_flow(
         overall_total: total_bytes,
     };
     flash
-        .flash_partition("userdata", generated.path(), total_bytes, 0, false)
+        .flash_partition(
+            "userdata",
+            generated.path(),
+            total_bytes,
+            0,
+            false,
+            FlashOperation::FormatUserdata,
+        )
         .await?;
 
     emit(FlashEvent::Complete {
@@ -776,7 +827,14 @@ pub async fn wipe_data_flow(
                 overall_total: total_bytes.max(1),
             };
             flash
-                .flash_partition("userdata", image.path(), base_bytes.max(1), 0, false)
+                .flash_partition(
+                    "userdata",
+                    image.path(),
+                    base_bytes.max(1),
+                    0,
+                    false,
+                    FlashOperation::FormatUserdata,
+                )
                 .await?;
         }
         Err(_error) if options.erase_fallback => {
@@ -859,6 +917,7 @@ async fn erase_optional_partition_and_emit(
             emit_overall_progress(emit, completed_before, 1, overall_total)?;
             emit(FlashEvent::PartitionSkipped {
                 partition: partition.to_string(),
+                operation: FlashOperation::Erase,
                 reason,
             })?;
         }
@@ -871,13 +930,16 @@ async fn erase_optional_partition_and_emit(
 mod tests {
     use super::{
         action_is_skip_eligible, partition_flash_failure_disposition, resolve_scatter_flash_target,
-        wipe_failure_is_skip_eligible, PartitionFlashFailureDisposition,
+        simulate_dry_run_actions, wipe_failure_is_skip_eligible, PartitionFlashFailureDisposition,
     };
     use fastboot_rs::{transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError};
     use serde_json::json;
     use std::collections::HashMap;
 
-    use crate::{FlashAction, FlashActionExecutionKind};
+    use crate::{
+        FlashAction, FlashActionExecutionKind, FlashEvent, FlashOperation, FlashRunControl,
+        FlashSummaryDto,
+    };
 
     fn test_action(partition: &str, safety_class: &str) -> FlashAction {
         FlashAction {
@@ -1018,5 +1080,66 @@ mod tests {
         let vars = vars_with_partitions(&["vbmeta"]);
 
         assert_eq!(resolve_scatter_flash_target("vbmeta_a", &vars), "vbmeta");
+    }
+
+    #[tokio::test]
+    async fn simulate_dry_run_actions_counts_format_userdata_as_wipe() {
+        let actions = vec![FlashAction {
+            action: "wipe".to_string(),
+            execution_kind: FlashActionExecutionKind::FormatUserdata,
+            partition: "userdata".to_string(),
+            base_name: "userdata".to_string(),
+            slot: None,
+            layout: "TEST".to_string(),
+            region: "TEST".to_string(),
+            start: 0,
+            start_hex: "0x0".to_string(),
+            size: 4,
+            size_hex: "0x4".to_string(),
+            size_human: "4 B".to_string(),
+            image: None,
+            image_type: None,
+            safety_class: "wipe_only".to_string(),
+            reason: "test".to_string(),
+            warnings: Vec::new(),
+        }];
+        let action_refs = actions.iter().collect::<Vec<_>>();
+        let control = FlashRunControl::default();
+        let mut summary = FlashSummaryDto {
+            flash_count: 0,
+            wipe_count: 0,
+            skipped_count: 0,
+            total_bytes: 4,
+        };
+        let mut events = Vec::new();
+        let mut emit = |event: FlashEvent| -> Result<(), String> {
+            events.push(event);
+            Ok(())
+        };
+
+        simulate_dry_run_actions(&action_refs, &control, &mut emit, &mut summary, 4)
+            .await
+            .unwrap();
+
+        assert_eq!(summary.flash_count, 0);
+        assert_eq!(summary.wipe_count, 1);
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                FlashEvent::PreparingImage {
+                    partition,
+                    operation: FlashOperation::FormatUserdata,
+                } if partition == "userdata"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                FlashEvent::PartitionComplete {
+                    partition,
+                    operation: FlashOperation::FormatUserdata,
+                } if partition == "userdata"
+            )
+        }));
     }
 }

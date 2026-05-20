@@ -1,14 +1,16 @@
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use std::collections::HashMap;
+use std::io::IsTerminal;
 
 use pawflash::{
-    cli::{confirm_scatter_plan, scatter_plan_preview_lines},
-    cli::{flash_mode_from_flags, validate_args, Args, Command},
+    cli::{confirm_reboot_after_scatter, confirm_scatter_plan, scatter_plan_preview_lines},
+    cli::{flash_mode_from_flags, validate_args, Args, Command, RebootTargetArg},
     connect::connect_fastboot,
     device::{
         read_all_variables, read_variable, reboot_device, reboot_device_bootloader,
-        resolve_flash_partition_target, resolve_max_download_size_from_vars, send_flashing_lock,
-        send_flashing_unlock, set_fastboot_active_slot,
+        reboot_device_fastboot, resolve_flash_partition_target,
+        resolve_max_download_size_from_vars, send_flashing_lock, send_flashing_unlock,
+        set_fastboot_active_slot,
     },
     domain::{FlashEvent, FlashRunControl},
     format::{FormatTools, FormatUserdataOptions, WipeDataOptions},
@@ -32,6 +34,7 @@ struct ScatterRunRequest {
     dry_run: bool,
     prompt_for_confirmation: bool,
     yes: bool,
+    reboot: bool,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -54,6 +57,7 @@ fn init_logging() {
 
 async fn run(args: Args) -> anyhow::Result<()> {
     match args.command {
+        Some(Command::ForceFastboot) => run_force_fastboot(),
         Some(Command::DisableVbmeta) => run_disable_vbmeta().await,
         Some(Command::Gsi { image }) => run_gsi(image).await,
         Some(Command::Format {
@@ -67,6 +71,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
             selective,
             slot,
             include_preloader,
+            reboot,
         }) => {
             let mode = flash_mode_from_flags(false, firmware_upgrade, clean_flash, selective)
                 .map_err(anyhow::Error::msg)?;
@@ -79,6 +84,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 dry_run: args.dry_run,
                 prompt_for_confirmation: true,
                 yes: args.yes,
+                reboot,
             })
             .await
         }
@@ -87,8 +93,10 @@ async fn run(args: Args) -> anyhow::Result<()> {
             image,
             slot,
         }) => run_manual_flash(partition, image, slot).await,
-        Some(Command::Reboot) => run_reboot().await,
+        Some(Command::Reboot { target }) => run_reboot(target).await,
         Some(Command::Getvar { var }) => run_getvar(var).await,
+        Some(Command::GetvarAll) => run_getvar_all().await,
+        Some(Command::SetActive { slot }) => run_set_active(slot).await,
         Some(Command::UnlockBootloader) => run_unlock().await,
         Some(Command::LockBootloader) => run_lock().await,
         Some(Command::WipeData {
@@ -112,21 +120,13 @@ async fn run_legacy(args: Args) -> anyhow::Result<()> {
             dry_run: args.dry_run,
             prompt_for_confirmation: false,
             yes: args.yes,
+            reboot: args.reboot,
         })
         .await;
     }
 
     if let Some(slot) = args.set_active {
-        let mut dev = connect_fastboot().await?;
-        let slot = match slot {
-            pawflash::cli::SlotArg::A => "a",
-            pawflash::cli::SlotArg::B => "b",
-            pawflash::cli::SlotArg::Active => "active",
-            pawflash::cli::SlotArg::Inactive => "inactive",
-            pawflash::cli::SlotArg::All => "all",
-        };
-        set_fastboot_active_slot(&mut dev, slot).await?;
-        return Ok(());
+        return run_set_active(slot).await;
     }
 
     if let Some(var) = args.getvar {
@@ -137,29 +137,22 @@ async fn run_legacy(args: Args) -> anyhow::Result<()> {
     }
 
     if args.getvar_all {
-        let mut dev = connect_fastboot().await?;
-        let vars = read_all_variables(&mut dev).await?;
-        println!("{}", serde_json::to_string_pretty(&vars)?);
-        return Ok(());
+        return run_getvar_all().await;
     }
 
     if args.reboot {
-        let mut dev = connect_fastboot().await?;
-        reboot_device(&mut dev).await?;
-        return Ok(());
+        return run_reboot(RebootTargetArg::System).await;
     }
 
     if args.reboot_bootloader {
-        let mut dev = connect_fastboot().await?;
-        reboot_device_bootloader(&mut dev).await?;
-        return Ok(());
+        return run_reboot(RebootTargetArg::Bootloader).await;
     }
 
     if args.force_fastboot {
-        let _ = pawflash::force_fastboot();
-        return Ok(());
+        return run_force_fastboot();
     }
 
+    let _ = Args::command().print_help();
     Ok(())
 }
 
@@ -173,6 +166,7 @@ async fn run_scatter(request: ScatterRunRequest) -> anyhow::Result<()> {
         dry_run,
         prompt_for_confirmation,
         yes,
+        reboot,
     } = request;
     let plan = build_plan_checked(&scatter, mode, slot, include_preloader, &partitions, true)?;
     let control = FlashRunControl::default();
@@ -207,7 +201,7 @@ async fn run_scatter(request: ScatterRunRequest) -> anyhow::Result<()> {
             partitions: &partitions,
             image_overrides: &image_overrides,
             announce_plan: !prompt_for_confirmation,
-            reboot: false,
+            reboot,
             format_tools: Some(&tools),
             control: &control,
         },
@@ -215,6 +209,11 @@ async fn run_scatter(request: ScatterRunRequest) -> anyhow::Result<()> {
     )
     .await
     .map_err(anyhow::Error::msg)?;
+
+    if !reboot && !yes && std::io::stdin().is_terminal() && confirm_reboot_after_scatter()? {
+        reboot_device(&mut dev).await?;
+    }
+
     Ok(())
 }
 
@@ -372,6 +371,13 @@ async fn run_getvar(var: String) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn run_getvar_all() -> anyhow::Result<()> {
+    let mut dev = connect_fastboot().await?;
+    let vars = read_all_variables(&mut dev).await?;
+    println!("{}", serde_json::to_string_pretty(&vars)?);
+    Ok(())
+}
+
 async fn run_unlock() -> anyhow::Result<()> {
     let mut dev = connect_fastboot().await?;
     send_flashing_unlock(&mut dev).await?;
@@ -384,10 +390,35 @@ async fn run_lock() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_reboot() -> anyhow::Result<()> {
+async fn run_reboot(target: RebootTargetArg) -> anyhow::Result<()> {
     let mut dev = connect_fastboot().await?;
-    reboot_device(&mut dev).await?;
+    match target {
+        RebootTargetArg::System => reboot_device(&mut dev).await?,
+        RebootTargetArg::Bootloader => reboot_device_bootloader(&mut dev).await?,
+        RebootTargetArg::Fastboot => reboot_device_fastboot(&mut dev).await?,
+        RebootTargetArg::Recovery => dev.reboot_to("recovery").await?,
+    }
     Ok(())
+}
+
+async fn run_set_active(slot: pawflash::cli::SlotArg) -> anyhow::Result<()> {
+    let mut dev = connect_fastboot().await?;
+    set_fastboot_active_slot(&mut dev, slot_name(slot)).await?;
+    Ok(())
+}
+
+fn run_force_fastboot() -> anyhow::Result<()> {
+    pawflash::force_fastboot().map_err(anyhow::Error::from)
+}
+
+fn slot_name(slot: pawflash::cli::SlotArg) -> &'static str {
+    match slot {
+        pawflash::cli::SlotArg::A => "a",
+        pawflash::cli::SlotArg::B => "b",
+        pawflash::cli::SlotArg::Active => "active",
+        pawflash::cli::SlotArg::Inactive => "inactive",
+        pawflash::cli::SlotArg::All => "all",
+    }
 }
 
 async fn run_gsi(image: std::path::PathBuf) -> anyhow::Result<()> {
@@ -414,26 +445,41 @@ fn print_flash_event(event: &FlashEvent) {
             actions,
             total_bytes,
         } => println!("plan built: {actions} actions, {total_bytes} bytes"),
-        FlashEvent::PreparingImage { partition } => println!("preparing {partition}"),
+        FlashEvent::PreparingImage {
+            partition,
+            operation,
+        } => println!("preparing {operation:?} {partition}"),
         FlashEvent::Flashing {
             partition,
+            operation,
             bytes,
             total,
             ..
-        } => println!("flashing {partition}: {bytes}/{total}"),
+        } => println!("{operation:?} {partition}: {bytes}/{total}"),
         FlashEvent::Simulating {
             partition,
-            action,
+            operation,
             bytes,
             total,
             ..
-        } => println!("simulating {action} {partition}: {bytes}/{total}"),
-        FlashEvent::PartitionComplete { partition } => println!("complete {partition}"),
-        FlashEvent::PartitionSkipped { partition, reason } => {
-            println!("skipped {partition}: {reason}")
+        } => println!("simulating {operation:?} {partition}: {bytes}/{total}"),
+        FlashEvent::PartitionComplete {
+            partition,
+            operation,
+        } => println!("complete {operation:?} {partition}"),
+        FlashEvent::PartitionSkipped {
+            partition,
+            operation,
+            reason,
+        } => {
+            println!("skipped {operation:?} {partition}: {reason}")
         }
-        FlashEvent::PartitionFailed { partition, error } => {
-            eprintln!("failed {partition}: {error}")
+        FlashEvent::PartitionFailed {
+            partition,
+            operation,
+            error,
+        } => {
+            eprintln!("failed {operation:?} {partition}: {error}")
         }
         FlashEvent::Erasing { partition } => println!("erasing {partition}"),
         FlashEvent::EraseComplete { partition } => println!("erased {partition}"),

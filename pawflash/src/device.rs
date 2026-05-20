@@ -104,11 +104,6 @@ pub async fn reboot_device_fastboot(dev: &mut FastbootDevice) -> anyhow::Result<
     })
 }
 
-/// Power off the device.
-pub async fn power_off_device(dev: &mut FastbootDevice) -> anyhow::Result<()> {
-    with_device_context(dev.power_down().await, || "power off device".to_string())
-}
-
 /// Send the `flashing unlock` command to unlock the bootloader.
 pub async fn send_flashing_unlock(dev: &mut FastbootDevice) -> anyhow::Result<()> {
     with_device_context(dev.unlock_bootloader().await, || {

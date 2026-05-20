@@ -11,6 +11,7 @@ import { FlashOptions } from "@/components/main-tab/FlashOptions";
 import { PartitionTable } from "@/components/main-tab/PartitionTable";
 import { FlashFab } from "@/components/main-tab/FlashFab";
 import { GsiFlasher } from "@/components/extra-tab/GsiFlasher";
+import { ExtraTools } from "@/components/extra-tab/ExtraTools";
 import { FlashDialog } from "@/components/flash/FlashDialog";
 import { FlashPlanConfirmDialog } from "@/components/flash/FlashPlanConfirmDialog";
 import { ForceFastbootDialog } from "@/components/flash/ForceFastbootDialog";
@@ -103,7 +104,7 @@ export default function App() {
   const [rebootAfter, setRebootAfter] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [includePreloader, setIncludePreloader] = useState(false);
-  const [slot, setSlot] = useState<"" | "a" | "b" | "all">("");
+  const [slot, setSlot] = useState<"" | "a" | "b" | "active" | "inactive" | "all">("");
   const [plan, setPlan] = useState<FlashPlanDto | null>(null);
   const [planId, setPlanId] = useState<number | null>(null);
   const [partitions, setPartitions] = useState<PartitionDto[]>([]);
@@ -177,7 +178,7 @@ export default function App() {
   );
 
   const handleSlotChange = useCallback(
-    (newSlot: "" | "a" | "b" | "all") => {
+    (newSlot: "" | "a" | "b" | "active" | "inactive" | "all") => {
       appendLog(`SlotOverride ${newSlot || "default"}`);
       setSlot(newSlot);
     },
@@ -190,7 +191,7 @@ export default function App() {
       selectedMode: string,
       selectedAdvanced: boolean,
       selectedIncludePreloader: boolean,
-      selectedSlot: "" | "a" | "b" | "all",
+      selectedSlot: "" | "a" | "b" | "active" | "inactive" | "all",
     ) => {
       const requestId = ++planRequestRef.current;
 
@@ -458,6 +459,65 @@ export default function App() {
     isStartingFlash,
     isStartingGsiFlash,
   ]);
+
+  const readVariable = useCallback(
+    async (name: string) => {
+      appendLog(`Getvar Requested ${name}`);
+      return device.getVariable(name);
+    },
+    [appendLog, device],
+  );
+
+  const readAllVariables = useCallback(async () => {
+    appendLog("GetvarAll Requested");
+    return device.getAllVariables();
+  }, [appendLog, device]);
+
+  const startManualFlash = useCallback(
+    async (
+      partition: string,
+      image: string,
+      selectedSlot: "" | "a" | "b" | "active" | "inactive" | "all",
+    ) => {
+      if (
+        isStartingFlash ||
+        isStartingGsiFlash ||
+        isFormattingData ||
+        isCheckingDevice ||
+        activeFlashSession ||
+        activeForceSession
+      ) {
+        return;
+      }
+
+      flash.reset();
+      setFlashOpen(true);
+      setFlashMinimized(false);
+      setIsStartingFlash(true);
+
+      try {
+        await invoke("manual_flash", {
+          partition,
+          image,
+          slot: selectedSlot || null,
+        });
+      } catch (error) {
+        flash.fail(String(error));
+        throw error;
+      } finally {
+        setIsStartingFlash(false);
+      }
+    },
+    [
+      activeFlashSession,
+      activeForceSession,
+      flash,
+      isCheckingDevice,
+      isFormattingData,
+      isStartingFlash,
+      isStartingGsiFlash,
+    ],
+  );
 
   const startWipeData = useCallback(async () => {
     if (menuActionDisabled) {
@@ -757,6 +817,13 @@ export default function App() {
                 disabled={menuActionDisabled}
                 flashing={isStartingGsiFlash}
               />
+              <ExtraTools
+                disabled={menuActionDisabled}
+                flashing={isStartingFlash}
+                onGetVariable={readVariable}
+                onGetAllVariables={readAllVariables}
+                onManualFlash={startManualFlash}
+              />
             </div>
 
             <div className={tab === "menu" ? "grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]" : "hidden"}>
@@ -822,14 +889,18 @@ export default function App() {
 function phaseLabel(
   phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
   runMode: "" | "live" | "dry_run",
-  operation: "" | "flash" | "erase",
+  operation: "" | "flash" | "format" | "erase",
 ) {
   if (phase === "waiting") return "Waiting for device...";
   if (phase === "flashing" && runMode === "dry_run") {
-    return operation === "erase" ? "Dry run erase..." : "Dry run...";
+    if (operation === "erase") return "Dry run erase...";
+    if (operation === "format") return "Dry run format...";
+    return "Dry run...";
   }
   if (phase === "flashing") {
-    return operation === "erase" ? "Erasing..." : "Flashing...";
+    if (operation === "erase") return "Erasing...";
+    if (operation === "format") return "Formatting...";
+    return "Flashing...";
   }
   if (phase === "cancelled") return "Cancelled";
   if (phase === "complete") return runMode === "dry_run" ? "Dry run complete" : "Complete";

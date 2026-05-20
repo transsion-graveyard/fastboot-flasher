@@ -12,12 +12,17 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { toast } from "sonner";
-import type { FlashEvent, FlashSummaryDto, ForceFastbootEvent } from "@/types/api";
+import type {
+  FlashEvent,
+  FlashOperation,
+  FlashSummaryDto,
+  ForceFastbootEvent,
+} from "@/types/api";
 
 export interface FlashProgress {
   phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error";
   runMode: "" | "live" | "dry_run";
-  operation: "" | "flash" | "erase";
+  operation: "" | "flash" | "format" | "erase";
   partition: string;
   bytes: number;
   total: number;
@@ -143,7 +148,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             setState((p) => ({
               ...p,
               runMode: p.runMode || "live",
-              operation: "flash",
+              operation: toUiOperation(ev.data.operation),
               partition: ev.data.partition,
               bytes: 0,
               total: 0,
@@ -158,7 +163,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               ...p,
               phase: "flashing",
               runMode: "live",
-              operation: "flash",
+              operation: toUiOperation(ev.data.operation),
               partition: ev.data.partition,
               bytes: ev.data.bytes,
               total: ev.data.total,
@@ -173,7 +178,7 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
               ...p,
               phase: "flashing",
               runMode: "dry_run",
-              operation: ev.data.action === "wipe" ? "erase" : "flash",
+              operation: toUiOperation(ev.data.operation),
               partition: ev.data.partition,
               bytes: ev.data.bytes,
               total: ev.data.total,
@@ -197,10 +202,10 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             toast.error(`${ev.data.partition}: ${ev.data.error}`);
             break;
           case "PartitionComplete":
-            toast.success(`${ev.data.partition} complete`);
+            toast.success(completionToast(ev.data.partition, ev.data.operation));
             break;
           case "PartitionSkipped":
-            toast.warning(`${ev.data.partition} skipped`);
+            toast.warning(skipToast(ev.data.partition, ev.data.operation));
             break;
           case "EraseComplete":
             toast.success(`${ev.data.partition} erased`);
@@ -428,11 +433,11 @@ function formatFlashEventForLog(
       return `PlanBuilt actions=${event.data.actions} total=${formatGiB(event.data.total_bytes)}`;
     case "PreparingImage":
       return runMode === "dry_run"
-        ? `DryRunPrepare partition=${event.data.partition}`
-        : `FlashPrepare partition=${event.data.partition}`;
+        ? `DryRunPrepare operation=${event.data.operation} partition=${event.data.partition}`
+        : `FlashPrepare operation=${event.data.operation} partition=${event.data.partition}`;
     case "Flashing":
       return formatProgressMilestone({
-        prefix: "FlashProgress",
+        prefix: event.data.operation === "format_userdata" ? "FormatProgress" : "FlashProgress",
         label: "partition",
         partition: event.data.partition,
         bytes: event.data.bytes,
@@ -442,8 +447,13 @@ function formatFlashEventForLog(
       });
     case "Simulating":
       return formatProgressMilestone({
-        prefix: event.data.action === "wipe" ? "DryRunEraseProgress" : "DryRunProgress",
-        label: event.data.action,
+        prefix:
+          event.data.operation === "erase"
+            ? "DryRunEraseProgress"
+            : event.data.operation === "format_userdata"
+              ? "DryRunFormatProgress"
+              : "DryRunProgress",
+        label: event.data.operation,
         partition: event.data.partition,
         bytes: event.data.bytes,
         total: event.data.total,
@@ -453,11 +463,11 @@ function formatFlashEventForLog(
     case "Overall":
       return null;
     case "PartitionComplete":
-      return `PartitionComplete partition=${event.data.partition}`;
+      return `PartitionComplete operation=${event.data.operation} partition=${event.data.partition}`;
     case "PartitionSkipped":
-      return `PartitionSkipped partition=${event.data.partition} reason=${event.data.reason}`;
+      return `PartitionSkipped operation=${event.data.operation} partition=${event.data.partition} reason=${event.data.reason}`;
     case "PartitionFailed":
-      return `PartitionFailed partition=${event.data.partition} error=${event.data.error}`;
+      return `PartitionFailed operation=${event.data.operation} partition=${event.data.partition} error=${event.data.error}`;
     case "Erasing":
       return runMode === "dry_run"
         ? `DryRunEraseStart partition=${event.data.partition}`
@@ -521,6 +531,31 @@ function progressMilestoneBucket(pct: number) {
   if (pct <= 0) return 0;
   if (pct >= 100) return 100;
   return Math.floor(pct / PROGRESS_LOG_STEP) * PROGRESS_LOG_STEP;
+}
+
+function toUiOperation(operation: FlashOperation): FlashProgress["operation"] {
+  switch (operation) {
+    case "erase":
+      return "erase";
+    case "format_userdata":
+      return "format";
+    default:
+      return "flash";
+  }
+}
+
+function completionToast(partition: string, operation: FlashOperation) {
+  if (operation === "format_userdata") {
+    return `${partition} formatted`;
+  }
+  return `${partition} complete`;
+}
+
+function skipToast(partition: string, operation: FlashOperation) {
+  if (operation === "format_userdata") {
+    return `${partition} format skipped`;
+  }
+  return `${partition} skipped`;
 }
 
 function clearProgressMilestonesForPartition(

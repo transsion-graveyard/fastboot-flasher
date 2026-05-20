@@ -35,9 +35,24 @@ pub enum SlotArg {
     All,
 }
 
+/// Reboot target for CLI flows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum RebootTargetArg {
+    /// Reboot to Android/system.
+    System,
+    /// Reboot to bootloader fastboot.
+    Bootloader,
+    /// Reboot to userspace fastbootd.
+    Fastboot,
+    /// Reboot to recovery.
+    Recovery,
+}
+
 /// PawFlash subcommands.
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum Command {
+    /// Wait for an MTK preloader device and nudge it into fastboot mode.
+    ForceFastboot,
     /// Flash the bundled empty vbmeta image to vbmeta_a and vbmeta_b.
     DisableVbmeta,
     /// Flash a GSI system image using the app's GSI flow.
@@ -54,6 +69,7 @@ pub enum Command {
         erase_fallback: bool,
     },
     /// Build a scatter plan and optionally execute it.
+    #[command(arg_required_else_help = true)]
     Scatter {
         /// Path to the MTK scatter file.
         scatter: PathBuf,
@@ -72,6 +88,9 @@ pub enum Command {
         /// Include preloader partitions in the flash plan.
         #[arg(long)]
         include_preloader: bool,
+        /// Reboot to system immediately after a successful flash.
+        #[arg(long)]
+        reboot: bool,
     },
     /// Flash one image to one exact fastboot partition.
     Flash {
@@ -84,11 +103,23 @@ pub enum Command {
         slot: Option<SlotArg>,
     },
     /// Reboot the current fastboot device.
-    Reboot,
+    Reboot {
+        /// Reboot target.
+        #[arg(long, value_enum, default_value_t = RebootTargetArg::System)]
+        target: RebootTargetArg,
+    },
     /// Read a single fastboot variable.
     Getvar {
         /// Variable name to read.
         var: String,
+    },
+    /// Read all fastboot variables.
+    GetvarAll,
+    /// Set the active slot.
+    SetActive {
+        /// Slot to activate.
+        #[arg(value_enum)]
+        slot: SlotArg,
     },
     /// Send `flashing unlock`.
     UnlockBootloader,
@@ -267,6 +298,14 @@ pub fn validate_args(args: &Args) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Ask whether to reboot to system after a successful scatter flash.
+pub fn confirm_reboot_after_scatter() -> anyhow::Result<bool> {
+    Confirm::new("Reboot to system now?")
+        .with_default(false)
+        .prompt()
+        .context("confirm reboot after scatter flash")
 }
 
 /// Resolve a [`FlashMode`] from the four boolean flash-mode flags, validating

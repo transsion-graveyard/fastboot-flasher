@@ -20,7 +20,7 @@ use pawflash::{
 };
 
 use crate::{
-    resolve_format_tools, AppState, FlashEvent, FlashRunControl, FlashSummaryDto,
+    resolve_format_tools, AppState, FlashEvent, FlashOperation, FlashRunControl, FlashSummaryDto,
     CANCELLED_MESSAGE,
 };
 
@@ -81,6 +81,7 @@ impl GsiWorkerProgressMapper {
             } => vec![
                 FlashEvent::PreparingImage {
                     partition: partition.clone(),
+                    operation: FlashOperation::Flash,
                 },
                 FlashEvent::Overall {
                     bytes: self.completed_before.min(self.total_bytes),
@@ -88,6 +89,7 @@ impl GsiWorkerProgressMapper {
                 },
                 FlashEvent::Flashing {
                     partition,
+                    operation: FlashOperation::Flash,
                     bytes: 0,
                     total: size_bytes.max(1),
                     speed_bps: 0,
@@ -101,6 +103,7 @@ impl GsiWorkerProgressMapper {
             } => vec![
                 FlashEvent::Flashing {
                     partition,
+                    operation: FlashOperation::Flash,
                     bytes,
                     total: total_bytes.max(1),
                     speed_bps,
@@ -123,7 +126,10 @@ impl GsiWorkerProgressMapper {
                         bytes: self.completed_before.min(self.total_bytes),
                         total: self.total_bytes,
                     },
-                    FlashEvent::PartitionComplete { partition },
+                    FlashEvent::PartitionComplete {
+                        partition,
+                        operation: FlashOperation::Flash,
+                    },
                 ]
             }
             GsiEvent::Erasing { partition } => vec![
@@ -156,6 +162,7 @@ impl GsiWorkerProgressMapper {
                     },
                     FlashEvent::PartitionSkipped {
                         partition: partition.to_string(),
+                        operation: FlashOperation::Erase,
                         reason,
                     },
                 ]
@@ -450,7 +457,7 @@ fn gsi_step_status(step: GsiStep) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use crate::{FlashEvent, FlashSummaryDto};
+    use crate::{FlashEvent, FlashOperation, FlashSummaryDto};
     use pawflash::gsi::{GsiEvent, GsiStep};
     use tokio::time::Duration;
 
@@ -503,7 +510,8 @@ mod tests {
             started,
             vec![
                 FlashEvent::PreparingImage {
-                    partition: "system_a".to_string()
+                    partition: "system_a".to_string(),
+                    operation: FlashOperation::Flash,
                 },
                 FlashEvent::Overall {
                     bytes: 0,
@@ -511,6 +519,7 @@ mod tests {
                 },
                 FlashEvent::Flashing {
                     partition: "system_a".to_string(),
+                    operation: FlashOperation::Flash,
                     bytes: 0,
                     total: 1000,
                     speed_bps: 0,
@@ -529,6 +538,7 @@ mod tests {
             vec![
                 FlashEvent::Flashing {
                     partition: "system_a".to_string(),
+                    operation: FlashOperation::Flash,
                     bytes: 400,
                     total: 1000,
                     speed_bps: 55,
@@ -553,6 +563,7 @@ mod tests {
                 },
                 FlashEvent::PartitionComplete {
                     partition: "system_a".to_string(),
+                    operation: FlashOperation::Flash,
                 }
             ]
         );

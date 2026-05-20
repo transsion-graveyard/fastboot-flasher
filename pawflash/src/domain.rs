@@ -9,10 +9,6 @@ use crate::cli::{FlashMode, SlotArg};
 
 use mtk_scatter_parser::{FlashAction, FlashPlan};
 
-/// Message shown when the device reports a power-off command is unsupported.
-pub const POWER_OFF_UNSUPPORTED_MESSAGE: &str =
-    "Power off is not supported by this device in the current fastboot mode.";
-
 /// Windows-specific driver hint used when device probing fails.
 pub const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
     "On Windows, install the Google USB Driver, then reconnect.";
@@ -115,6 +111,18 @@ pub struct FlashSummaryDto {
     pub total_bytes: u64,
 }
 
+/// Semantic operation kind for progress events.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FlashOperation {
+    /// A normal partition flash.
+    Flash,
+    /// A userdata format implemented by flashing a generated blank image.
+    FormatUserdata,
+    /// An erase operation.
+    Erase,
+}
+
 /// Flash progress events shared by the GUI and CLI adapters.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "event", content = "data")]
@@ -151,11 +159,15 @@ pub enum FlashEvent {
     PreparingImage {
         /// Partition being prepared.
         partition: String,
+        /// Semantic operation being prepared.
+        operation: FlashOperation,
     },
     /// Bytes are currently being flashed to a partition.
     Flashing {
         /// Partition being flashed.
         partition: String,
+        /// Semantic operation in progress.
+        operation: FlashOperation,
         /// Bytes transferred so far for this partition.
         bytes: u64,
         /// Total bytes expected for this partition.
@@ -167,8 +179,8 @@ pub enum FlashEvent {
     Simulating {
         /// Partition being simulated.
         partition: String,
-        /// Action being simulated.
-        action: String,
+        /// Semantic operation being simulated.
+        operation: FlashOperation,
         /// Bytes progressed so far.
         bytes: u64,
         /// Total bytes represented by the simulated action.
@@ -180,11 +192,15 @@ pub enum FlashEvent {
     PartitionComplete {
         /// Partition that completed.
         partition: String,
+        /// Semantic operation that completed.
+        operation: FlashOperation,
     },
     /// A partition action was skipped after a non-fatal issue.
     PartitionSkipped {
         /// Partition that was skipped.
         partition: String,
+        /// Semantic operation that was skipped.
+        operation: FlashOperation,
         /// User-facing reason for the skip.
         reason: String,
     },
@@ -192,6 +208,8 @@ pub enum FlashEvent {
     PartitionFailed {
         /// Partition that failed.
         partition: String,
+        /// Semantic operation that failed.
+        operation: FlashOperation,
         /// User-facing error message.
         error: String,
     },
@@ -371,6 +389,8 @@ pub fn parse_slot(slot: Option<&str>) -> Option<SlotArg> {
     match slot {
         Some("a") => Some(SlotArg::A),
         Some("b") => Some(SlotArg::B),
+        Some("active") => Some(SlotArg::Active),
+        Some("inactive") => Some(SlotArg::Inactive),
         Some("all") => Some(SlotArg::All),
         _ => None,
     }
@@ -436,19 +456,6 @@ pub fn resolve_image_path_for_action(
         .image_resolved_path()
         .map(PathBuf::from)
         .ok_or_else(|| format!("missing image path for {}", action.partition))
-}
-
-/// Normalize the user-facing power-off error string.
-pub fn normalize_power_off_error(message: &str) -> String {
-    let lower = message.to_ascii_lowercase();
-    if lower.contains("unknown command")
-        || lower.contains("unsupported command")
-        || lower.contains("not supported")
-        || lower.contains("not support")
-    {
-        return POWER_OFF_UNSUPPORTED_MESSAGE.to_string();
-    }
-    message.to_string()
 }
 
 /// Display a human-readable storage label.

@@ -31,8 +31,8 @@ interface FlashOptionsProps {
   onAdvancedChange: (v: boolean) => void;
   includePreloader: boolean;
   onIncludePreloaderChange: (v: boolean) => void;
-  slot: "" | "a" | "b" | "all";
-  onSlotChange: (slot: "" | "a" | "b" | "all") => void;
+  slot: "" | "a" | "b" | "active" | "inactive" | "all";
+  onSlotChange: (slot: "" | "a" | "b" | "active" | "inactive" | "all") => void;
 }
 
 export const FlashOptions = memo(function FlashOptions({
@@ -51,7 +51,17 @@ export const FlashOptions = memo(function FlashOptions({
   const [rebooting, setRebooting] = useState(false);
   const advancedEnabled = includePreloader || slot !== "";
   const modeOptions = visibleFlashModeOptions();
-  const slotLabel = slot === "a" ? "_a" : slot === "b" ? "_b" : slot === "all" ? "all slots" : "";
+  const slotLabel = slot === "a"
+    ? "_a"
+    : slot === "b"
+      ? "_b"
+      : slot === "active"
+        ? "active slot"
+        : slot === "inactive"
+          ? "inactive slot"
+          : slot === "all"
+            ? "all slots"
+            : "";
   const { reboot: rebootDevice } = useDevice();
 
   const handleReboot = async () => {
@@ -139,7 +149,7 @@ export const FlashOptions = memo(function FlashOptions({
                   value={slot}
                   onValueChange={(value) => {
                     onAdvancedChange(true);
-                    onSlotChange(value as "" | "a" | "b" | "all");
+                    onSlotChange(value as "" | "a" | "b" | "active" | "inactive" | "all");
                   }}
                 >
                   <SelectTrigger aria-label="Slot override">
@@ -150,6 +160,8 @@ export const FlashOptions = memo(function FlashOptions({
                   <SelectContent>
                     <SelectItem value="a">_a</SelectItem>
                     <SelectItem value="b">_b</SelectItem>
+                    <SelectItem value="active">active slot</SelectItem>
+                    <SelectItem value="inactive">inactive slot</SelectItem>
                     <SelectItem value="all">all slots</SelectItem>
                   </SelectContent>
                 </Select>

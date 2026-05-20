@@ -9,26 +9,24 @@ use tauri::{path::BaseDirectory, Emitter, Manager};
 use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, warn};
 
-use pawflash as pawflash;
+use fastboot_rs::{open_fastboot_with_observer, ProbeLogLevel};
+use pawflash;
+#[cfg(test)]
+use pawflash::cli::{FlashMode, SlotArg};
 use pawflash::{
     describe_fastboot_probe_failure,
-    gsi::detect_fastboot_mode,
-    cli::{FlashMode, SlotArg},
     format::{
         detect_userdata, erase_optional_partition, generate_userdata_image, FormatTools,
         FormatUserdataOptions, OptionalEraseOutcome, WipeDataOptions,
     },
+    gsi::detect_fastboot_mode,
     manual::{disable_vbmeta_actions, standalone_disable_vbmeta_path},
     resolve_max_download_size_from_vars, FastbootDevice, FlashPlan,
 };
-use fastboot_rs::{open_fastboot_with_observer, ProbeLogLevel};
 
 const CANCELLED_MESSAGE: &str = "cancelled by user";
 const DEVICE_CHECK_TIMEOUT_MS: u64 = 3_000;
 const DEVICE_RETRY_DELAY_MS: u64 = pawflash::connect::FASTBOOT_RETRY_DELAY_MS;
-const POWER_OFF_UNSUPPORTED_MESSAGE: &str =
-    "Power off is not supported by this device in the current fastboot mode.";
-
 pub fn is_gsi_worker_invocation(args: &[String]) -> bool {
     gsi_worker::is_gsi_worker_invocation(args)
 }
@@ -70,9 +68,11 @@ struct ForceFastbootState {
     active_session_id: Option<u64>,
 }
 
-pub use pawflash::{DeviceInfo, DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashPlanDto,
-    FlashRunControl, FlashSummaryDto, ForceFastbootEvent, ForceFastbootStartDto,
-    ParseScatterResponseDto, PartitionDto};
+pub use pawflash::{
+    DeviceInfo, DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashOperation,
+    FlashPlanDto, FlashRunControl, FlashSummaryDto, ForceFastbootEvent, ForceFastbootStartDto,
+    ParseScatterResponseDto, PartitionDto,
+};
 
 fn lock_device(
     state: &AppState,
@@ -220,18 +220,6 @@ fn describe_probe_stage(stage: &str) -> &str {
         "probe_failed" => "Fastboot probe failed",
         _ => stage,
     }
-}
-
-fn normalize_power_off_error(message: &str) -> String {
-    let lower = message.to_ascii_lowercase();
-    if lower.contains("unknown command")
-        || lower.contains("unsupported command")
-        || lower.contains("not supported")
-        || lower.contains("not support")
-    {
-        return POWER_OFF_UNSUPPORTED_MESSAGE.to_string();
-    }
-    message.to_string()
 }
 
 fn emit_flash_error(app: &tauri::AppHandle, message: impl Into<String>) -> String {
@@ -393,7 +381,6 @@ fn emit_force_fastboot_event(
     app.emit("force-fastboot-progress", event)
         .map_err(|e| format!("emit: {e}"))
 }
-
 
 async fn wait_for_cancel(control: &FlashRunControl) -> String {
     loop {
@@ -593,7 +580,6 @@ async fn check_device_with_diagnostics(
     }
 }
 
-
 async fn erase_optional_partition_and_emit(
     dev: &mut FastbootDevice,
     app: &tauri::AppHandle,
@@ -635,6 +621,7 @@ async fn erase_optional_partition_and_emit(
                 "flash-progress",
                 FlashEvent::PartitionSkipped {
                     partition: partition.to_string(),
+                    operation: FlashOperation::Erase,
                     reason,
                 },
             )
@@ -721,7 +708,7 @@ async fn parse_scatter(
     slot: Option<String>,
     include_preloader: bool,
 ) -> Result<ParseScatterResponseDto, String> {
-    let request = parse_plan_request(&mode, slot.as_deref())?;
+    let request = pawflash::parse_plan_request(&mode, slot.as_deref())?;
     let scatter = mtk_scatter_parser::parse_scatter(&path)
         .map_err(|e| format!("parse scatter metadata: {e}"))?;
     let plan = pawflash::build_flash_plan(
@@ -730,18 +717,17 @@ async fn parse_scatter(
         request.slot,
         include_preloader,
         &[],
-        false,
+        true,
     )
     .map_err(|e| format!("parse scatter: {e}"))?;
-    let dto = plan_to_dto(&plan, scatter.chipset());
+    let dto = pawflash::plan_to_dto(&plan, scatter.chipset());
     let plan_id = store_flash_plan(&state, plan)?;
     Ok(ParseScatterResponseDto { plan_id, plan: dto })
 }
 
 #[tauri::command]
 async fn validate_scatter(path: String) -> Result<(), String> {
-    mtk_scatter_parser::parse_scatter(&path)
-        .map_err(|e| format!("parse scatter metadata: {e}"))?;
+    mtk_scatter_parser::parse_scatter(&path).map_err(|e| format!("parse scatter metadata: {e}"))?;
     Ok(())
 }
 
@@ -863,7 +849,8 @@ async fn start_flash_inner(
 
     if !plan_requires_connected_device(&plan) {
         let mut emit = |event: FlashEvent| -> Result<(), String> {
-            app.emit("flash-progress", event).map_err(|e| format!("emit: {e}"))
+            app.emit("flash-progress", event)
+                .map_err(|e| format!("emit: {e}"))
         };
         pawflash::workflow::simulate_dry_run_actions(
             &filtered,
@@ -893,7 +880,8 @@ async fn start_flash_inner(
     let tools = resolve_format_tools(&app)?;
 
     let emit = |event: FlashEvent| -> Result<(), String> {
-        app.emit("flash-progress", event).map_err(|e| format!("emit: {e}"))
+        app.emit("flash-progress", event)
+            .map_err(|e| format!("emit: {e}"))
     };
     let mut flash = pawflash::workflow::FlashProgressContext {
         dev: &mut dev,
@@ -950,7 +938,6 @@ async fn prepare_for_gsi_worker_launch(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-
 #[tauri::command]
 async fn manual_flash(
     state: tauri::State<'_, AppState>,
@@ -971,10 +958,9 @@ async fn manual_flash_inner(
     image: String,
     slot: Option<String>,
 ) -> Result<FlashSummaryDto, String> {
-    let slot = parse_slot(slot.as_deref());
-    let actions =
-        pawflash::manual::manual_flash_actions(&partition, PathBuf::from(&image), slot)
-            .map_err(|e| format!("manual flash: {e}"))?;
+    let slot = pawflash::parse_slot(slot.as_deref());
+    let actions = pawflash::manual::manual_flash_actions(&partition, PathBuf::from(&image), slot)
+        .map_err(|e| format!("manual flash: {e}"))?;
     execute_manual_actions(state, app, &actions).await
 }
 
@@ -1025,13 +1011,9 @@ async fn wipe_data(
 fn resolve_format_tools(app: &tauri::AppHandle) -> Result<FormatTools, String> {
     let bundled = app
         .path()
-        .resolve(
-            "../../pawflash/assets/bin",
-            BaseDirectory::Resource,
-        )
+        .resolve("../../pawflash/assets/bin", BaseDirectory::Resource)
         .ok();
-    let dev =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../pawflash/assets/bin");
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../pawflash/assets/bin");
 
     let root = bundled.filter(|path| path.exists()).unwrap_or(dev);
     FormatTools::from_bin_root(&root).map_err(|error| error.to_string())
@@ -1063,6 +1045,7 @@ async fn format_userdata_inner(
         "flash-progress",
         FlashEvent::PreparingImage {
             partition: "userdata".to_string(),
+            operation: FlashOperation::FormatUserdata,
         },
     )
     .map_err(|e| format!("emit: {e}"))?;
@@ -1093,7 +1076,8 @@ async fn format_userdata_inner(
     match generated {
         Ok(image) => {
             let emit = |event: FlashEvent| -> Result<(), String> {
-                app.emit("flash-progress", event).map_err(|e| format!("emit: {e}"))
+                app.emit("flash-progress", event)
+                    .map_err(|e| format!("emit: {e}"))
             };
             let mut flash = pawflash::workflow::FlashProgressContext {
                 dev: &mut dev,
@@ -1104,12 +1088,20 @@ async fn format_userdata_inner(
                 overall_total: total_bytes,
             };
             flash
-                .flash_partition("userdata", image.path(), total_bytes, 0, false)
+                .flash_partition(
+                    "userdata",
+                    image.path(),
+                    total_bytes,
+                    0,
+                    false,
+                    FlashOperation::FormatUserdata,
+                )
                 .await?;
         }
         Err(_error) if erase_fallback => {
             let emit = |event: FlashEvent| -> Result<(), String> {
-                app.emit("flash-progress", event).map_err(|e| format!("emit: {e}"))
+                app.emit("flash-progress", event)
+                    .map_err(|e| format!("emit: {e}"))
             };
             let mut flash = pawflash::workflow::FlashProgressContext {
                 dev: &mut dev,
@@ -1166,6 +1158,7 @@ async fn wipe_data_inner(
         "flash-progress",
         FlashEvent::PreparingImage {
             partition: "userdata".to_string(),
+            operation: FlashOperation::FormatUserdata,
         },
     )
     .map_err(|e| format!("emit: {e}"))?;
@@ -1198,7 +1191,8 @@ async fn wipe_data_inner(
     match generated {
         Ok(image) => {
             let emit = |event: FlashEvent| -> Result<(), String> {
-                app.emit("flash-progress", event).map_err(|e| format!("emit: {e}"))
+                app.emit("flash-progress", event)
+                    .map_err(|e| format!("emit: {e}"))
             };
             let mut flash = pawflash::workflow::FlashProgressContext {
                 dev: &mut dev,
@@ -1209,12 +1203,20 @@ async fn wipe_data_inner(
                 overall_total: total_bytes.max(1),
             };
             flash
-                .flash_partition("userdata", image.path(), base_bytes.max(1), 0, false)
+                .flash_partition(
+                    "userdata",
+                    image.path(),
+                    base_bytes.max(1),
+                    0,
+                    false,
+                    FlashOperation::FormatUserdata,
+                )
                 .await?;
         }
         Err(_error) if erase_fallback => {
             let emit = |event: FlashEvent| -> Result<(), String> {
-                app.emit("flash-progress", event).map_err(|e| format!("emit: {e}"))
+                app.emit("flash-progress", event)
+                    .map_err(|e| format!("emit: {e}"))
             };
             let mut flash = pawflash::workflow::FlashProgressContext {
                 dev: &mut dev,
@@ -1343,7 +1345,8 @@ async fn execute_manual_flash(
     overall_total: u64,
 ) -> Result<(), String> {
     let mut emit = |event: FlashEvent| -> Result<(), String> {
-        app.emit("flash-progress", event).map_err(|e| format!("emit: {e}"))
+        app.emit("flash-progress", event)
+            .map_err(|e| format!("emit: {e}"))
     };
     let mut completed_before = 0_u64;
     for action in actions {
@@ -1363,6 +1366,7 @@ async fn execute_manual_flash(
                 action.size,
                 completed_before,
                 false,
+                FlashOperation::Flash,
             )
             .await?;
         completed_before = completed_before.saturating_add(action.size);
@@ -1423,16 +1427,6 @@ async fn reboot_recovery(state: tauri::State<'_, AppState>) -> Result<(), String
 }
 
 #[tauri::command]
-async fn power_off_device(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = pawflash::power_off_device(&mut dev)
-        .await
-        .map_err(|e| normalize_power_off_error(&format!("power off: {e}")));
-    drop(dev);
-    result
-}
-
-#[tauri::command]
 async fn unlock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
     let result = pawflash::send_flashing_unlock(&mut dev)
@@ -1452,18 +1446,22 @@ async fn lock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String
     result
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 struct ParsedPlanRequest {
     mode: FlashMode,
     slot: Option<SlotArg>,
 }
 
+#[cfg(test)]
 fn parse_plan_request(mode: &str, slot: Option<&str>) -> Result<ParsedPlanRequest, String> {
     Ok(ParsedPlanRequest {
         mode: parse_flash_mode(mode)?,
-        slot: parse_slot(slot),
+        slot: pawflash::parse_slot(slot),
     })
 }
 
+#[cfg(test)]
 fn parse_flash_mode(mode: &str) -> Result<FlashMode, String> {
     match mode {
         "dry_run" => Ok(FlashMode::DryRun),
@@ -1474,16 +1472,7 @@ fn parse_flash_mode(mode: &str) -> Result<FlashMode, String> {
     }
 }
 
-fn parse_slot(slot: Option<&str>) -> Option<SlotArg> {
-    match slot {
-        Some("a") => Some(SlotArg::A),
-        Some("b") => Some(SlotArg::B),
-        Some("all") => Some(SlotArg::All),
-        _ => None,
-    }
-}
-
-
+#[cfg(test)]
 fn normalize_storage_label(storage: &str, selected_layouts: &[String]) -> String {
     let selected = selected_layouts.join(" ").to_uppercase();
     if selected.contains("UFS") {
@@ -1503,6 +1492,7 @@ fn normalize_storage_label(storage: &str, selected_layouts: &[String]) -> String
     }
 }
 
+#[cfg(test)]
 fn display_safety_class(safety_class: &str) -> String {
     match safety_class {
         "firmware" => "firmware",
@@ -1519,6 +1509,7 @@ fn display_safety_class(safety_class: &str) -> String {
     .to_string()
 }
 
+#[cfg(test)]
 fn default_partition_selected(action: &mtk_scatter_parser::FlashAction) -> bool {
     if action.action != "flash" {
         return true;
@@ -1527,6 +1518,7 @@ fn default_partition_selected(action: &mtk_scatter_parser::FlashAction) -> bool 
     matches!(action.image_exists(), Some(true))
 }
 
+#[cfg(test)]
 fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
     let partitions = plan
         .actions
@@ -1534,16 +1526,21 @@ fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
         .enumerate()
         .map(|(i, a)| {
             let image_path = a.image_resolved_path().map(ToOwned::to_owned);
-            let image_name = image_path.as_deref().and_then(|path| {
-                PathBuf::from(path)
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-            }).or_else(|| {
-                a.image
-                    .as_ref()
-                    .and_then(|image| image.pointer("/file_name").and_then(|value| value.as_str()))
-                    .map(ToOwned::to_owned)
-            });
+            let image_name = image_path
+                .as_deref()
+                .and_then(|path| {
+                    PathBuf::from(path)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                })
+                .or_else(|| {
+                    a.image
+                        .as_ref()
+                        .and_then(|image| {
+                            image.pointer("/file_name").and_then(|value| value.as_str())
+                        })
+                        .map(ToOwned::to_owned)
+                });
 
             PartitionDto {
                 index: i,
@@ -1635,7 +1632,6 @@ pub fn run() {
             reboot_bootloader,
             reboot_fastboot,
             reboot_recovery,
-            power_off_device,
             unlock_bootloader,
             lock_bootloader,
             wipe_data,
@@ -1675,25 +1671,23 @@ mod tests {
     use super::{
         build_device_check_diagnostic, cancel_force_fastboot_session,
         describe_fastboot_probe_failure, describe_probe_stage, display_safety_class,
-        filter_actions, load_flash_plan, new_device_cache, normalize_power_off_error,
-        normalize_slot, normalize_storage_label, parse_flash_mode, parse_plan_request,
-        plan_requires_connected_device, plan_to_dto,
+        filter_actions, load_flash_plan, new_device_cache, normalize_slot, normalize_storage_label,
+        parse_flash_mode, parse_plan_request, plan_requires_connected_device, plan_to_dto,
         prepare_for_gsi_worker_launch, session_policy_for_flash_run,
         session_policy_for_mutating_command, session_policy_for_read_only_command,
         start_force_fastboot_session, store_flash_plan, update_overall_progress, AppState,
         DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashRunControl, ForceFastbootState,
-        StoredPlans, DEVICE_CHECK_TIMEOUT_MS,
-        DEVICE_RETRY_DELAY_MS,
+        StoredPlans, DEVICE_CHECK_TIMEOUT_MS, DEVICE_RETRY_DELAY_MS,
     };
-    use fastboot_rs::{
-        transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError,
-    };
+    use fastboot_rs::{transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError};
+    use mtk_scatter_parser::{FlashAction, FlashActionExecutionKind, FlashPlan, FlashPlanSummary};
     use pawflash::gsi::{
         detect_fastboot_mode as shared_detect_fastboot_mode, FastbootMode as SharedFastbootMode,
     };
     use pawflash::plan::slot_to_scatter;
-    use pawflash::workflow::{partition_flash_failure_disposition, PartitionFlashFailureDisposition};
-    use mtk_scatter_parser::{FlashAction, FlashActionExecutionKind, FlashPlan, FlashPlanSummary};
+    use pawflash::workflow::{
+        partition_flash_failure_disposition, PartitionFlashFailureDisposition,
+    };
     use serde_json::json;
     use std::collections::BTreeMap;
     use std::collections::HashMap;
@@ -1969,6 +1963,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_plan_request_maps_active_and_inactive_slots() {
+        let active = parse_plan_request("clean_flash", Some("active")).unwrap();
+        let inactive = parse_plan_request("clean_flash", Some("inactive")).unwrap();
+
+        assert_eq!(
+            slot_to_scatter(active.slot),
+            mtk_scatter_parser::SlotPolicy::Active
+        );
+        assert_eq!(
+            slot_to_scatter(inactive.slot),
+            mtk_scatter_parser::SlotPolicy::Inactive
+        );
+    }
+
+    #[test]
     fn flash_run_control_marks_cancel_requested() {
         let control = FlashRunControl::default();
 
@@ -2161,17 +2170,5 @@ mod tests {
             "Detected fastboot mode"
         );
         assert_eq!(describe_probe_stage("something_else"), "something_else");
-    }
-
-    #[test]
-    fn normalize_power_off_error_maps_unsupported_command_failures() {
-        let normalized = normalize_power_off_error(
-            "power off: Fastboot client failure: unknown command powerdown",
-        );
-
-        assert_eq!(
-            normalized,
-            "Power off is not supported by this device in the current fastboot mode."
-        );
     }
 }

@@ -260,11 +260,13 @@ function phaseTone(phase: "idle" | "waiting" | "flashing" | "complete" | "cancel
 
 function compactTitle(
   phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
-  operation: "" | "flash" | "erase",
+  operation: "" | "flash" | "format" | "erase",
 ) {
   if (phase === "waiting") return "Waiting for device...";
   if (phase === "flashing") {
-    return operation === "erase" ? "Erase progress" : "Flash progress";
+    if (operation === "erase") return "Erase progress";
+    if (operation === "format") return "Format progress";
+    return "Flash progress";
   }
   if (phase === "complete") return "Flash complete";
   if (phase === "cancelled") return "Cancelled";
@@ -274,21 +276,25 @@ function compactTitle(
 
 function currentProgressLabel(
   phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
-  operation: "" | "flash" | "erase",
+  operation: "" | "flash" | "format" | "erase",
 ) {
   if (phase === "waiting") return "Current step";
-  return operation === "erase" ? "Current erase" : "Current partition";
+  if (operation === "erase") return "Current erase";
+  if (operation === "format") return "Current format";
+  return "Current partition";
 }
 
 function currentProgressCaption(
   phase: "idle" | "waiting" | "flashing" | "complete" | "cancelled" | "error",
-  operation: "" | "flash" | "erase",
+  operation: "" | "flash" | "format" | "erase",
   partition: string,
   statusText = "",
 ) {
   if (phase === "waiting") return statusText || "No device connected";
   if (partition) return partition;
-  return operation === "erase" ? "Preparing erase" : "Preparing partition";
+  if (operation === "erase") return "Preparing erase";
+  if (operation === "format") return "Preparing format";
+  return "Preparing partition";
 }
 
 function overallCaption(

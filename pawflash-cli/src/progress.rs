@@ -1,7 +1,7 @@
 use std::{collections::HashMap, io::IsTerminal, time::Duration};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressFinish};
-use pawflash::domain::{FlashEvent, FlashSummaryDto};
+use pawflash::domain::{FlashEvent, FlashOperation, FlashSummaryDto};
 use pawflash::progress::{active_action_label, completed_total_style, history_row_style};
 
 const BAR_REFRESH_HZ: u8 = 10;
@@ -22,8 +22,9 @@ pub struct CliProgressRenderer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActionKind {
     Flash,
+    Format,
     SimulateFlash,
-    SimulateWipe,
+    SimulateFormat,
     Erase,
 }
 
@@ -88,42 +89,45 @@ impl CliProgressRenderer {
                     indicatif::HumanBytes(*total_bytes)
                 ));
             }
-            FlashEvent::PreparingImage { partition } => {
-                self.ensure_row(partition, ActionKind::Flash, 1);
+            FlashEvent::PreparingImage {
+                partition,
+                operation,
+            } => {
+                self.ensure_row(partition, operation_kind(*operation, false), 1);
             }
             FlashEvent::Flashing {
                 partition,
+                operation,
                 bytes,
                 total,
                 ..
             } => {
-                self.update_row(partition, ActionKind::Flash, *bytes, *total);
+                self.update_row(partition, operation_kind(*operation, false), *bytes, *total);
             }
             FlashEvent::Simulating {
                 partition,
-                action,
+                operation,
                 bytes,
                 total,
                 ..
             } => {
-                let kind = if action == "wipe" {
-                    ActionKind::SimulateWipe
-                } else {
-                    ActionKind::SimulateFlash
-                };
-                self.update_row(partition, kind, *bytes, *total);
+                self.update_row(partition, operation_kind(*operation, true), *bytes, *total);
             }
             FlashEvent::Erasing { partition } => {
                 self.ensure_row(partition, ActionKind::Erase, 1);
             }
             FlashEvent::EraseComplete { partition }
-            | FlashEvent::PartitionComplete { partition } => {
+            | FlashEvent::PartitionComplete { partition, .. } => {
                 self.finish_row(partition, RowOutcome::Complete);
             }
-            FlashEvent::PartitionSkipped { partition, reason } => {
+            FlashEvent::PartitionSkipped {
+                partition, reason, ..
+            } => {
                 self.finish_row(partition, RowOutcome::Skipped(reason.clone()));
             }
-            FlashEvent::PartitionFailed { partition, error } => {
+            FlashEvent::PartitionFailed {
+                partition, error, ..
+            } => {
                 self.finish_row(partition, RowOutcome::Failed(error.clone()));
             }
             FlashEvent::Overall { bytes, total } => {
@@ -174,7 +178,11 @@ impl CliProgressRenderer {
 
         let index = self.next_index;
         self.next_index += 1;
-        let pb = mp.add(ProgressBar::new(total.max(1)));
+        let pb = if let Some(ref overall_bar) = self.overall {
+            mp.insert_before(overall_bar, ProgressBar::new(total.max(1)))
+        } else {
+            mp.add(ProgressBar::new(total.max(1)))
+        };
         pb.set_style(active_row_style(self.bar_width, self.message_width));
         pb.set_prefix(active_action_label(index, self.total_count.max(index + 1)));
         pb.set_message(partition.to_string());
@@ -235,7 +243,13 @@ impl CliProgressRenderer {
         row.bar.set_length(row.total.max(1));
         row.bar.set_position(row.total.max(1));
         row.bar.set_style(history_row_style(self.message_width));
-        if matches!(row.kind, ActionKind::Flash | ActionKind::SimulateFlash) {
+        if matches!(
+            row.kind,
+            ActionKind::Flash
+                | ActionKind::Format
+                | ActionKind::SimulateFlash
+                | ActionKind::SimulateFormat
+        ) {
             row.bytes = row.total;
         }
         let message = match outcome {
@@ -288,14 +302,9 @@ enum RowOutcome {
 
 fn active_row_style(bar_width: usize, message_width: usize) -> indicatif::ProgressStyle {
     let template = format!(
-        "{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.cyan/black}}] {{byte_pair}} {{msg:<{message_width}}}"
+        "{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.cyan/black}}] {{byte_pair}} {{elapsed_mmss}} {{msg:<{message_width}}}"
     );
-    indicatif::ProgressStyle::with_template(&template)
-        .unwrap_or_else(|_| {
-            indicatif::ProgressStyle::with_template("{spinner:.green} {wide_msg}")
-                .expect("fallback template is valid")
-        })
-        .progress_chars("=> ")
+    terminal_output::progress::timed_style(&template)
 }
 
 fn complete_summary_line(summary: &FlashSummaryDto) -> String {
@@ -310,14 +319,17 @@ fn complete_summary_line(summary: &FlashSummaryDto) -> String {
 
 fn complete_row_message(row: &RowState) -> String {
     match row.kind {
-        ActionKind::Flash | ActionKind::SimulateFlash => completed_line(
+        ActionKind::Flash
+        | ActionKind::Format
+        | ActionKind::SimulateFlash
+        | ActionKind::SimulateFormat => completed_line(
             row.index,
             row.total_count,
             row.kind_label(),
             &row.partition,
             row.bytes,
         ),
-        ActionKind::SimulateWipe | ActionKind::Erase => format!(
+        ActionKind::Erase => format!(
             "{} {} {}",
             action_label(row.index, row.total_count),
             row.kind_label(),
@@ -328,8 +340,9 @@ fn complete_row_message(row: &RowState) -> String {
 
 fn skipped_row_message(row: &RowState, reason: &str) -> String {
     let base = match row.kind {
-        ActionKind::SimulateWipe | ActionKind::Erase => "skipped erase",
+        ActionKind::Erase => "skipped erase",
         ActionKind::Flash | ActionKind::SimulateFlash => "skipped flash",
+        ActionKind::Format | ActionKind::SimulateFormat => "skipped format",
     };
     format!(
         "{} {} {}: {}",
@@ -382,8 +395,19 @@ impl RowState {
     fn kind_label(&self) -> &'static str {
         match self.kind {
             ActionKind::Flash | ActionKind::SimulateFlash => "flash",
-            ActionKind::SimulateWipe | ActionKind::Erase => "erase",
+            ActionKind::Format | ActionKind::SimulateFormat => "format",
+            ActionKind::Erase => "erase",
         }
+    }
+}
+
+fn operation_kind(operation: FlashOperation, simulated: bool) -> ActionKind {
+    match (operation, simulated) {
+        (FlashOperation::Flash, false) => ActionKind::Flash,
+        (FlashOperation::Flash, true) => ActionKind::SimulateFlash,
+        (FlashOperation::FormatUserdata, false) => ActionKind::Format,
+        (FlashOperation::FormatUserdata, true) => ActionKind::SimulateFormat,
+        (FlashOperation::Erase, _) => ActionKind::Erase,
     }
 }
 

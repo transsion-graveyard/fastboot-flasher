@@ -22,6 +22,14 @@ export function useDevice() {
     () => invoke<void>("force_fastboot_cmd"),
     [],
   );
+  const getVariable = useCallback(
+    (varName: string) => invoke<string>("get_variable", { var: varName }),
+    [],
+  );
+  const getAllVariables = useCallback(
+    () => invoke<Record<string, string>>("get_all_variables"),
+    [],
+  );
   const setActiveSlot = useCallback(
     (slot: "a" | "b") => invoke<void>("set_active_slot", { slot }),
     [],
@@ -43,6 +51,8 @@ export function useDevice() {
     rebootFastboot,
     rebootRecovery,
     forceFastboot,
+    getVariable,
+    getAllVariables,
     setActiveSlot,
     unlockBootloader,
     lockBootloader,

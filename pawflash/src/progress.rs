@@ -9,16 +9,16 @@ use indicatif::ProgressStyle;
 /// Build a compact progress bar style for the currently active flash action.
 pub fn active_flash_style(bar_width: usize, message_width: usize) -> ProgressStyle {
     let template = format!(
-        "{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.blue/black}}] {{byte_pair}} {{msg:<{message_width}}}"
+        "{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.cyan/black}}] {{byte_pair}} {{elapsed_mmss}} {{msg:<{message_width}}}"
     );
-    ProgressStyle::with_template(&template).unwrap()
+    terminal_output::progress::timed_style(&template)
 }
 
-/// Build a progress bar style for a completed action (history row).
+/// Build a progress bar style for the overall progress (matches per-partition style).
 pub fn completed_total_style(bar_width: usize) -> ProgressStyle {
     let template =
-        format!("{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.blue/black}}] {{byte_pair}}");
-    ProgressStyle::with_template(&template).unwrap()
+        format!("{{prefix}} {{spinner:.green}} [{{bar:{bar_width}.cyan/black}}] {{byte_pair}} {{elapsed_mmss}}");
+    terminal_output::progress::timed_style(&template)
 }
 
 /// Build a progress bar style for a history row (no spinner, no ETA).
