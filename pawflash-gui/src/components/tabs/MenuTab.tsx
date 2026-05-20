@@ -21,9 +21,9 @@ export function MenuTab({
   onRebootTargetChange,
 }: MenuTabProps) {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5 lg:grid lg:grid-cols-2 lg:gap-6">
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           <DeviceSection
             onForceFastboot={onForceFastboot}
             forceFastbootDisabled={menuActionDisabled}
@@ -32,7 +32,7 @@ export function MenuTab({
           />
           <BootloaderSection />
         </div>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           <DataSection
             onFormatData={onFormatData}
             disabled={menuActionDisabled}
@@ -40,7 +40,7 @@ export function MenuTab({
           <SlotSection disabled={menuActionDisabled} />
         </div>
       </div>
-      <div className="flex min-h-0 flex-col gap-4">
+      <div className="flex min-h-0 flex-col gap-2">
         <RebootSection
           disabled={menuActionDisabled}
           target={rebootTarget}
