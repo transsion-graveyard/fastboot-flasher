@@ -263,6 +263,21 @@ pub enum ForceFastbootEvent {
         /// Opaque identifier for the force-fastboot session.
         session_id: u64,
     },
+    /// The session is waiting for a fastboot USB interface after sending `FASTBOOT`.
+    WaitingForFastboot {
+        /// Opaque identifier for the force-fastboot session.
+        session_id: u64,
+    },
+    /// The previous attempt did not yield a fastboot interface and the flow is retrying.
+    Retrying {
+        /// Opaque identifier for the force-fastboot session.
+        session_id: u64,
+    },
+    /// A fastboot-capable interface was detected.
+    Detected {
+        /// Opaque identifier for the force-fastboot session.
+        session_id: u64,
+    },
     /// The force-fastboot session completed successfully.
     Complete {
         /// Opaque identifier for the force-fastboot session.

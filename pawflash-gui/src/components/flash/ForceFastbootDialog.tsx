@@ -22,9 +22,25 @@ export const ForceFastbootDialog = memo(function ForceFastbootDialog({
   onHide,
   onCancel,
 }: ForceFastbootDialogProps) {
-  const { phase, message } = useForceFastboot();
+  const { phase, stage, message } = useForceFastboot();
   const canMinimize = phase === "waiting";
   const isFinished = phase === "complete" || phase === "cancelled" || phase === "error";
+  const waitingTitle =
+    stage === "fastboot"
+      ? "Waiting for fastboot..."
+      : stage === "retrying"
+        ? "Retrying handoff..."
+        : stage === "detected"
+          ? "Fastboot detected..."
+          : "Waiting for preloader...";
+  const waitingBody =
+    stage === "fastboot"
+      ? "FASTBOOT was sent. Waiting for the device to re-enumerate in fastboot mode."
+      : stage === "retrying"
+        ? "Fastboot was not detected yet. Restarting the preloader handoff."
+        : stage === "detected"
+          ? "Fastboot interface detected. Finalizing session."
+          : "Listening for the MediaTek preloader handshake.";
 
   return (
     <DialogPrimitive.Root
@@ -43,7 +59,7 @@ export const ForceFastbootDialog = memo(function ForceFastbootDialog({
                     ? "Force fastboot complete"
                     : phase === "cancelled"
                       ? "Force fastboot cancelled"
-                      : "Waiting for preloader..."}
+                      : waitingTitle}
               </DialogPrimitive.Title>
             </div>
             <div className="relative z-10 flex shrink-0 items-center gap-2">
@@ -84,7 +100,7 @@ export const ForceFastbootDialog = memo(function ForceFastbootDialog({
                       ? "Force fastboot cancelled"
                       : phase === "error"
                       ? "Operation stopped"
-                      : "Listening for preloader handshake"}
+                      : waitingBody}
                 </p>
                 {message && (
                   <p

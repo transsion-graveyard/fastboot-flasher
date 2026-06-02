@@ -16,6 +16,7 @@ import type { ForceFastbootEvent, ForceFastbootStartDto } from "@/types/api";
 
 interface ForceFastbootState {
   phase: "idle" | "waiting" | "complete" | "cancelled" | "error";
+  stage: "preloader" | "fastboot" | "retrying" | "detected" | null;
   sessionId: number | null;
   message: string;
   start: () => Promise<void>;
@@ -27,6 +28,7 @@ const ForceFastbootContext = createContext<ForceFastbootState | null>(null);
 
 export function ForceFastbootProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<ForceFastbootState["phase"]>("idle");
+  const [stage, setStage] = useState<ForceFastbootState["stage"]>(null);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const sessionIdRef = useRef(sessionId);
@@ -50,26 +52,46 @@ export function ForceFastbootProvider({ children }: { children: ReactNode }) {
         case "Started":
           setSessionId(payload.data.session_id);
           setPhase("waiting");
-          setMessage("");
+          setStage("preloader");
+          setMessage("Waiting for MTK preloader serial port");
           break;
         case "WaitingForPreloader":
           setPhase("waiting");
-          setMessage("");
+          setStage("preloader");
+          setMessage("Waiting for MTK preloader serial port");
+          break;
+        case "WaitingForFastboot":
+          setPhase("waiting");
+          setStage("fastboot");
+          setMessage("Waiting for fastboot device");
+          break;
+        case "Retrying":
+          setPhase("waiting");
+          setStage("retrying");
+          setMessage("Retrying preloader to fastboot handoff");
+          break;
+        case "Detected":
+          setPhase("waiting");
+          setStage("detected");
+          setMessage("Fastboot device detected");
           break;
         case "Complete":
           setPhase("complete");
+          setStage(null);
           setMessage("");
           setSessionId(null);
           toast.success("Force fastboot complete");
           break;
         case "Cancelled":
           setPhase("cancelled");
+          setStage(null);
           setMessage("");
           setSessionId(null);
           toast.message("Force fastboot cancelled");
           break;
         case "Error":
           setPhase("error");
+          setStage(null);
           setMessage(payload.data.message);
           setSessionId(null);
           toast.error(payload.data.message);
@@ -91,7 +113,8 @@ export function ForceFastbootProvider({ children }: { children: ReactNode }) {
 
   const start = useCallback(async () => {
     setPhase("waiting");
-    setMessage("");
+    setStage("preloader");
+    setMessage("Waiting for MTK preloader serial port");
     const response = await invoke<ForceFastbootStartDto>("start_force_fastboot");
     setSessionId(response.session_id);
   }, []);
@@ -106,6 +129,7 @@ export function ForceFastbootProvider({ children }: { children: ReactNode }) {
 
   const reset = useCallback(() => {
     setPhase("idle");
+    setStage(null);
     setSessionId(null);
     setMessage("");
   }, []);
@@ -114,13 +138,14 @@ export function ForceFastbootProvider({ children }: { children: ReactNode }) {
     () =>
       ({
         phase,
+        stage,
         sessionId,
         message,
         start,
         cancel,
         reset,
       }) satisfies ForceFastbootState,
-    [cancel, message, phase, reset, sessionId, start],
+    [cancel, message, phase, reset, sessionId, stage, start],
   );
 
   return (

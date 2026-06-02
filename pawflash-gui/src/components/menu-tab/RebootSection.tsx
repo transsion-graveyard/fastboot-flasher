@@ -93,7 +93,11 @@ export const RebootSection = memo(function RebootSection({ disabled = false, tar
         onClick={handleReboot}
       >
         <RotateCcw className="h-4 w-4" />
-        {busy ? "Sending command..." : `Reboot to ${targetLabels[target]}`}
+        {busy
+          ? target === "bootloader"
+            ? "Waiting for bootloader..."
+            : "Sending command..."
+          : `Reboot to ${targetLabels[target]}`}
       </Button>
     </SectionCard>
   );

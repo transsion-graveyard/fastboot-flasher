@@ -12,21 +12,23 @@ use pawflash::{
     cli::{scatter_plan_preview_lines, FlashMode, RebootTargetArg, SlotArg},
     connect::{connect_fastboot, try_connect_fastboot},
     device::{
-        read_all_variables, read_variable, reboot_device, reboot_device_bootloader,
-        reboot_device_fastboot, resolve_flash_partition_target,
-        resolve_max_download_size_from_vars, send_flashing_lock, send_flashing_unlock,
-        set_fastboot_active_slot,
+        read_all_variables, read_variable, reboot_device, reboot_device_fastboot,
+        resolve_flash_partition_target, resolve_max_download_size_from_vars, send_flashing_lock,
+        send_flashing_unlock, set_fastboot_active_slot,
     },
     domain::{plan_to_dto, FlashEvent, FlashRunControl, FlashSummaryDto},
     execution::prepare_scatter_execution,
+    force_fastboot_until_detected, force_fastboot_until_detected_with_progress,
     format::{FormatTools, WipeDataOptions},
     gsi::{execute_gsi_flash, GsiEvent, GsiFlashOptions},
     manual::{disable_vbmeta_actions, manual_flash_actions, resolved_disable_vbmeta_image_path},
     plan::build_scatter_preview_checked,
+    reboot_device_bootloader_until_detected,
     workflow::{
         execute_manual_actions, run_scatter_dry_run, run_scatter_flash, wipe_data_flow,
         ManualActionExecution, ScatterFlashOptions,
     },
+    ForceFastbootOptions, ForceFastbootStage,
 };
 
 mod cli_app;
@@ -224,7 +226,7 @@ async fn run_data(session: &Session, args: DataArgs) -> anyhow::Result<()> {
 
 async fn run_bootloader(session: &Session, args: BootloaderArgs) -> anyhow::Result<()> {
     match args.command {
-        BootloaderCommand::ForceFastboot => run_force_fastboot(session),
+        BootloaderCommand::ForceFastboot => run_force_fastboot(session).await,
         BootloaderCommand::Unlock => {
             let mut dev = connect_with_spinner().await?;
             send_flashing_unlock(&mut dev).await?;
@@ -250,7 +252,10 @@ async fn run_reboot_command(session: &Session, target: RebootTargetArg) -> anyho
     let mut dev = connect_with_spinner().await?;
     match target {
         RebootTargetArg::System => reboot_device(&mut dev).await?,
-        RebootTargetArg::Bootloader => reboot_device_bootloader(&mut dev).await?,
+        RebootTargetArg::Bootloader => {
+            let _spinner = StatusSpinner::new("Waiting for fastboot device...");
+            let _detected = reboot_device_bootloader_until_detected(&mut dev, None).await?;
+        }
         RebootTargetArg::Fastboot => reboot_device_fastboot(&mut dev).await?,
         RebootTargetArg::Recovery => dev.reboot_to("recovery").await?,
     }
@@ -463,9 +468,20 @@ async fn run_format_data(session: &Session) -> anyhow::Result<()> {
     finish_summary(session, &summary)
 }
 
-fn run_force_fastboot(_session: &Session) -> anyhow::Result<()> {
-    pawflash::run_force_fastboot_quiet(&pawflash::ForceFastbootOptions::default())
-        .map_err(anyhow::Error::from)
+async fn run_force_fastboot(session: &Session) -> anyhow::Result<()> {
+    let options = ForceFastbootOptions::default();
+
+    if session.is_human() {
+        let spinner = StatusSpinner::new("Waiting for MTK preloader serial port...");
+        let _detected = force_fastboot_until_detected_with_progress(&options, None, |stage| {
+            spinner.set_message(force_fastboot_stage_message(stage));
+        })
+        .await?;
+    } else {
+        let _detected = force_fastboot_until_detected(&options, None).await?;
+    }
+
+    Ok(())
 }
 
 async fn run_gsi(session: &Session, image: PathBuf) -> anyhow::Result<()> {
@@ -550,7 +566,7 @@ async fn ensure_device_or_offer_force_fastboot(session: &Session) -> anyhow::Res
             "No fastboot device is ready. You can connect one now or let pawflash try force-fastboot.",
         )?;
         if session.confirm("Try force-fastboot now?", true)? {
-            run_force_fastboot(session)?;
+            run_force_fastboot(session).await?;
         }
     }
 
@@ -568,6 +584,15 @@ fn finish_summary(session: &Session, summary: &FlashSummaryDto) -> anyhow::Resul
 async fn connect_with_spinner() -> anyhow::Result<FastbootDevice> {
     let _spinner = StatusSpinner::new("Waiting for fastboot device...");
     connect_fastboot().await
+}
+
+fn force_fastboot_stage_message(stage: ForceFastbootStage) -> &'static str {
+    match stage {
+        ForceFastbootStage::WaitingForPreloader => "Waiting for MTK preloader serial port...",
+        ForceFastbootStage::WaitingForFastboot => "Waiting for fastboot device...",
+        ForceFastbootStage::Retrying => "Retrying preloader to fastboot handoff...",
+        ForceFastbootStage::Detected => "Fastboot device detected",
+    }
 }
 
 fn slot_name(slot: SlotArg) -> &'static str {

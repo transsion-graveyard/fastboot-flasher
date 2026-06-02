@@ -4,9 +4,10 @@
 //! Defines the [`SerialIo`] trait for abstracted serial I/O and the [`force_fastboot`]
 //! function that implements the preloader handshake.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, time::Duration};
 
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Abstract serial I/O operations used by the fastboot handshake protocol.
 pub trait SerialIo {
@@ -26,9 +27,24 @@ pub fn force_fastboot(port: &mut dyn SerialIo) -> io::Result<()> {
 }
 
 fn force_fastboot_with_timeout(port: &mut dyn SerialIo, timeout: Duration) -> io::Result<()> {
+    force_fastboot_with_timeout_and_cancel(port, timeout, None)
+}
+
+pub(crate) fn force_fastboot_with_timeout_and_cancel(
+    port: &mut dyn SerialIo,
+    timeout: Duration,
+    cancel_requested: Option<&AtomicBool>,
+) -> io::Result<()> {
     let deadline = std::time::Instant::now() + timeout;
 
     loop {
+        if cancel_requested.is_some_and(|cancel| cancel.load(Ordering::SeqCst)) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "cancelled by user",
+            ));
+        }
+
         match port.read_byte()? {
             Some(b'Y') => {
                 port.flush_input()?;
@@ -52,6 +68,8 @@ fn force_fastboot_with_timeout(port: &mut dyn SerialIo, timeout: Duration) -> io
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+
     use super::*;
 
     struct FakeSerial {
@@ -104,5 +122,20 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn handshake_stops_when_cancel_is_requested() {
+        let mut port = FakeSerial::new(vec![0x00, 0x00, 0x00]);
+        let cancelled = AtomicBool::new(true);
+
+        let error = force_fastboot_with_timeout_and_cancel(
+            &mut port,
+            std::time::Duration::from_secs(1),
+            Some(&cancelled),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
     }
 }

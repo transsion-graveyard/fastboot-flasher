@@ -5,6 +5,8 @@
 //! opening serial ports, plus helper functions for waiting on newly-connected preloader devices.
 
 use std::collections::HashSet;
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::permissions;
@@ -14,8 +16,8 @@ use crate::udev;
 
 const BAUD: u32 = 115200;
 const TIMEOUT: Duration = Duration::from_millis(250);
-const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
-const PORT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
+pub(crate) const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
+pub(crate) const PORT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// A discovered serial port that may be an MTK preloader device.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,21 +173,23 @@ pub fn wait_for_port_with_feedback(
     auto_udev: bool,
     show_spinner: bool,
 ) -> anyhow::Result<PortCandidate> {
-    wait_for_port_with_timeout_and_feedback(
+    wait_for_port_with_timeout_feedback_and_cancel(
         discovery,
         auto_udev,
         show_spinner,
         PORT_WAIT_TIMEOUT,
         PORT_WAIT_POLL_INTERVAL,
+        None,
     )
 }
 
-fn wait_for_port_with_timeout_and_feedback(
+pub(crate) fn wait_for_port_with_timeout_feedback_and_cancel(
     discovery: &dyn PortDiscovery,
     auto_udev: bool,
     show_spinner: bool,
     timeout: Duration,
     poll_interval: Duration,
+    cancel_requested: Option<&AtomicBool>,
 ) -> anyhow::Result<PortCandidate> {
     let previous_devices: HashSet<String> = discovery
         .list_candidates()
@@ -199,6 +203,13 @@ fn wait_for_port_with_timeout_and_feedback(
         show_spinner.then(|| StatusSpinner::new("Waiting for MTK preloader serial port..."));
 
     loop {
+        if cancel_requested.is_some_and(|cancel| cancel.load(Ordering::SeqCst)) {
+            return Err(anyhow::Error::new(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "cancelled by user",
+            )));
+        }
+
         match find_new_port(&previous_devices, discovery) {
             PortSearchResult::Openable(candidate) => return Ok(candidate),
             PortSearchResult::NothingFound {
@@ -391,15 +402,35 @@ mod tests {
     fn wait_for_port_times_out_when_no_new_device_appears() {
         let discovery = FakeDiscovery::new(vec![]);
 
-        let error = wait_for_port_with_timeout_and_feedback(
+        let error = wait_for_port_with_timeout_feedback_and_cancel(
             &discovery,
             false,
             false,
             Duration::from_millis(1),
             Duration::ZERO,
+            None,
         )
         .unwrap_err();
 
         assert!(error.to_string().contains("timed out"));
+    }
+
+    #[test]
+    fn wait_for_port_stops_when_cancel_is_requested() {
+        let discovery = FakeDiscovery::new(vec![]);
+        let cancelled = std::sync::atomic::AtomicBool::new(true);
+
+        let error = wait_for_port_with_timeout_feedback_and_cancel(
+            &discovery,
+            false,
+            false,
+            Duration::from_secs(1),
+            Duration::ZERO,
+            Some(&cancelled),
+        )
+        .unwrap_err();
+
+        let io = error.downcast_ref::<io::Error>().expect("io::Error");
+        assert_eq!(io.kind(), io::ErrorKind::Interrupted);
     }
 }

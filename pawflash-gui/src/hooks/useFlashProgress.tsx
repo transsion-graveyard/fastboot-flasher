@@ -305,6 +305,15 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
         case "WaitingForPreloader":
           appendLogEntry(`ForceFastboot WaitingForPreloader ${JSON.stringify(ev.data)}`);
           break;
+        case "WaitingForFastboot":
+          appendLogEntry(`ForceFastboot WaitingForFastboot ${JSON.stringify(ev.data)}`);
+          break;
+        case "Retrying":
+          appendLogEntry(`ForceFastboot Retrying ${JSON.stringify(ev.data)}`);
+          break;
+        case "Detected":
+          appendLogEntry(`ForceFastboot Detected ${JSON.stringify(ev.data)}`);
+          break;
         case "Complete":
           appendLogEntry(`ForceFastboot Complete ${JSON.stringify(ev.data)}`);
           break;

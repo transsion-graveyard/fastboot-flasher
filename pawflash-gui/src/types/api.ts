@@ -76,6 +76,9 @@ export type FlashEvent =
 export type ForceFastbootEvent =
   | { event: "Started"; data: { session_id: number } }
   | { event: "WaitingForPreloader"; data: { session_id: number } }
+  | { event: "WaitingForFastboot"; data: { session_id: number } }
+  | { event: "Retrying"; data: { session_id: number } }
+  | { event: "Detected"; data: { session_id: number } }
   | { event: "Complete"; data: { session_id: number } }
   | { event: "Cancelled"; data: { session_id: number } }
   | { event: "Error"; data: { session_id: number; message: string } };

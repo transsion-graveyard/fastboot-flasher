@@ -7,6 +7,8 @@
 //! and format/wipe logic. It has **zero** terminal or UI dependencies so
 //! both the CLI and GUI binaries can depend on it cleanly.
 
+/// Shared bootloader transition helpers.
+pub mod bootloader;
 /// Command-line argument types and shared parsing helpers.
 pub mod cli;
 /// Device discovery and connection helpers.
@@ -35,6 +37,11 @@ pub mod progress;
 pub mod workflow;
 
 // Re-export types from protocol crates
+pub use bootloader::{
+    fastboot_detection_grace_period, force_fastboot_until_detected,
+    force_fastboot_until_detected_with_progress, reboot_device_bootloader_until_detected,
+    ForceFastbootStage,
+};
 pub use domain::{
     build_device_check_diagnostic, default_partition_selected, describe_fastboot_probe_failure,
     display_safety_class, filter_actions, normalize_slot, normalize_storage_label,
@@ -51,7 +58,8 @@ pub use fastboot_rs::{FastbootDevice, FastbootError, FastbootExecutionError, Fla
 
 // Re-export from force-fastboot
 pub use force_fastboot::{
-    run_force_fastboot, run_force_fastboot_quiet, ForceFastbootError, ForceFastbootOptions,
+    run_force_fastboot, run_force_fastboot_quiet, run_force_fastboot_quiet_cancellable,
+    ForceFastbootError, ForceFastbootOptions,
 };
 
 // Re-export from mtk-scatter-parser

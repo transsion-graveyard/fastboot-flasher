@@ -13,6 +13,7 @@ pub mod spinner;
 pub mod udev;
 
 use std::io;
+use std::sync::atomic::AtomicBool;
 
 use terminal_output::chrome::{banner, notice_box, status_line, Tone};
 use thiserror::Error;
@@ -22,6 +23,9 @@ use serial::{PortDiscovery, SystemPortDiscovery};
 /// Errors that can occur during force-fastboot operations.
 #[derive(Debug, Error)]
 pub enum ForceFastbootError {
+    /// The operation was cancelled before completion.
+    #[error("cancelled by user")]
+    Cancelled,
     /// No MTK preloader device could be found on any serial port.
     #[error("no MTK preloader device found: {0}")]
     NoDevice(String),
@@ -61,6 +65,20 @@ pub fn run_force_fastboot_quiet(options: &ForceFastbootOptions) -> Result<(), Fo
     run_force_fastboot_with_discovery_mode(options, &SystemPortDiscovery, false)
 }
 
+/// Run one force-fastboot attempt without terminal chrome and allow cooperative
+/// cancellation while waiting for the preloader port or handshake byte.
+pub fn run_force_fastboot_quiet_cancellable(
+    options: &ForceFastbootOptions,
+    cancel_requested: &AtomicBool,
+) -> Result<(), ForceFastbootError> {
+    run_force_fastboot_with_discovery_mode_and_cancel(
+        options,
+        &SystemPortDiscovery,
+        false,
+        Some(cancel_requested),
+    )
+}
+
 /// Detect an MTK preloader serial port (via `--port` or by waiting for a new device),
 /// handle permission issues with optional udev installation, then perform the fastboot
 /// handshake protocol.
@@ -75,6 +93,15 @@ fn run_force_fastboot_with_discovery_mode(
     options: &ForceFastbootOptions,
     discovery: &dyn PortDiscovery,
     show_ui: bool,
+) -> Result<(), ForceFastbootError> {
+    run_force_fastboot_with_discovery_mode_and_cancel(options, discovery, show_ui, None)
+}
+
+fn run_force_fastboot_with_discovery_mode_and_cancel(
+    options: &ForceFastbootOptions,
+    discovery: &dyn PortDiscovery,
+    show_ui: bool,
+    cancel_requested: Option<&AtomicBool>,
 ) -> Result<(), ForceFastbootError> {
     if show_ui && permissions::is_running_as_root() && !cfg!(windows) {
         eprintln!(
@@ -94,8 +121,15 @@ notice_box(
     let candidate = if let Some(port) = &options.port {
         serial::candidate_for_device(port, discovery)
     } else {
-        serial::wait_for_port_with_feedback(discovery, auto_udev, show_ui)
-            .map_err(|e| ForceFastbootError::NoDevice(format!("{e:#}")))?
+        serial::wait_for_port_with_timeout_feedback_and_cancel(
+            discovery,
+            auto_udev,
+            show_ui,
+            serial::PORT_WAIT_TIMEOUT,
+            serial::PORT_WAIT_POLL_INTERVAL,
+            cancel_requested,
+        )
+        .map_err(map_force_fastboot_error)?
     };
 
     if show_ui {
@@ -115,15 +149,19 @@ notice_box(
 
     if show_ui {
         let _spinner = spinner::StatusSpinner::new("Waiting for preloader handshake byte...");
-        protocol::force_fastboot(port.as_mut()).map_err(|e| match e.kind() {
-            io::ErrorKind::TimedOut => ForceFastbootError::Protocol(e.to_string()),
-            _ => ForceFastbootError::Protocol(format!("{e}")),
-        })?;
+        protocol::force_fastboot_with_timeout_and_cancel(
+            port.as_mut(),
+            protocol::HANDSHAKE_TIMEOUT,
+            cancel_requested,
+        )
+        .map_err(map_protocol_error)?;
     } else {
-        protocol::force_fastboot(port.as_mut()).map_err(|e| match e.kind() {
-            io::ErrorKind::TimedOut => ForceFastbootError::Protocol(e.to_string()),
-            _ => ForceFastbootError::Protocol(format!("{e}")),
-        })?;
+        protocol::force_fastboot_with_timeout_and_cancel(
+            port.as_mut(),
+            protocol::HANDSHAKE_TIMEOUT,
+            cancel_requested,
+        )
+        .map_err(map_protocol_error)?;
     }
 
     if show_ui {
@@ -133,4 +171,23 @@ notice_box(
         );
     }
     Ok(())
+}
+
+fn map_protocol_error(error: io::Error) -> ForceFastbootError {
+    match error.kind() {
+        io::ErrorKind::Interrupted => ForceFastbootError::Cancelled,
+        io::ErrorKind::TimedOut => ForceFastbootError::Protocol(error.to_string()),
+        _ => ForceFastbootError::Protocol(format!("{error}")),
+    }
+}
+
+fn map_force_fastboot_error(error: anyhow::Error) -> ForceFastbootError {
+    if error
+        .downcast_ref::<io::Error>()
+        .is_some_and(|inner| inner.kind() == io::ErrorKind::Interrupted)
+    {
+        ForceFastbootError::Cancelled
+    } else {
+        ForceFastbootError::NoDevice(format!("{error:#}"))
+    }
 }

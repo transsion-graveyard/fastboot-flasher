@@ -65,12 +65,13 @@ struct StoredPlans {
 struct ForceFastbootState {
     next_session_id: u64,
     active_session_id: Option<u64>,
+    control: FlashRunControl,
 }
 
 pub use pawflash::{
     DeviceInfo, DeviceSessionPolicy, FastbootProbeFailure, FlashEvent, FlashOperation,
-    FlashPlanDto, FlashRunControl, FlashSummaryDto, ForceFastbootEvent, ForceFastbootStartDto,
-    ParseScatterResponseDto, PartitionDto,
+    FlashPlanDto, FlashRunControl, FlashSummaryDto, ForceFastbootEvent, ForceFastbootStage,
+    ForceFastbootStartDto, ParseScatterResponseDto, PartitionDto,
 };
 
 fn lock_device(
@@ -349,18 +350,22 @@ fn request_cancel(state: &AppState) {
         .store(true, Ordering::SeqCst);
 }
 
-fn start_force_fastboot_session(state: &AppState) -> Result<u64, String> {
+fn start_force_fastboot_session(state: &AppState) -> Result<(u64, FlashRunControl), String> {
     let mut force = lock_force_fastboot(state)?;
+    force.control.request_cancel();
     let session_id = force.next_session_id.max(1);
     force.next_session_id = session_id.saturating_add(1);
     force.active_session_id = Some(session_id);
-    Ok(session_id)
+    force.control = FlashRunControl::default();
+    force.control.begin();
+    Ok((session_id, force.control.clone()))
 }
 
 fn cancel_force_fastboot_session(state: &AppState, session_id: u64) -> bool {
     lock_force_fastboot(state)
         .map(|mut force| {
             if force.active_session_id == Some(session_id) {
+                force.control.request_cancel();
                 force.active_session_id = None;
                 true
             } else {
@@ -380,6 +385,14 @@ fn force_fastboot_session_is_active(state: &AppState, session_id: u64) -> bool {
             warn!(error = %e, "force-fastboot session_is_active lock failed");
             false
         })
+}
+
+fn finish_force_fastboot_session(state: &AppState, session_id: u64) {
+    if let Ok(mut force) = lock_force_fastboot(state) {
+        if force.active_session_id == Some(session_id) {
+            force.active_session_id = None;
+        }
+    }
 }
 
 fn emit_force_fastboot_event(
@@ -744,21 +757,41 @@ async fn start_force_fastboot(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<ForceFastbootStartDto, String> {
-    let session_id = start_force_fastboot_session(&state)?;
+    let (session_id, control) = start_force_fastboot_session(&state)?;
     emit_force_fastboot_event(&app, ForceFastbootEvent::Started { session_id })?;
-    emit_force_fastboot_event(&app, ForceFastbootEvent::WaitingForPreloader { session_id })?;
 
     let app_handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let result = pawflash::force_fastboot();
+    tauri::async_runtime::spawn(async move {
+        let result = pawflash::force_fastboot_until_detected_with_progress(
+            &pawflash::ForceFastbootOptions::default(),
+            Some(&control),
+            |stage| {
+                let app_state = app_handle.state::<AppState>();
+                if !force_fastboot_session_is_active(&app_state, session_id) {
+                    return;
+                }
+                let event = match stage {
+                    ForceFastbootStage::WaitingForPreloader => {
+                        ForceFastbootEvent::WaitingForPreloader { session_id }
+                    }
+                    ForceFastbootStage::WaitingForFastboot => {
+                        ForceFastbootEvent::WaitingForFastboot { session_id }
+                    }
+                    ForceFastbootStage::Retrying => ForceFastbootEvent::Retrying { session_id },
+                    ForceFastbootStage::Detected => ForceFastbootEvent::Detected { session_id },
+                };
+                let _ = emit_force_fastboot_event(&app_handle, event);
+            },
+        )
+        .await;
         let app_state = app_handle.state::<AppState>();
         if !force_fastboot_session_is_active(&app_state, session_id) {
             return;
         }
 
-        let _ = cancel_force_fastboot_session(&app_state, session_id);
+        finish_force_fastboot_session(&app_state, session_id);
         match result {
-            Ok(()) => {
+            Ok(_) => {
                 let _ = emit_force_fastboot_event(
                     &app_handle,
                     ForceFastbootEvent::Complete { session_id },
@@ -1120,8 +1153,9 @@ async fn reboot_device(state: tauri::State<'_, AppState>) -> Result<(), String> 
 #[tauri::command]
 async fn reboot_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = pawflash::reboot_device_bootloader(&mut dev)
+    let result = pawflash::reboot_device_bootloader_until_detected(&mut dev, None)
         .await
+        .map(|_| ())
         .map_err(|e| format!("reboot bootloader: {e}"));
     drop(dev);
     result
@@ -1917,11 +1951,12 @@ mod tests {
     fn force_fastboot_sessions_are_replaced_and_cancellable() {
         let state = test_state();
 
-        let first = start_force_fastboot_session(&state).unwrap();
-        let second = start_force_fastboot_session(&state).unwrap();
+        let (first, _first_control) = start_force_fastboot_session(&state).unwrap();
+        let (second, second_control) = start_force_fastboot_session(&state).unwrap();
 
         assert_eq!(first, 1);
         assert_eq!(second, 2);
+        assert!(!second_control.cancel_requested.load(Ordering::SeqCst));
         assert!(!cancel_force_fastboot_session(&state, first));
         assert!(cancel_force_fastboot_session(&state, second));
         assert!(!cancel_force_fastboot_session(&state, second));
