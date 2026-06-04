@@ -61,6 +61,17 @@ function buildDeviceSummary(info: DeviceInfo) {
   ].join(" ");
 }
 
+function buildDeviceFingerprint(info: DeviceInfo) {
+  const fingerprint =
+    info.all_vars.fingerprint ??
+    info.all_vars["ro.build.fingerprint"] ??
+    info.all_vars["ro.bootimage.build.fingerprint"] ??
+    info.all_vars["ro.vendor.build.fingerprint"];
+
+  const normalized = fingerprint?.trim();
+  return normalized ? `fingerprint=${normalized}` : null;
+}
+
 function appendParsedPlanLog(appendLog: (entry: string) => void, plan: FlashPlanDto) {
   appendLog(
     `ParseSummary mode=${plan.mode} storage=${plan.storage} slot=${plan.slot_policy} chipset=${plan.chipset ?? "unknown"}`,
@@ -529,6 +540,10 @@ export default function App() {
       const info = await device.check();
       const summary = buildDeviceSummary(info);
       appendLog(`DeviceCheck Connected ${summary}`);
+      const fingerprint = buildDeviceFingerprint(info);
+      if (fingerprint) {
+        appendLog(`DeviceCheck Fingerprint ${fingerprint}`);
+      }
       toast.success(`Connected: ${info.serial || info.product || "device"}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
