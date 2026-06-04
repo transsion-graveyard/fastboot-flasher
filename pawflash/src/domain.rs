@@ -395,7 +395,6 @@ pub fn parse_flash_mode(mode: &str) -> Result<FlashMode, String> {
     match mode {
         "dry_run" => Ok(FlashMode::DryRun),
         "dirty_flash" => Ok(FlashMode::DirtyFlash),
-        "clean_flash" => Ok(FlashMode::CleanFlash),
         "selective" => Ok(FlashMode::Selective),
         other => Err(format!("unknown flash mode: {other}")),
     }
@@ -521,28 +520,6 @@ pub fn default_partition_selected(action: &FlashAction) -> bool {
     matches!(action.image_exists(), Some(true))
 }
 
-fn partition_user_visible(plan: &FlashPlan, action: &FlashAction) -> bool {
-    if !matches!(plan.mode.as_str(), "clean-flash" | "clean_flash") {
-        return true;
-    }
-
-    if action.action == "wipe" && matches!(action.partition.as_str(), "metadata" | "cache") {
-        return false;
-    }
-
-    if action.partition == "userdata" && action.action == "wipe" {
-        let has_userdata_flash = plan
-            .actions
-            .iter()
-            .any(|candidate| candidate.partition == "userdata" && candidate.action == "flash");
-        if has_userdata_flash {
-            return false;
-        }
-    }
-
-    true
-}
-
 /// Convert a flash plan to the GUI DTO.
 pub fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
     let partitions = plan
@@ -578,7 +555,7 @@ pub fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
                 source: a.reason.clone(),
                 image_path,
                 image_name,
-                user_visible: partition_user_visible(plan, a),
+                user_visible: true,
                 selected: default_partition_selected(a),
             }
         })

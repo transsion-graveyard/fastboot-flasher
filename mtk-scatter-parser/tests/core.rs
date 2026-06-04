@@ -134,7 +134,7 @@ fn build_flash_plan_should_inherit_slot_a_image_for_slot_b_mode() {
 }
 
 #[test]
-fn dry_run_auto_slot_policy_should_match_clean_flash_image_synthesis() {
+fn dry_run_auto_slot_policy_should_match_dirty_flash_image_synthesis() {
     let temp = write_minimal_xml_fixture(true);
     let scatter = parse_scatter(temp.path().join("minimal-scatter.xml")).unwrap();
     let base_options = FlashPlanOptions {
@@ -150,10 +150,10 @@ fn dry_run_auto_slot_policy_should_match_clean_flash_image_synthesis() {
             ..base_options.clone()
         },
     );
-    let clean_flash = build_flash_plan(
+    let dirty_flash = build_flash_plan(
         &scatter,
         FlashPlanOptions {
-            mode: Mode::CleanFlash,
+            mode: Mode::DirtyFlash,
             ..base_options
         },
     );
@@ -169,7 +169,7 @@ fn dry_run_auto_slot_policy_should_match_clean_flash_image_synthesis() {
             )
         })
         .collect::<Vec<_>>();
-    let clean_flash_paths = clean_flash
+    let dirty_flash_paths = dirty_flash
         .actions
         .iter()
         .filter(|action| action.action == "flash")
@@ -181,11 +181,11 @@ fn dry_run_auto_slot_policy_should_match_clean_flash_image_synthesis() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(dry_run_flash_paths, clean_flash_paths);
+    assert_eq!(dry_run_flash_paths, dirty_flash_paths);
 }
 
 #[test]
-fn dry_run_should_normalize_userdata_to_wipe_action() {
+fn dry_run_should_skip_userdata_wipe_only_partition() {
     let temp = tempfile::tempdir().unwrap();
     let scatter = synthetic_userdata_scatter(temp.path().join("scatter.xml"));
 
@@ -198,155 +198,7 @@ fn dry_run_should_normalize_userdata_to_wipe_action() {
         },
     );
 
-    assert_eq!(
-        plan.actions
-            .iter()
-            .map(|action| (action.partition.as_str(), action.action.as_str()))
-            .collect::<Vec<_>>(),
-        vec![("userdata", "wipe")]
-    );
-}
-
-#[test]
-fn clean_flash_should_flash_then_format_userdata_when_bundled_image_is_present() {
-    let temp = tempfile::tempdir().unwrap();
-    fs::write(temp.path().join("userdata.img"), [0x24; 32]).unwrap();
-    let scatter = synthetic_userdata_scatter(temp.path().join("scatter.xml"));
-
-    let plan = build_flash_plan(
-        &scatter,
-        FlashPlanOptions {
-            mode: Mode::CleanFlash,
-            firmware_dir: Some(temp.path().to_path_buf()),
-            ..FlashPlanOptions::default()
-        },
-    );
-
-    let userdata_actions = plan
-        .actions
-        .iter()
-        .filter(|action| action.partition == "userdata")
-        .collect::<Vec<_>>();
-
-    assert_eq!(userdata_actions.len(), 2);
-    assert_eq!(userdata_actions[0].action, "flash");
-    assert_eq!(
-        userdata_actions[0]
-            .image
-            .as_ref()
-            .and_then(|image| image.get("file_name"))
-            .and_then(|value| value.as_str()),
-        Some("userdata.img")
-    );
-    assert_eq!(
-        serde_json::to_value(userdata_actions[0])
-            .unwrap()
-            .get("execution_kind")
-            .and_then(|value| value.as_str()),
-        Some("flash")
-    );
-    assert_eq!(userdata_actions[1].action, "wipe");
-    assert_eq!(
-        serde_json::to_value(userdata_actions[1])
-            .unwrap()
-            .get("execution_kind")
-            .and_then(|value| value.as_str()),
-        Some("format_data")
-    );
-}
-
-#[test]
-fn clean_flash_should_format_userdata_when_bundled_image_is_missing() {
-    let temp = tempfile::tempdir().unwrap();
-    let scatter = synthetic_userdata_scatter(temp.path().join("scatter.xml"));
-
-    let plan = build_flash_plan(
-        &scatter,
-        FlashPlanOptions {
-            mode: Mode::CleanFlash,
-            firmware_dir: Some(temp.path().to_path_buf()),
-            ..FlashPlanOptions::default()
-        },
-    );
-
-    let userdata_action = plan
-        .actions
-        .iter()
-        .find(|action| action.partition == "userdata")
-        .unwrap();
-
-    assert_eq!(userdata_action.action, "wipe");
-    assert_eq!(
-        serde_json::to_value(userdata_action)
-            .unwrap()
-            .get("execution_kind")
-            .and_then(|value| value.as_str()),
-        Some("format_data")
-    );
-    assert!(plan.errors.is_empty(), "{:?}", plan.errors);
-}
-
-#[test]
-fn clean_flash_should_add_conditional_metadata_and_cache_wipes_even_when_scatter_lacks_cache() {
-    let temp = tempfile::tempdir().unwrap();
-    let scatter = synthetic_userdata_metadata_scatter(temp.path().join("scatter.xml"));
-
-    let plan = build_flash_plan(
-        &scatter,
-        FlashPlanOptions {
-            mode: Mode::CleanFlash,
-            firmware_dir: Some(temp.path().to_path_buf()),
-            ..FlashPlanOptions::default()
-        },
-    );
-
-    let wipe_partitions = plan
-        .actions
-        .iter()
-        .filter(|action| action.action == "wipe")
-        .map(|action| action.partition.as_str())
-        .collect::<Vec<_>>();
-
-    assert_eq!(wipe_partitions, vec!["userdata", "cache", "metadata"]);
-    assert_eq!(plan.summary.wipe_count, 3);
-    assert_eq!(plan.summary.flash_count, 0);
-    let wipe_kinds = plan
-        .actions
-        .iter()
-        .filter(|action| action.action == "wipe")
-        .map(|action| {
-            (
-                action.partition.clone(),
-                serde_json::to_value(action)
-                    .unwrap()
-                    .get("execution_kind")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("missing")
-                    .to_string(),
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        wipe_kinds,
-        vec![
-            ("userdata".to_string(), "format_data".to_string()),
-            ("cache".to_string(), "erase_if_present".to_string()),
-            ("metadata".to_string(), "format_data".to_string()),
-        ]
-    );
-    assert!(plan
-        .actions
-        .iter()
-        .filter(|action| action.partition == "cache")
-        .all(|action| action.reason.contains("if present on connected device")));
-    assert!(plan
-        .actions
-        .iter()
-        .filter(|action| action.partition == "metadata")
-        .all(|action| action
-            .reason
-            .contains("formats metadata using live device partition info")));
-    assert!(plan.errors.is_empty(), "{:?}", plan.errors);
+    assert!(plan.actions.is_empty());
 }
 
 #[test]
@@ -435,110 +287,6 @@ fn flash_action_should_expose_scatter_image_type() {
     assert_eq!(action.image_type.as_deref(), Some("NORMAL_ROM"));
 }
 
-#[test]
-fn real_fixture_clean_flash_should_match_expected_flash_and_wipe_actions() {
-    let fixture = PathBuf::from("tests/fixtures/realish_clean_flash");
-    let scatter = parse_scatter(fixture.join("MT6789_Android_scatter.xml")).unwrap();
-    let plan = build_flash_plan(
-        &scatter,
-        FlashPlanOptions {
-            mode: Mode::CleanFlash,
-            firmware_dir: Some(fixture.clone()),
-            package_root: Some(fixture),
-            check_images: true,
-            ..FlashPlanOptions::default()
-        },
-    );
-
-    let actions = plan
-        .actions
-        .iter()
-        .map(|action| (action.action.as_str(), action.partition.as_str()))
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        actions,
-        vec![
-            ("flash", "boot_a"),
-            ("flash", "boot_b"),
-            ("flash", "vbmeta_a"),
-            ("flash", "vbmeta_b"),
-            ("flash", "dtbo_a"),
-            ("flash", "dtbo_b"),
-            ("flash", "super"),
-            ("flash", "userdata"),
-            ("wipe", "userdata"),
-            ("wipe", "cache"),
-            ("wipe", "metadata"),
-        ]
-    );
-    let execution_kinds = plan
-        .actions
-        .iter()
-        .map(|action| {
-            let execution_kind = serde_json::to_value(action)
-                .unwrap()
-                .get("execution_kind")
-                .and_then(|value| value.as_str())
-                .unwrap_or("missing")
-                .to_string();
-            (action.partition.clone(), execution_kind)
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        execution_kinds,
-        vec![
-            ("boot_a".to_string(), "flash".to_string()),
-            ("boot_b".to_string(), "flash".to_string()),
-            ("vbmeta_a".to_string(), "flash".to_string()),
-            ("vbmeta_b".to_string(), "flash".to_string()),
-            ("dtbo_a".to_string(), "flash".to_string()),
-            ("dtbo_b".to_string(), "flash".to_string()),
-            ("super".to_string(), "flash".to_string()),
-            ("userdata".to_string(), "flash".to_string()),
-            ("userdata".to_string(), "format_data".to_string()),
-            ("cache".to_string(), "erase_if_present".to_string()),
-            ("metadata".to_string(), "format_data".to_string()),
-        ]
-    );
-    assert!(plan.errors.is_empty(), "{:?}", plan.errors);
-}
-
-#[test]
-fn real_fixture_dirty_flash_should_exclude_clean_flash_wipes() {
-    let fixture = PathBuf::from("tests/fixtures/realish_clean_flash");
-    let scatter = parse_scatter(fixture.join("MT6789_Android_scatter.xml")).unwrap();
-    let plan = build_flash_plan(
-        &scatter,
-        FlashPlanOptions {
-            mode: Mode::DirtyFlash,
-            firmware_dir: Some(fixture.clone()),
-            package_root: Some(fixture),
-            check_images: true,
-            ..FlashPlanOptions::default()
-        },
-    );
-
-    let actions = plan
-        .actions
-        .iter()
-        .map(|action| (action.action.as_str(), action.partition.as_str()))
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        actions,
-        vec![
-            ("flash", "boot_a"),
-            ("flash", "boot_b"),
-            ("flash", "vbmeta_a"),
-            ("flash", "vbmeta_b"),
-            ("flash", "dtbo_a"),
-            ("flash", "dtbo_b"),
-            ("flash", "super"),
-        ]
-    );
-    assert!(plan.errors.is_empty(), "{:?}", plan.errors);
-}
 
 fn write_global_yaml_fixture(write_boot_image: bool) -> tempfile::TempDir {
     let temp = tempfile::tempdir().unwrap();
@@ -761,28 +509,6 @@ fn synthetic_userdata_scatter(path: PathBuf) -> ScatterFile {
         layouts: [(
             "UFS".to_string(),
             vec![synthetic_part("userdata", Some("userdata.img"), true, 4096)],
-        )]
-        .into_iter()
-        .collect(),
-        warnings: Vec::new(),
-        errors: Vec::new(),
-    }
-}
-
-fn synthetic_userdata_metadata_scatter(path: PathBuf) -> ScatterFile {
-    ScatterFile {
-        path,
-        format: "test".to_string(),
-        text_hash: String::new(),
-        platform: None,
-        project: None,
-        general: json!({}),
-        layouts: [(
-            "UFS".to_string(),
-            vec![
-                synthetic_part("metadata", None, true, 4096),
-                synthetic_part("userdata", Some("userdata.img"), true, 4096),
-            ],
         )]
         .into_iter()
         .collect(),

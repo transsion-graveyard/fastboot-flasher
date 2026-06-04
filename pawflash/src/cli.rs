@@ -10,8 +10,6 @@ pub enum FlashMode {
     DryRun,
     /// Perform a dirty flash (reflash all partitions from a scatter).
     DirtyFlash,
-    /// Wipe userdata and reflash all partitions from a scatter.
-    CleanFlash,
     /// Let the user choose which partitions to flash.
     Selective,
 }

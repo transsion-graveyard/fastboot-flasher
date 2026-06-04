@@ -1,6 +1,5 @@
 import { DeviceSection } from "@/components/menu-tab/DeviceSection";
 import { BootloaderSection } from "@/components/menu-tab/BootloaderSection";
-import { DataSection } from "@/components/menu-tab/DataSection";
 import { SlotSection } from "@/components/menu-tab/SlotSection";
 import { RebootSection, type RebootTarget } from "@/components/menu-tab/RebootSection";
 import { LogSection } from "@/components/menu-tab/LogSection";
@@ -8,7 +7,6 @@ import { LogSection } from "@/components/menu-tab/LogSection";
 interface MenuTabProps {
   onForceFastboot: () => void;
   menuActionDisabled: boolean;
-  onFormatData: () => void;
   rebootTarget: RebootTarget;
   onRebootTargetChange: (target: RebootTarget) => void;
 }
@@ -16,7 +14,6 @@ interface MenuTabProps {
 export function MenuTab({
   onForceFastboot,
   menuActionDisabled,
-  onFormatData,
   rebootTarget,
   onRebootTargetChange,
 }: MenuTabProps) {
@@ -33,10 +30,6 @@ export function MenuTab({
           <BootloaderSection />
         </div>
         <div className="flex flex-col gap-2">
-          <DataSection
-            onFormatData={onFormatData}
-            disabled={menuActionDisabled}
-          />
           <SlotSection disabled={menuActionDisabled} />
         </div>
       </div>

@@ -15,7 +15,6 @@ import { useDevice } from "@/hooks/useDevice";
 import { useFlashLog, useFlashProgress } from "@/hooks/useFlashProgress";
 import { useForceFastboot } from "@/hooks/useForceFastboot";
 import { applyDismissibleDialogChange } from "@/components/shared/dialogBehavior";
-import { defaultFlashMode, type FlashMode } from "@/lib/flash-mode";
 import type { DeviceInfo, FlashPlanDto, ParseScatterResponseDto, PartitionDto } from "@/types/api";
 
 const MainTab = lazy(() => import("@/components/tabs/MainTab").then((m) => ({ default: m.MainTab })));
@@ -62,51 +61,6 @@ function buildDeviceSummary(info: DeviceInfo) {
   ].join(" ");
 }
 
-function countEffectiveSelectedWipes(plan: FlashPlanDto | null, partitions: PartitionDto[]) {
-  if (!plan) {
-    return 0;
-  }
-
-  const selectedVisibleNames = new Set(
-    partitions
-      .filter((partition) => partition.user_visible && partition.selected)
-      .map((partition) => partition.partition),
-  );
-
-  if (selectedVisibleNames.size === 0) {
-    return 0;
-  }
-
-  if (plan.mode !== "clean-flash") {
-    return partitions.filter(
-      (partition) =>
-        partition.user_visible &&
-        partition.selected &&
-        partition.action === "wipe",
-    ).length;
-  }
-
-  return partitions.filter((partition) => {
-    if (partition.action !== "wipe") {
-      return false;
-    }
-
-    if (partition.user_visible) {
-      return partition.selected;
-    }
-
-    if (partition.partition === "userdata") {
-      return selectedVisibleNames.has("userdata");
-    }
-
-    if (partition.partition === "metadata" || partition.partition === "cache") {
-      return selectedVisibleNames.has("userdata");
-    }
-
-    return false;
-  }).length;
-}
-
 function appendParsedPlanLog(appendLog: (entry: string) => void, plan: FlashPlanDto) {
   appendLog(
     `ParseSummary mode=${plan.mode} storage=${plan.storage} slot=${plan.slot_policy} chipset=${plan.chipset ?? "unknown"}`,
@@ -138,9 +92,8 @@ export default function App() {
     return window.localStorage.getItem(SCATTER_STORAGE_KEY) ?? "";
   });
   const [scatterReloadToken, setScatterReloadToken] = useState(0);
-  const [mode, setMode] = useState<FlashMode>(defaultFlashMode);
   const [theme, setTheme] = useState<AppTheme>(resolveInitialTheme);
-  const [rebootAfter, setRebootAfter] = useState(false);
+  const [rebootRecoveryAfter, setRebootRecoveryAfter] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [includePreloader, setIncludePreloader] = useState(false);
   const [slot, setSlot] = useState<"" | "a" | "b" | "active" | "inactive" | "all">("");
@@ -157,7 +110,6 @@ export default function App() {
   const [isCancellingForceFastboot, setIsCancellingForceFastboot] = useState(false);
   const [isStartingFlash, setIsStartingFlash] = useState(false);
   const [isStartingGsiFlash, setIsStartingGsiFlash] = useState(false);
-  const [isFormattingData, setIsFormattingData] = useState(false);
   const [isParsingPlan, setIsParsingPlan] = useState(false);
   const [isCheckingDevice, setIsCheckingDevice] = useState(false);
   const [rebootTarget, setRebootTarget] = useState<RebootTarget>(() => {
@@ -200,18 +152,10 @@ export default function App() {
     forcePhaseRef.current = forceFastboot.phase;
   }, [forceFastboot.phase]);
 
-  const handleModeChange = useCallback(
-    (newMode: string) => {
-      appendLog(`ModeChanged ${newMode}`);
-      setMode(newMode as FlashMode);
-    },
-    [appendLog],
-  );
-
-  const handleRebootChange = useCallback(
+  const handleRebootRecoveryChange = useCallback(
     (value: boolean) => {
-      appendLog(`RebootAfter ${value ? "on" : "off"}`);
-      setRebootAfter(value);
+      appendLog(`RebootRecoveryAfter ${value ? "on" : "off"}`);
+      setRebootRecoveryAfter(value);
     },
     [appendLog],
   );
@@ -243,7 +187,6 @@ export default function App() {
   const refreshPlan = useCallback(
     async (
       path: string,
-      selectedMode: string,
       selectedAdvanced: boolean,
       selectedIncludePreloader: boolean,
       selectedSlot: "" | "a" | "b" | "active" | "inactive" | "all",
@@ -253,7 +196,7 @@ export default function App() {
       try {
         const response = await invoke<ParseScatterResponseDto>("parse_scatter", {
           path,
-          mode: selectedMode,
+          mode: "dirty_flash",
           slot: selectedAdvanced && selectedSlot ? selectedSlot : null,
           includePreloader: selectedAdvanced ? selectedIncludePreloader : false,
         });
@@ -318,13 +261,13 @@ export default function App() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      void refreshPlan(scatterPath, mode, advanced, includePreloader, slot);
+      void refreshPlan(scatterPath, advanced, includePreloader, slot);
     }, 0);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [advanced, includePreloader, mode, refreshPlan, scatterPath, scatterReloadToken, slot]);
+  }, [advanced, includePreloader, refreshPlan, scatterPath, scatterReloadToken, slot]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -427,7 +370,7 @@ export default function App() {
         planId,
         partitions: selected,
         imageOverrides,
-        reboot: rebootAfter,
+        rebootRecovery: rebootRecoveryAfter,
       });
     } catch (error) {
       flash.fail(String(error));
@@ -443,7 +386,7 @@ export default function App() {
     isStartingFlash,
     partitions,
     planId,
-    rebootAfter,
+    rebootRecoveryAfter,
   ]);
 
   const startForceFastboot = useCallback(async () => {
@@ -473,7 +416,6 @@ export default function App() {
   const menuActionDisabled =
     isStartingFlash ||
     isStartingGsiFlash ||
-    isFormattingData ||
     isCheckingDevice ||
     activeFlashSession ||
     activeForceSession;
@@ -485,7 +427,6 @@ export default function App() {
       !gsiImagePath ||
       isStartingGsiFlash ||
       isStartingFlash ||
-      isFormattingData ||
       isCheckingDevice ||
       sessionLive ||
       forceLive
@@ -513,7 +454,6 @@ export default function App() {
     flash,
     gsiImagePath,
     isCheckingDevice,
-    isFormattingData,
     isStartingFlash,
     isStartingGsiFlash,
   ]);
@@ -542,7 +482,6 @@ export default function App() {
       if (
         isStartingFlash ||
         isStartingGsiFlash ||
-        isFormattingData ||
         isCheckingDevice ||
         sessionLive ||
         forceLive
@@ -571,42 +510,10 @@ export default function App() {
     [
       flash,
       isCheckingDevice,
-      isFormattingData,
       isStartingFlash,
       isStartingGsiFlash,
     ],
   );
-
-  const startFormatData = useCallback(async () => {
-    const sessionLive = flashPhaseRef.current === "waiting" || flashPhaseRef.current === "flashing";
-    const forceLive = forcePhaseRef.current === "waiting";
-    const anyBusy =
-      isStartingFlash ||
-      isStartingGsiFlash ||
-      isFormattingData ||
-      isCheckingDevice ||
-      sessionLive ||
-      forceLive;
-    if (anyBusy) {
-      return;
-    }
-
-    flash.reset();
-    setFlashOpen(true);
-    setFlashMinimized(false);
-    setIsFormattingData(true);
-    appendLog("FormatData StartRequested");
-
-    try {
-      await invoke("format_data");
-    } catch (error) {
-      const message = String(error);
-      appendLog(`FormatData Error ${message}`);
-      flash.fail(message);
-    } finally {
-      setIsFormattingData(false);
-    }
-  }, [appendLog, flash, isCheckingDevice, isFormattingData, isStartingFlash, isStartingGsiFlash]);
 
   const checkDevice = useCallback(async () => {
     const sessionLive = flashPhaseRef.current === "waiting" || flashPhaseRef.current === "flashing";
@@ -734,9 +641,8 @@ export default function App() {
   const selectedSummary = useMemo(
     () => ({
       flashCount: selectedPartitions.filter((partition) => partition.action === "flash").length,
-      wipeCount: countEffectiveSelectedWipes(plan, partitions),
     }),
-    [plan, partitions, selectedPartitions],
+    [selectedPartitions],
   );
 
   const allPartitionsSelected =
@@ -836,10 +742,8 @@ export default function App() {
               <MainTab
                 scatterPath={scatterPath}
                 loadScatter={loadScatter}
-                mode={mode}
-                handleModeChange={handleModeChange}
-                rebootAfter={rebootAfter}
-                handleRebootChange={handleRebootChange}
+                rebootRecoveryAfter={rebootRecoveryAfter}
+                handleRebootRecoveryChange={handleRebootRecoveryChange}
                 advanced={advanced}
                 handleAdvancedChange={handleAdvancedChange}
                 includePreloader={includePreloader}
@@ -878,7 +782,6 @@ export default function App() {
               <MenuTab
                 onForceFastboot={startForceFastboot}
                 menuActionDisabled={menuActionDisabled}
-                onFormatData={startFormatData}
                 rebootTarget={rebootTarget}
                 onRebootTargetChange={setRebootTarget}
               />
@@ -893,10 +796,9 @@ export default function App() {
           setFlashConfirmOpen(false);
           await startFlash();
         }}
-        plan={plan}
         selectedPartitions={selectedPartitions}
         isPending={isStartingFlash || isParsingPlan || flash.phase === "waiting" || forceFastboot.phase === "waiting"}
-        rebootAfter={rebootAfter}
+        rebootRecoveryAfter={rebootRecoveryAfter}
       />
       <FlashDialog
         open={flashOpen}

@@ -14,7 +14,6 @@ pub fn mode_to_scatter(mode: FlashMode) -> Mode {
     match mode {
         FlashMode::DryRun => Mode::DryRun,
         FlashMode::DirtyFlash => Mode::DirtyFlash,
-        FlashMode::CleanFlash => Mode::CleanFlash,
         FlashMode::Selective => Mode::Selective,
     }
 }

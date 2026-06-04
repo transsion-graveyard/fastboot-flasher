@@ -1,6 +1,9 @@
 import { memo, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -8,11 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { flashModeLabel, visibleFlashModeOptions } from "@/lib/flash-mode";
 import { useDevice } from "@/hooks/useDevice";
 import {
   Dialog,
@@ -23,10 +22,8 @@ import {
 } from "@/components/ui/dialog";
 
 interface FlashOptionsProps {
-  mode: string;
-  onModeChange: (mode: string) => void;
-  reboot: boolean;
-  onRebootChange: (v: boolean) => void;
+  rebootRecovery: boolean;
+  onRebootRecoveryChange: (v: boolean) => void;
   advanced: boolean;
   onAdvancedChange: (v: boolean) => void;
   includePreloader: boolean;
@@ -36,10 +33,8 @@ interface FlashOptionsProps {
 }
 
 export const FlashOptions = memo(function FlashOptions({
-  mode,
-  onModeChange,
-  reboot,
-  onRebootChange,
+  rebootRecovery,
+  onRebootRecoveryChange,
   advanced,
   onAdvancedChange,
   includePreloader,
@@ -50,7 +45,6 @@ export const FlashOptions = memo(function FlashOptions({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const advancedEnabled = includePreloader || slot !== "";
-  const modeOptions = visibleFlashModeOptions();
   const slotLabel = slot === "a"
     ? "_a"
     : slot === "b"
@@ -78,20 +72,15 @@ export const FlashOptions = memo(function FlashOptions({
 
   return (
     <div className="flex flex-col gap-3 lg:gap-4">
-      <div className="grid grid-cols-2 gap-3 lg:hidden">
-        <Select value={mode} onValueChange={(v) => v !== null && onModeChange(v)}>
-          <SelectTrigger aria-label="Flash mode" className="min-w-0 max-w-40 sm:max-w-48">
-            <SelectValue>{flashModeLabel(mode)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {modeOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
+      <div className="grid grid-cols-1 gap-3 lg:hidden">
+        <div className="flex items-center gap-3 rounded-md border border-border/70 bg-background/70 px-3 py-2">
+          <Checkbox
+            id="reboot-recovery"
+            checked={rebootRecovery}
+            onCheckedChange={(v) => onRebootRecoveryChange(!!v)}
+          />
+          <Label htmlFor="reboot-recovery">Reboot into recovery after flash</Label>
+        </div>
         <Button
           type="button"
           variant="outline"
@@ -102,15 +91,6 @@ export const FlashOptions = memo(function FlashOptions({
           <RotateCcw className="h-4 w-4" />
           {rebooting ? "Rebooting..." : "Reboot"}
         </Button>
-
-        <div className="flex shrink-0 items-center gap-3">
-          <Checkbox
-            id="reboot"
-            checked={reboot}
-            onCheckedChange={(v) => onRebootChange(!!v)}
-          />
-          <Label htmlFor="reboot">Reboot after flash</Label>
-        </div>
 
         <Button
           type="button"
@@ -125,32 +105,17 @@ export const FlashOptions = memo(function FlashOptions({
         </Button>
       </div>
 
-      <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_1fr] lg:grid-rows-1 lg:items-center lg:gap-4">
+      <div className="hidden lg:grid lg:grid-cols-[minmax(0,1.5fr)_auto_auto] lg:grid-rows-1 lg:items-center lg:gap-4">
         <div className="flex min-w-0 items-center gap-3">
-          <Select value={mode} onValueChange={(v) => v !== null && onModeChange(v)}>
-            <SelectTrigger aria-label="Flash mode" className="min-w-0 max-w-none">
-              <SelectValue>{flashModeLabel(mode)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {modeOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3 rounded-md border border-border/70 bg-background/70 px-3 py-2">
             <Checkbox
-              id="reboot-lg"
-              checked={reboot}
-              onCheckedChange={(v) => onRebootChange(!!v)}
+              id="reboot-recovery-lg"
+              checked={rebootRecovery}
+              onCheckedChange={(v) => onRebootRecoveryChange(!!v)}
             />
-            <Label htmlFor="reboot-lg">Reboot after flash</Label>
+            <Label htmlFor="reboot-recovery-lg">Reboot into recovery after flash</Label>
           </div>
         </div>
-
-        <div></div>
 
         <Button
           type="button"

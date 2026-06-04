@@ -19,7 +19,6 @@ pub enum UiMode {
 pub enum FlashModeArg {
     DryRun,
     DirtyFlash,
-    CleanFlash,
     Selective,
 }
 
@@ -28,7 +27,6 @@ impl From<FlashModeArg> for FlashMode {
         match value {
             FlashModeArg::DryRun => FlashMode::DryRun,
             FlashModeArg::DirtyFlash => FlashMode::DirtyFlash,
-            FlashModeArg::CleanFlash => FlashMode::CleanFlash,
             FlashModeArg::Selective => FlashMode::Selective,
         }
     }
@@ -98,7 +96,6 @@ pub enum TopLevelCommand {
     Device(DeviceArgs),
     Inspect(InspectArgs),
     Flash(FlashArgs),
-    Data(DataArgs),
     Bootloader(BootloaderArgs),
     Reboot(RebootCommand),
 }
@@ -143,7 +140,7 @@ pub struct InspectArgs {
 pub enum FlashCommand {
     Package {
         scatter: PathBuf,
-        #[arg(long, value_enum, default_value_t = FlashModeArg::CleanFlash)]
+        #[arg(long, value_enum, default_value_t = FlashModeArg::DirtyFlash)]
         mode: FlashModeArg,
         #[arg(long, value_enum)]
         slot: Option<SlotArgValue>,
@@ -178,17 +175,6 @@ pub struct FlashArgs {
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum VbmetaCommand {
     Disable,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
-pub enum DataCommand {
-    Format,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Args)]
-pub struct DataArgs {
-    #[command(subcommand)]
-    pub command: DataCommand,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
@@ -242,7 +228,7 @@ mod tests {
             "package",
             "firmware/MT6789_Android_scatter.xml",
             "--mode",
-            "clean-flash",
+            "dirty-flash",
             "--slot",
             "inactive",
             "--include-preloader",
@@ -254,7 +240,7 @@ mod tests {
             TopLevelCommand::Flash(FlashArgs {
                 command: FlashCommand::Package {
                     scatter: PathBuf::from("firmware/MT6789_Android_scatter.xml"),
-                    mode: FlashModeArg::CleanFlash,
+                    mode: FlashModeArg::DirtyFlash,
                     slot: Some(SlotArgValue::Inactive),
                     include_preloader: true,
                     reboot: true,
@@ -329,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn flash_package_defaults_to_clean_flash() {
+    fn flash_package_defaults_to_dirty_flash() {
         let args = AppArgs::parse_from([
             "pawflash",
             "flash",
@@ -342,7 +328,7 @@ mod tests {
             TopLevelCommand::Flash(FlashArgs {
                 command: FlashCommand::Package {
                     scatter: PathBuf::from("firmware/MT6789_Android_scatter.xml"),
-                    mode: FlashModeArg::CleanFlash,
+                    mode: FlashModeArg::DirtyFlash,
                     slot: None,
                     include_preloader: false,
                     reboot: false,
@@ -371,15 +357,4 @@ mod tests {
         assert_eq!(args.ui_mode(true), UiMode::Machine);
     }
 
-    #[test]
-    fn parses_data_format_command() {
-        let args = AppArgs::parse_from(["pawflash", "data", "format"]);
-
-        assert_eq!(
-            args.command,
-            TopLevelCommand::Data(DataArgs {
-                command: DataCommand::Format
-            })
-        );
-    }
 }

@@ -246,7 +246,8 @@ export function FlashProgressProvider({ children }: { children: ReactNode }) {
             toast.success(preserveCompletionMessage(runModeRef.current));
             if (isMinimizedRef.current) {
               const summary = ev.data.summary;
-              const body = `${summary.flash_count} flashed, ${summary.wipe_count} wiped, ${(summary.total_bytes / 1e9).toFixed(2)} GiB`;
+              const wipePart = summary.wipe_count > 0 ? `, ${summary.wipe_count} wiped` : "";
+              const body = `${summary.flash_count} flashed${wipePart}, ${(summary.total_bytes / 1e9).toFixed(2)} GiB`;
               tryNotify(preserveCompletionMessage(runModeRef.current), body);
             }
             break;

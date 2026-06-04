@@ -6,15 +6,12 @@ import { cn } from "@/lib/utils";
 import { AlertTriangle, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { FlashPlanDto, PartitionDto } from "@/types/api";
-import type { FlashMode } from "@/lib/flash-mode";
 
 interface MainTabProps {
   scatterPath: string;
   loadScatter: (path: string) => void;
-  mode: FlashMode;
-  handleModeChange: (mode: string) => void;
-  rebootAfter: boolean;
-  handleRebootChange: (v: boolean) => void;
+  rebootRecoveryAfter: boolean;
+  handleRebootRecoveryChange: (v: boolean) => void;
   advanced: boolean;
   handleAdvancedChange: (v: boolean) => void;
   includePreloader: boolean;
@@ -29,7 +26,7 @@ interface MainTabProps {
   somePartitionsSelected: boolean;
   pickCustomImage: (partition: PartitionDto) => void;
   plan: FlashPlanDto | null;
-  selectedSummary: { flashCount: number; wipeCount: number };
+  selectedSummary: { flashCount: number };
   flashDisabled: boolean;
   setFlashConfirmOpen: (open: boolean) => void;
 }
@@ -37,10 +34,8 @@ interface MainTabProps {
 export function MainTab({
   scatterPath,
   loadScatter,
-  mode,
-  handleModeChange,
-  rebootAfter,
-  handleRebootChange,
+  rebootRecoveryAfter,
+  handleRebootRecoveryChange,
   advanced,
   handleAdvancedChange,
   includePreloader,
@@ -63,10 +58,8 @@ export function MainTab({
     <div className="flex min-h-full min-h-0 flex-col gap-4 lg:gap-6">
       <ScatterPicker path={scatterPath} onChange={loadScatter} />
       <FlashOptions
-        mode={mode}
-        onModeChange={handleModeChange}
-        reboot={rebootAfter}
-        onRebootChange={handleRebootChange}
+        rebootRecovery={rebootRecoveryAfter}
+        onRebootRecoveryChange={handleRebootRecoveryChange}
         advanced={advanced}
         onAdvancedChange={handleAdvancedChange}
         includePreloader={includePreloader}
@@ -111,9 +104,6 @@ export function MainTab({
               <span className="inline-flex items-center gap-1.5">
                 <Badge variant="success" className="px-2 py-0">
                   F {selectedSummary.flashCount}
-                </Badge>
-                <Badge variant="warning" className="px-2 py-0">
-                  W {selectedSummary.wipeCount}
                 </Badge>
               </span>
             ) : isParsingPlan ? "Parsing..." : "—"}

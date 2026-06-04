@@ -164,7 +164,7 @@ export const FlashDialog = memo(function FlashDialog({
             {summary && (
               <div className="grid grid-cols-2 gap-2">
                 <Metric label="Flashed" value={summary.flash_count} />
-                <Metric label="Wiped" value={summary.wipe_count} />
+                {summary.wipe_count > 0 && <Metric label="Wiped" value={summary.wipe_count} />}
                 <Metric label="Skipped" value={summary.skipped_count} />
                 <Metric label="Total" value={`${(summary.total_bytes / 1e9).toFixed(2)} GiB`} />
               </div>
@@ -309,5 +309,4 @@ function formatBytesProgress(bytes: number, total: number) {
   if (total <= 0) return "";
   return `${formatBytes(bytes)} / ${formatBytes(total)}`;
 }
-
 

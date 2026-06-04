@@ -163,8 +163,6 @@ pub enum Mode {
     Selective,
     /// Flash safe firmware and Android partitions.
     DirtyFlash,
-    /// Flash safe partitions and wipe user-state partitions.
-    CleanFlash,
 }
 
 impl Mode {
@@ -173,7 +171,6 @@ impl Mode {
             Self::DryRun => "dry-run",
             Self::Selective => "selective",
             Self::DirtyFlash => "dirty-flash",
-            Self::CleanFlash => "clean-flash",
         }
     }
 }
@@ -788,20 +785,6 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
         ));
     }
 
-    append_clean_flash_wipes(
-        &selected_parts,
-        scatter_dir,
-        &options,
-        options.mode,
-        &mut actions,
-    );
-    let existing_wipes = actions
-        .iter()
-        .filter(|action| WIPE_CANONICAL.contains(&canonical_name(&action.partition).as_str()))
-        .map(|action| canonical_name(&action.partition))
-        .collect::<BTreeSet<_>>();
-    append_missing_clean_flash_wipes(options.mode, &existing_wipes, &mut actions);
-
     warn_for_missing_selective_requests(
         options.mode,
         &actions,
@@ -940,7 +923,7 @@ fn select_partition_for_mode(
     explicit_names: &BTreeSet<String>,
 ) -> (bool, String) {
     match options.mode {
-        Mode::DryRun | Mode::DirtyFlash | Mode::CleanFlash => {
+        Mode::DryRun | Mode::DirtyFlash => {
             (true, format!("mode {}", options.mode.as_python()))
         }
         Mode::Selective => {
@@ -1044,124 +1027,6 @@ fn checked_image_status(
         warnings.push("image missing".to_string());
     }
     (status, warnings)
-}
-
-fn append_clean_flash_wipes(
-    selected_parts: &[ScatterPartition],
-    scatter_dir: Option<&Path>,
-    options: &FlashPlanOptions,
-    mode: Mode,
-    actions: &mut Vec<FlashAction>,
-) {
-    if !matches!(mode, Mode::CleanFlash | Mode::DryRun) {
-        return;
-    }
-    for canonical in ["userdata", "cache", "metadata"] {
-        let mut matched = false;
-        for part in selected_parts
-            .iter()
-            .filter(|part| part.canonical() == canonical)
-        {
-            matched = true;
-            if part.canonical() == "userdata" {
-                let (image, warnings) = resolve_images_for_plan(part, scatter_dir, options);
-                let image_exists = image
-                    .pointer("/path/exists")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                if image_exists {
-                    actions.push(flash_action(
-                        "flash",
-                        part,
-                        Some(image),
-                        "clean-flash resets userdata using bundled image before live format",
-                        warnings,
-                    ));
-                }
-                actions.push(flash_action(
-                    "wipe",
-                    part,
-                    None,
-                    if image_exists {
-                        "clean-flash formats userdata using live device partition info after flashing bundled userdata image"
-                    } else {
-                        "clean-flash formats userdata using live device partition info"
-                    },
-                    Vec::new(),
-                ));
-            } else {
-                let image = part
-                    .file_name
-                    .as_ref()
-                    .map(|file_name| json!({ "file_name": file_name }));
-                actions.push(flash_action(
-                    "wipe",
-                    part,
-                    image,
-                    if part.canonical() == "metadata" {
-                        "clean-flash formats metadata using live device partition info"
-                    } else {
-                        "clean-flash wipes user state if present on connected device"
-                    },
-                    Vec::new(),
-                ));
-            }
-        }
-        if !matched && mode == Mode::CleanFlash {
-            actions.push(synthetic_clean_flash_wipe(canonical));
-        }
-    }
-}
-
-fn append_missing_clean_flash_wipes(
-    mode: Mode,
-    existing_wipes: &BTreeSet<String>,
-    actions: &mut Vec<FlashAction>,
-) {
-    if mode != Mode::CleanFlash {
-        return;
-    }
-
-    for partition in ["userdata", "cache", "metadata"] {
-        if existing_wipes.contains(partition) {
-            continue;
-        }
-        actions.push(synthetic_clean_flash_wipe(partition));
-    }
-}
-
-fn synthetic_clean_flash_wipe(partition: &str) -> FlashAction {
-    FlashAction {
-        action: "wipe".to_string(),
-        execution_kind: if matches!(partition, "userdata" | "metadata") {
-            FlashActionExecutionKind::FormatData
-        } else {
-            FlashActionExecutionKind::EraseIfPresent
-        },
-        partition: partition.to_string(),
-        base_name: partition.to_string(),
-        slot: None,
-        layout: "SYNTHETIC".to_string(),
-        region: "SYNTHETIC".to_string(),
-        start: 0,
-        start_hex: "0x0".to_string(),
-        size: 1,
-        size_hex: "0x1".to_string(),
-        size_human: human_size(1),
-        image: None,
-        image_type: None,
-        safety_class: safety_class(partition),
-        reason: match partition {
-            "userdata" => {
-                "clean-flash formats userdata when no bundled image is available".to_string()
-            }
-            "metadata" => {
-                "clean-flash formats metadata using live device partition info".to_string()
-            }
-            _ => "clean-flash wipes user state if present on connected device".to_string(),
-        },
-        warnings: Vec::new(),
-    }
 }
 
 fn warn_for_missing_selective_requests(
@@ -2601,7 +2466,7 @@ fn mode_allows_partition(
                 )
             }
         }
-        Mode::DirtyFlash | Mode::CleanFlash => {
+        Mode::DirtyFlash => {
             if !flashable {
                 return (
                     false,

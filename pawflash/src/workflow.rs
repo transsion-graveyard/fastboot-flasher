@@ -95,7 +95,7 @@ pub struct ScatterFlashOptions<'a> {
     pub announce_plan: bool,
     /// Whether to reboot to system after flashing completes.
     pub reboot: bool,
-    /// Bundled filesystem-formatting tools used for userdata clean-flash actions.
+    /// Bundled filesystem-formatting tools used for userdata reset actions.
     pub format_tools: Option<&'a FormatTools>,
     /// Cancellation token for the current run.
     pub control: &'a FlashRunControl,
@@ -330,7 +330,7 @@ where
                 FlashActionExecutionKind::FormatData => {
                     let Some(tools) = format_tools else {
                         return Err(
-                            "missing format tools for clean-flash format action".to_string()
+                            "missing format tools for format action".to_string()
                         );
                     };
                     let prepared = prepare_partition_reset(
@@ -481,7 +481,7 @@ where
                 ExecutionRoute::FormatData => {
                     let Some(tools) = format_tools else {
                         return Err(
-                            "missing format tools for clean-flash format action".to_string()
+                            "missing format tools for format action".to_string()
                         );
                     };
                     let prepared = prepare_partition_reset(
@@ -1155,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn wipe_failures_remain_fatal_for_clean_flash_userdata() {
+    fn wipe_failures_remain_fatal_for_userdata() {
         let action = test_action("userdata", "wipe_only");
 
         assert!(!wipe_failure_is_skip_eligible(

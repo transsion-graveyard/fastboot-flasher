@@ -15,11 +15,10 @@ use pawflash;
 use pawflash::cli::{FlashMode, SlotArg};
 use pawflash::{
     describe_fastboot_probe_failure,
-    format::{FormatTools, WipeDataOptions},
+    format::FormatTools,
     gsi::detect_fastboot_mode,
     manual::{disable_vbmeta_actions, standalone_disable_vbmeta_path},
     resolve_max_download_size_from_vars,
-    workflow::wipe_data_flow,
     FastbootDevice, FlashPlan,
 };
 
@@ -270,18 +269,9 @@ fn filter_actions<'a>(
         return plan.actions.iter().collect();
     }
 
-    let include_hidden_clean_flash_cleanup =
-        matches!(plan.mode.as_str(), "clean-flash" | "clean_flash")
-            && partitions.iter().any(|partition| partition == "userdata");
-
     plan.actions
         .iter()
-        .filter(|action| {
-            partitions.contains(&action.partition)
-                || (include_hidden_clean_flash_cleanup
-                    && action.action == "wipe"
-                    && matches!(action.partition.as_str(), "metadata" | "cache"))
-        })
+        .filter(|action| partitions.contains(&action.partition))
         .collect()
 }
 
@@ -721,7 +711,7 @@ async fn start_flash(
     plan_id: u64,
     partitions: Vec<String>,
     image_overrides: HashMap<String, String>,
-    reboot: bool,
+    reboot_recovery: bool,
 ) -> Result<FlashSummaryDto, String> {
     start_flash_inner(
         state,
@@ -729,7 +719,7 @@ async fn start_flash(
         plan_id,
         partitions,
         image_overrides,
-        reboot,
+        reboot_recovery,
     )
     .await
     .map_err(|error| emit_flash_error(&app, error))
@@ -830,7 +820,7 @@ async fn start_flash_inner(
     plan_id: u64,
     partitions: Vec<String>,
     image_overrides: HashMap<String, String>,
-    reboot: bool,
+    reboot_recovery: bool,
 ) -> Result<FlashSummaryDto, String> {
     let _guard = FlashGuard::new(&state)?;
     let control = begin_flash_run(&state);
@@ -899,15 +889,15 @@ async fn start_flash_inner(
         .execute_execution_plan(&execution.steps, Some(&tools))
         .await?;
 
-    if reboot {
+    if reboot_recovery {
         app.emit(
             "flash-progress",
             FlashEvent::Rebooting {
-                target: "system".to_string(),
+                target: "recovery".to_string(),
             },
         )
         .map_err(|e| format!("emit: {e}"))?;
-        pawflash::reboot_device(&mut dev)
+        dev.reboot_to("recovery")
             .await
             .map_err(|e| format!("reboot: {e}"))?;
     }
@@ -988,16 +978,6 @@ async fn disable_vbmeta_inner(
     execute_manual_actions(state, app, &actions).await
 }
 
-#[tauri::command]
-async fn format_data(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<FlashSummaryDto, String> {
-    format_data_inner(state, app.clone())
-        .await
-        .map_err(|error| emit_flash_error(&app, error))
-}
-
 fn resolve_format_tools(app: &tauri::AppHandle) -> Result<FormatTools, String> {
     let bundled = app
         .path()
@@ -1007,31 +987,6 @@ fn resolve_format_tools(app: &tauri::AppHandle) -> Result<FormatTools, String> {
 
     let root = bundled.filter(|path| path.exists()).unwrap_or(dev);
     FormatTools::from_bin_root(&root).map_err(|error| error.to_string())
-}
-
-async fn format_data_inner(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<FlashSummaryDto, String> {
-    let _guard = FlashGuard::new(&state)?;
-    let control = begin_flash_run(&state);
-    let mut dev =
-        ensure_device_with_policy(&state, &app, &control, session_policy_for_flash_run()).await?;
-    let tools = resolve_format_tools(&app)?;
-    let mut emit = |event: FlashEvent| -> Result<(), String> {
-        app.emit("flash-progress", event)
-            .map_err(|e| format!("emit: {e}"))
-    };
-    let summary = wipe_data_flow(
-        &mut dev,
-        &tools,
-        &WipeDataOptions::default(),
-        &control,
-        &mut emit,
-    )
-    .await?;
-    drop(dev);
-    Ok(summary)
 }
 
 async fn execute_manual_actions(
@@ -1222,7 +1177,6 @@ fn parse_flash_mode(mode: &str) -> Result<FlashMode, String> {
     match mode {
         "dry_run" => Ok(FlashMode::DryRun),
         "dirty_flash" => Ok(FlashMode::DirtyFlash),
-        "clean_flash" => Ok(FlashMode::CleanFlash),
         "selective" => Ok(FlashMode::Selective),
         other => Err(format!("unknown flash mode: {other}")),
     }
@@ -1275,29 +1229,6 @@ fn default_partition_selected(action: &mtk_scatter_parser::FlashAction) -> bool 
 }
 
 #[cfg(test)]
-fn partition_user_visible(plan: &FlashPlan, action: &mtk_scatter_parser::FlashAction) -> bool {
-    if !matches!(plan.mode.as_str(), "clean-flash" | "clean_flash") {
-        return true;
-    }
-
-    if action.action == "wipe" && matches!(action.partition.as_str(), "metadata" | "cache") {
-        return false;
-    }
-
-    if action.partition == "userdata" && action.action == "wipe" {
-        let has_userdata_flash = plan
-            .actions
-            .iter()
-            .any(|candidate| candidate.partition == "userdata" && candidate.action == "flash");
-        if has_userdata_flash {
-            return false;
-        }
-    }
-
-    true
-}
-
-#[cfg(test)]
 fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
     let partitions = plan
         .actions
@@ -1332,7 +1263,7 @@ fn plan_to_dto(plan: &FlashPlan, chipset: Option<String>) -> FlashPlanDto {
                 source: a.reason.clone(),
                 image_path,
                 image_name,
-                user_visible: partition_user_visible(plan, a),
+                user_visible: true,
                 selected: default_partition_selected(a),
             }
         })
@@ -1406,7 +1337,6 @@ pub fn run() {
             cancel_force_fastboot,
             manual_flash,
             disable_vbmeta,
-            format_data,
             set_active_slot,
             reboot_device,
             reboot_bootloader,
@@ -1588,50 +1518,6 @@ mod tests {
     }
 
     #[test]
-    fn clean_flash_filter_actions_includes_hidden_cleanup_when_userdata_is_selected() {
-        let mut plan = flash_plan(vec![
-            flash_action("boot", "flash"),
-            flash_action("userdata", "flash"),
-            flash_action("userdata", "wipe"),
-            flash_action("metadata", "wipe"),
-            flash_action("cache", "wipe"),
-        ]);
-        plan.mode = "clean_flash".to_string();
-
-        let filtered = filter_actions(&plan, &["userdata".to_string()]);
-
-        assert_eq!(
-            filtered
-                .iter()
-                .map(|action| (action.partition.as_str(), action.action.as_str()))
-                .collect::<Vec<_>>(),
-            vec![
-                ("userdata", "flash"),
-                ("userdata", "wipe"),
-                ("metadata", "wipe"),
-                ("cache", "wipe"),
-            ]
-        );
-    }
-
-    #[test]
-    fn clean_flash_filter_actions_does_not_include_hidden_cleanup_without_userdata() {
-        let mut plan = flash_plan(vec![
-            flash_action("boot", "flash"),
-            flash_action("userdata", "flash"),
-            flash_action("userdata", "wipe"),
-            flash_action("metadata", "wipe"),
-            flash_action("cache", "wipe"),
-        ]);
-        plan.mode = "clean_flash".to_string();
-
-        let filtered = filter_actions(&plan, &["boot".to_string()]);
-
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].partition, "boot");
-    }
-
-    #[test]
     fn parse_flash_mode_rejects_unknown_modes() {
         let error = parse_flash_mode("not-a-real-mode").unwrap_err();
         assert_eq!(error, "unknown flash mode: not-a-real-mode");
@@ -1663,7 +1549,7 @@ mod tests {
     #[test]
     fn live_flash_plan_requires_a_connected_device() {
         let mut plan = flash_plan(vec![flash_action("boot", "flash")]);
-        plan.mode = "clean_flash".to_string();
+        plan.mode = "dirty_flash".to_string();
 
         assert!(plan_requires_connected_device(&plan));
     }
@@ -1697,20 +1583,20 @@ mod tests {
 
         let dry_run_id =
             store_flash_plan(&state, flash_plan(vec![flash_action("boot", "flash")])).unwrap();
-        let mut clean_flash = flash_plan(vec![flash_action("boot", "flash")]);
-        clean_flash.mode = "clean_flash".to_string();
-        let clean_flash_id = store_flash_plan(&state, clean_flash).unwrap();
+        let mut dirty_flash = flash_plan(vec![flash_action("boot", "flash")]);
+        dirty_flash.mode = "dirty_flash".to_string();
+        let dirty_flash_id = store_flash_plan(&state, dirty_flash).unwrap();
 
         assert_eq!(
             load_flash_plan(&state, dry_run_id).unwrap().unwrap().mode,
             "dry-run"
         );
         assert_eq!(
-            load_flash_plan(&state, clean_flash_id)
+            load_flash_plan(&state, dirty_flash_id)
                 .unwrap()
                 .unwrap()
                 .mode,
-            "clean_flash"
+            "dirty_flash"
         );
     }
 
@@ -1776,7 +1662,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_to_dto_hides_clean_flash_internal_cleanup_rows() {
+    fn plan_to_dto_marks_all_actions_visible() {
         let mut plan = flash_plan(vec![
             flash_action("boot", "flash"),
             flash_action("userdata", "flash"),
@@ -1784,15 +1670,14 @@ mod tests {
             flash_action("metadata", "wipe"),
             flash_action("cache", "wipe"),
         ]);
-        plan.mode = "clean_flash".to_string();
 
         let dto = plan_to_dto(&plan, None);
 
         assert!(dto.partitions[0].user_visible);
         assert!(dto.partitions[1].user_visible);
-        assert!(!dto.partitions[2].user_visible);
-        assert!(!dto.partitions[3].user_visible);
-        assert!(!dto.partitions[4].user_visible);
+        assert!(dto.partitions[2].user_visible);
+        assert!(dto.partitions[3].user_visible);
+        assert!(dto.partitions[4].user_visible);
     }
 
     #[test]
@@ -1818,8 +1703,8 @@ mod tests {
 
     #[test]
     fn parse_plan_request_maps_active_and_inactive_slots() {
-        let active = parse_plan_request("clean_flash", Some("active")).unwrap();
-        let inactive = parse_plan_request("clean_flash", Some("inactive")).unwrap();
+        let active = parse_plan_request("dirty_flash", Some("active")).unwrap();
+        let inactive = parse_plan_request("dirty_flash", Some("inactive")).unwrap();
 
         assert_eq!(
             slot_to_scatter(active.slot),

@@ -24,10 +24,7 @@ use pawflash::{
     manual::{disable_vbmeta_actions, manual_flash_actions, resolved_disable_vbmeta_image_path},
     plan::build_scatter_preview_checked,
     reboot_device_bootloader_until_detected,
-    workflow::{
-        execute_manual_actions, run_scatter_dry_run, run_scatter_flash, wipe_data_flow,
-        ManualActionExecution, ScatterFlashOptions,
-    },
+    workflow::{execute_manual_actions, run_scatter_dry_run, run_scatter_flash, ManualActionExecution, ScatterFlashOptions},
     ForceFastbootOptions, ForceFastbootStage,
 };
 
@@ -38,9 +35,9 @@ mod ui;
 use terminal_output::spinner::StatusSpinner;
 
 use crate::cli_app::{
-    AppArgs, BootloaderArgs, BootloaderCommand, BootloaderSlotCommand, DataArgs, DataCommand,
-    DeviceArgs, DeviceCommand, FlashArgs, FlashCommand, InspectArgs, InspectCommand, OutputFormat,
-    TopLevelCommand, UiMode, VbmetaCommand,
+    AppArgs, BootloaderArgs, BootloaderCommand, BootloaderSlotCommand, DeviceArgs, DeviceCommand,
+    FlashArgs, FlashCommand, InspectArgs, InspectCommand, OutputFormat, TopLevelCommand, UiMode,
+    VbmetaCommand,
 };
 use crate::ui::Session;
 
@@ -80,7 +77,6 @@ async fn run(args: AppArgs) -> anyhow::Result<()> {
         TopLevelCommand::Device(command) => run_device(&session, command).await,
         TopLevelCommand::Inspect(command) => run_inspect(&session, command).await,
         TopLevelCommand::Flash(command) => run_flash(&session, command).await,
-        TopLevelCommand::Data(command) => run_data(&session, command).await,
         TopLevelCommand::Bootloader(command) => run_bootloader(&session, command).await,
         TopLevelCommand::Reboot(command) => {
             run_reboot_command(&session, command.target.into()).await
@@ -215,12 +211,6 @@ async fn run_flash(session: &Session, args: FlashArgs) -> anyhow::Result<()> {
         FlashCommand::Vbmeta { command } => match command {
             VbmetaCommand::Disable => run_disable_vbmeta(session).await,
         },
-    }
-}
-
-async fn run_data(session: &Session, args: DataArgs) -> anyhow::Result<()> {
-    match args.command {
-        DataCommand::Format => run_format_data(session).await,
     }
 }
 
@@ -438,31 +428,6 @@ async fn run_disable_vbmeta(session: &Session) -> anyhow::Result<()> {
     emit(FlashEvent::Complete {
         summary: summary.clone(),
     })
-    .map_err(anyhow::Error::msg)?;
-
-    finish_summary(session, &summary)
-}
-
-async fn run_format_data(session: &Session) -> anyhow::Result<()> {
-    ensure_device_or_offer_force_fastboot(session).await?;
-    if session.mode() == UiMode::Human
-        && !session.confirm("Format data and clear optional partitions?", false)?
-    {
-        return Ok(());
-    }
-
-    let control = FlashRunControl::default();
-    let mut emit = make_flash_emit();
-    let mut dev = connect_with_spinner().await?;
-    let tools = FormatTools::from_cli_assets()?;
-    let summary = wipe_data_flow(
-        &mut dev,
-        &tools,
-        &WipeDataOptions::default(),
-        &control,
-        &mut emit,
-    )
-    .await
     .map_err(anyhow::Error::msg)?;
 
     finish_summary(session, &summary)
