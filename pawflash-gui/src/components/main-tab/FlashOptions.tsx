@@ -1,6 +1,4 @@
 import { memo, useState } from "react";
-import { RotateCcw } from "lucide-react";
-import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -12,7 +10,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useDevice } from "@/hooks/useDevice";
 import {
   Dialog,
   DialogContent,
@@ -43,7 +40,6 @@ export const FlashOptions = memo(function FlashOptions({
   onSlotChange,
 }: FlashOptionsProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [rebooting, setRebooting] = useState(false);
   const advancedEnabled = includePreloader || slot !== "";
   const slotLabel = slot === "a"
     ? "_a"
@@ -53,22 +49,9 @@ export const FlashOptions = memo(function FlashOptions({
         ? "active slot"
         : slot === "inactive"
           ? "inactive slot"
-          : slot === "all"
-            ? "all slots"
-            : "";
-  const { reboot: rebootDevice } = useDevice();
-
-  const handleReboot = async () => {
-    setRebooting(true);
-    try {
-      await rebootDevice();
-      toast.success("Rebooted to system");
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setRebooting(false);
-    }
-  };
+    : slot === "all"
+      ? "all slots"
+      : "";
 
   return (
     <div className="flex flex-col gap-3 lg:gap-4">
@@ -81,16 +64,6 @@ export const FlashOptions = memo(function FlashOptions({
           />
           <Label htmlFor="reboot-recovery">Reboot into recovery after flash</Label>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="gap-2"
-          disabled={rebooting}
-          onClick={handleReboot}
-        >
-          <RotateCcw className="h-4 w-4" />
-          {rebooting ? "Rebooting..." : "Reboot"}
-        </Button>
 
         <Button
           type="button"
@@ -116,17 +89,6 @@ export const FlashOptions = memo(function FlashOptions({
             <Label htmlFor="reboot-recovery-lg">Reboot into recovery after flash</Label>
           </div>
         </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          className="gap-2"
-          disabled={rebooting}
-          onClick={handleReboot}
-        >
-          <RotateCcw className="h-4 w-4" />
-          {rebooting ? "Rebooting..." : "Reboot"}
-        </Button>
 
         <Button
           type="button"

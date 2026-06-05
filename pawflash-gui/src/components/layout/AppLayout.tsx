@@ -10,7 +10,7 @@ type AppTheme = "light" | "dark";
 interface AppLayoutProps {
   children: (props: { tab: "main" | "extra" | "menu" }) => ReactNode;
   sidebarStatus?: ReactNode;
-  sidebarActions?: ReactNode;
+  sidebarActions?: ReactNode | ((props: { sidebarOpen: boolean }) => ReactNode);
   theme: AppTheme;
   onThemeChange: (theme: AppTheme | ((current: AppTheme) => AppTheme)) => void;
 }
@@ -94,6 +94,16 @@ export function AppLayout({
     [],
   );
 
+  const renderSidebarSlot = (
+    slot: ReactNode | ((props: { sidebarOpen: boolean }) => ReactNode) | undefined,
+  ) => {
+    if (typeof slot === "function") {
+      return slot({ sidebarOpen });
+    }
+
+    return slot;
+  };
+
   return (
     <div
       className="grid h-screen bg-background text-foreground transition-[grid-template-columns] duration-200 ease-out"
@@ -143,7 +153,7 @@ export function AppLayout({
           <div className={cn("space-y-3 p-3", !sidebarOpen && "px-2")}>{sidebarStatus}</div>
         )}
         {sidebarActions && (
-          <div className={cn("p-3", !sidebarOpen && "px-2")}>{sidebarActions}</div>
+          <div className={cn("p-3", !sidebarOpen && "px-2")}>{renderSidebarSlot(sidebarActions)}</div>
         )}
         <Separator />
         <div className={cn("p-3", !sidebarOpen && "px-2")}>

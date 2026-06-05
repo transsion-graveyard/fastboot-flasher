@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { dirname, resolve as pathResolve } from "path";
@@ -9,6 +9,9 @@ const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+  test: {
+    environment: "jsdom",
+  },
   resolve: {
     alias: {
       "@": pathResolve(__dirname, "./src"),

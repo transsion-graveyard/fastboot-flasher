@@ -1,7 +1,6 @@
 import { GsiFlasher } from "@/components/extra-tab/GsiFlasher";
 import { ManualFlash } from "@/components/extra-tab/ManualFlash";
 import { FastbootVars } from "@/components/extra-tab/FastbootVars";
-import { RebootSection, type RebootTarget } from "@/components/menu-tab/RebootSection";
 
 interface ExtraTabProps {
   gsiImagePath: string;
@@ -15,8 +14,6 @@ interface ExtraTabProps {
     slot: "" | "a" | "b" | "active" | "inactive" | "all",
   ) => Promise<void>;
   isStartingFlash: boolean;
-  rebootTarget: RebootTarget;
-  onRebootTargetChange: (target: RebootTarget) => void;
   onGetVariable: (name: string) => Promise<string>;
   onGetAllVariables: () => Promise<Record<string, string>>;
 }
@@ -29,8 +26,6 @@ export function ExtraTab({
   isStartingGsiFlash,
   onManualFlash,
   isStartingFlash,
-  rebootTarget,
-  onRebootTargetChange,
   onGetVariable,
   onGetAllVariables,
 }: ExtraTabProps) {
@@ -51,12 +46,6 @@ export function ExtraTab({
         />
       </div>
       <div className="flex flex-col gap-4">
-        <RebootSection
-          variant="flat"
-          disabled={menuActionDisabled}
-          target={rebootTarget}
-          onTargetChange={onRebootTargetChange}
-        />
         <FastbootVars
           variant="flat"
           disabled={menuActionDisabled}

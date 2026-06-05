@@ -10,7 +10,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { FlashDialog } from "@/components/flash/FlashDialog";
 import { FlashPlanConfirmDialog } from "@/components/flash/FlashPlanConfirmDialog";
 import { ForceFastbootDialog } from "@/components/flash/ForceFastbootDialog";
-import type { RebootTarget } from "@/components/menu-tab/RebootSection";
+import { RebootMenu, type RebootTarget } from "@/components/sidebar/RebootMenu";
 import { useDevice } from "@/hooks/useDevice";
 import { useFlashLog, useFlashProgress } from "@/hooks/useFlashProgress";
 import { useForceFastboot } from "@/hooks/useForceFastboot";
@@ -123,15 +123,15 @@ export default function App() {
   const [isStartingGsiFlash, setIsStartingGsiFlash] = useState(false);
   const [isParsingPlan, setIsParsingPlan] = useState(false);
   const [isCheckingDevice, setIsCheckingDevice] = useState(false);
-  const [rebootTarget, setRebootTarget] = useState<RebootTarget>(() => {
+  const [rebootTarget, setRebootTarget] = useState<RebootTarget | null>(() => {
     if (typeof window === "undefined") {
-      return "system";
+      return null;
     }
 
     const stored = window.localStorage.getItem(REBOOT_TARGET_STORAGE_KEY);
     return stored === "system" || stored === "bootloader" || stored === "fastboot" || stored === "recovery"
       ? stored
-      : "system";
+      : null;
   });
   const [gsiImagePath, setGsiImagePath] = useState(() => {
     if (typeof window === "undefined") {
@@ -297,7 +297,11 @@ export default function App() {
       return;
     }
 
-    window.localStorage.setItem(REBOOT_TARGET_STORAGE_KEY, rebootTarget);
+    if (rebootTarget) {
+      window.localStorage.setItem(REBOOT_TARGET_STORAGE_KEY, rebootTarget);
+    } else {
+      window.localStorage.removeItem(REBOOT_TARGET_STORAGE_KEY);
+    }
   }, [rebootTarget]);
 
   useEffect(() => {
@@ -726,18 +730,31 @@ export default function App() {
     </div>
   );
 
-  const sidebarActions = (
-    <div className="space-y-3">
+  const sidebarActions = ({ sidebarOpen }: { sidebarOpen: boolean }) => (
+    <div className={cn("space-y-3", !sidebarOpen && "space-y-2")}>
+      <RebootMenu
+        disabled={menuActionDisabled}
+        sidebarOpen={sidebarOpen}
+        target={rebootTarget}
+        onTargetChange={setRebootTarget}
+      />
 
       <Button
         variant="outline"
-        size="sm"
-        className="w-full justify-start gap-2 overflow-hidden"
+        size={sidebarOpen ? "sm" : "icon-sm"}
+        className={cn(
+          "w-full overflow-hidden",
+          sidebarOpen ? "justify-start gap-2" : "justify-center",
+        )}
         disabled={isCheckingDevice || activeFlashSession || activeForceSession}
+        aria-label="Check Device"
+        title="Check Device"
         onClick={checkDevice}
       >
         <PlugZap className="h-4 w-4 shrink-0" />
-        <span className="truncate">{isCheckingDevice ? "Checking device..." : "Check Device"}</span>
+        <span className={cn("truncate", !sidebarOpen && "sr-only")}>
+          {isCheckingDevice ? "Checking device..." : "Check Device"}
+        </span>
       </Button>
     </div>
   );
@@ -787,8 +804,6 @@ export default function App() {
                 isStartingGsiFlash={isStartingGsiFlash}
                 onManualFlash={startManualFlash}
                 isStartingFlash={isStartingFlash}
-                rebootTarget={rebootTarget}
-                onRebootTargetChange={setRebootTarget}
                 onGetVariable={readVariable}
                 onGetAllVariables={readAllVariables}
               />
@@ -797,8 +812,6 @@ export default function App() {
               <MenuTab
                 onForceFastboot={startForceFastboot}
                 menuActionDisabled={menuActionDisabled}
-                rebootTarget={rebootTarget}
-                onRebootTargetChange={setRebootTarget}
               />
             )}
           </Suspense>

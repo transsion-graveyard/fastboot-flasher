@@ -1,21 +1,16 @@
 import { DeviceSection } from "@/components/menu-tab/DeviceSection";
 import { BootloaderSection } from "@/components/menu-tab/BootloaderSection";
 import { SlotSection } from "@/components/menu-tab/SlotSection";
-import { RebootSection, type RebootTarget } from "@/components/menu-tab/RebootSection";
 import { LogSection } from "@/components/menu-tab/LogSection";
 
 interface MenuTabProps {
   onForceFastboot: () => void;
   menuActionDisabled: boolean;
-  rebootTarget: RebootTarget;
-  onRebootTargetChange: (target: RebootTarget) => void;
 }
 
 export function MenuTab({
   onForceFastboot,
   menuActionDisabled,
-  rebootTarget,
-  onRebootTargetChange,
 }: MenuTabProps) {
   return (
     <div className="flex min-h-full min-h-0 flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4">
@@ -34,11 +29,6 @@ export function MenuTab({
         </div>
       </div>
       <div className="flex min-h-0 flex-col gap-2">
-        <RebootSection
-          disabled={menuActionDisabled}
-          target={rebootTarget}
-          onTargetChange={onRebootTargetChange}
-        />
         <LogSection />
       </div>
     </div>
