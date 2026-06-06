@@ -526,14 +526,16 @@ pub async fn erase_optional_partition(
     }
 }
 
+// CONTEXT: Only "fastboot command failed" responses are skippable here
+// because the caller (erase_optional_partition) treats them as "partition
+// does not exist".  Transport-level errors (USB disconnect, protocol
+// faults) are deliberately excluded – they indicate a real device problem
+// and should be surfaced as fatal errors.
 fn is_skippable_fastboot_error(error: &FastbootError) -> bool {
-    match error {
-        FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_)) => {
-            true
-        }
-        FastbootError::Nusb(error) if error.is_retryable() => true,
-        _ => false,
-    }
+    matches!(
+        error,
+        FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::FastbootFailed(_))
+    )
 }
 
 #[cfg(test)]
@@ -563,12 +565,12 @@ mod tests {
     }
 
     #[test]
-    fn is_skippable_fastboot_error_should_accept_retryable_transfer_errors() {
+    fn is_skippable_fastboot_error_should_reject_transport_errors() {
         let error = FastbootError::Nusb(fastboot_rs::transport::nusb::NusbFastBootError::Transfer(
             fastboot_rs::transport::nusb::TransferError::Fault,
         ));
 
-        assert!(super::is_skippable_fastboot_error(&error));
+        assert!(!super::is_skippable_fastboot_error(&error));
     }
 
     #[test]

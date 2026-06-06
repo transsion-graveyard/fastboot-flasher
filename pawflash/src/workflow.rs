@@ -20,8 +20,8 @@ use crate::{
 };
 
 use crate::domain::{
-    filter_actions, total_bytes_for_actions, update_overall_progress, FlashEvent, FlashOperation,
-    FlashRunControl, FlashSummaryDto,
+    action_is_skip_eligible, filter_actions, total_bytes_for_actions, update_overall_progress,
+    FlashEvent, FlashOperation, FlashRunControl, FlashSummaryDto,
 };
 
 /// Outcome of flashing a single partition.
@@ -51,13 +51,6 @@ pub fn partition_flash_failure_disposition(
     } else {
         PartitionFlashFailureDisposition::Fatal
     }
-}
-
-fn action_is_skip_eligible(action: &FlashAction) -> bool {
-    !matches!(
-        action.safety_class.as_str(),
-        "bootloader_critical" | "boot_critical" | "android_system"
-    )
 }
 
 fn wipe_failure_is_skip_eligible(action: &FlashAction, error: &anyhow::Error) -> bool {
@@ -1025,9 +1018,10 @@ pub async fn wipe_data_flow(
 #[cfg(test)]
 mod tests {
     use super::{
-        action_is_skip_eligible, partition_flash_failure_disposition, resolve_scatter_flash_target,
+        partition_flash_failure_disposition, resolve_scatter_flash_target,
         simulate_dry_run_actions, wipe_failure_is_skip_eligible, PartitionFlashFailureDisposition,
     };
+    use crate::domain::action_is_skip_eligible;
     use fastboot_rs::{transport::nusb::NusbFastBootError, FastbootError, FastbootExecutionError};
     use serde_json::json;
     use std::collections::HashMap;

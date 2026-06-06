@@ -7,7 +7,7 @@ use mtk_scatter_parser::{FlashAction, FlashActionExecutionKind, PreviewPlan};
 use serde::Serialize;
 
 use crate::device::{resolve_flash_partition_target, resolve_max_download_size_from_vars};
-use crate::domain::{filter_actions, resolve_image_path_for_action};
+use crate::domain::{action_is_skip_eligible, filter_actions, resolve_image_path_for_action};
 
 /// Concrete execution route chosen for a preview action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -181,9 +181,4 @@ fn route_action(
     }
 }
 
-fn action_is_skip_eligible(action: &FlashAction) -> bool {
-    !matches!(
-        action.safety_class.as_str(),
-        "bootloader_critical" | "boot_critical" | "android_system"
-    )
-}
+

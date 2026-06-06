@@ -315,11 +315,25 @@ pub fn should_flash_product_gsi(system_partition_size: u64, gsi_expanded_size: u
 }
 
 /// Prepare and inspect a GSI image to determine its expanded size.
+///
+/// Uses `u32::MAX` as the max-download-size argument because this is a
+/// read-only inspection pass — we only need `PreparedImage.expanded_size`,
+/// not the actual pixel data.  `u32::MAX` guarantees the prepare step never
+/// rejects the image due to a size constraint during inspection.
 pub fn inspect_gsi_image(image: &Path) -> anyhow::Result<PreparedImage> {
     prepare_image(image, u32::MAX).with_context(|| format!("inspect GSI image {}", image.display()))
 }
 
 /// Build a [`GsiExecutionPlan`] describing the estimated work for a GSI flash.
+///
+/// The `userdata_bytes` field in the returned summary is hard-coded to `1`
+/// instead of using the full partition size reported by the device.  This is
+/// a deliberate trade-off: the plan is built *before* the userdata.img is
+/// generated, so the actual image byte count is unknown.  Using the raw
+/// partition size (which could be hundreds of GiB for userdata) would
+/// inflate the UI progress bar and make the plan look misleading for sparse
+/// or empty images.  `1` ensures the partition is tracked in the action
+/// count without distorting the byte totals.
 pub fn build_gsi_execution_plan(
     start_mode: FastbootMode,
     image_size: u64,
@@ -328,9 +342,9 @@ pub fn build_gsi_execution_plan(
     options: &GsiFlashOptions,
     needs_product_gsi: Option<bool>,
 ) -> GsiExecutionPlan {
-    // The execution plan is built before userdata.img is generated.
-    // Using the full partition size here inflates UI totals for sparse/empty images,
-    // especially on large userdata partitions.
+    // CONTEXT: userdata.img does not exist yet when the plan is built, so
+    // we cannot know its true size.  Hard-coding 1 avoids inflating the UI
+    // progress bar with the raw (potentially multi-GiB) partition size.
     let userdata_bytes = 1;
 
     let mut summary = GsiFlashSummary {
@@ -1173,30 +1187,87 @@ mod tests {
         assert_eq!(normalize_slot(Some(&"other".to_string())), None);
     }
 
+    fn sample_userdata_raw() -> UserdataInfo {
+        UserdataInfo {
+            fs_type: "raw".to_string(),
+            size: 8_192,
+            max_download_size: None,
+            erase_block_size: None,
+            logical_block_size: None,
+        }
+    }
+
+    fn sample_userdata_ext4() -> UserdataInfo {
+        UserdataInfo {
+            fs_type: "ext4".to_string(),
+            size: 256 * 1024 * 1024 * 1024,
+            max_download_size: None,
+            erase_block_size: None,
+            logical_block_size: None,
+        }
+    }
+
+    fn default_gsi_options() -> GsiFlashOptions {
+        GsiFlashOptions {
+            wipe_data: WipeDataOptions::default(),
+            cancel_token: None,
+        }
+    }
+
     #[test]
-    fn build_gsi_execution_plan_counts_known_flashes_and_wipes() {
+    fn build_gsi_execution_plan_start_mode_is_bootloader() {
         let plan = build_gsi_execution_plan(
             FastbootMode::Bootloader,
             1_000,
             4,
-            &UserdataInfo {
-                fs_type: "raw".to_string(),
-                size: 8_192,
-                max_download_size: None,
-                erase_block_size: None,
-                logical_block_size: None,
-            },
-            &GsiFlashOptions {
-                wipe_data: WipeDataOptions::default(),
-                cancel_token: None,
-            },
+            &sample_userdata_raw(),
+            &default_gsi_options(),
             Some(true),
         );
 
         assert_eq!(plan.start_mode, FastbootMode::Bootloader);
+    }
+
+    #[test]
+    fn build_gsi_execution_plan_counts_flashes_with_product_gsi() {
+        let plan = build_gsi_execution_plan(
+            FastbootMode::Bootloader,
+            1_000,
+            4,
+            &sample_userdata_raw(),
+            &default_gsi_options(),
+            Some(true),
+        );
+
         assert_eq!(plan.summary.flash_count, 3);
+    }
+
+    #[test]
+    fn build_gsi_execution_plan_counts_wipes_with_metadata_and_cache() {
+        let plan = build_gsi_execution_plan(
+            FastbootMode::Bootloader,
+            1_000,
+            4,
+            &sample_userdata_raw(),
+            &default_gsi_options(),
+            Some(true),
+        );
+
         assert_eq!(plan.summary.wipe_count, 3);
         assert_eq!(plan.summary.skipped_count, 0);
+    }
+
+    #[test]
+    fn build_gsi_execution_plan_sums_total_bytes_with_product_gsi() {
+        let plan = build_gsi_execution_plan(
+            FastbootMode::Bootloader,
+            1_000,
+            4,
+            &sample_userdata_raw(),
+            &default_gsi_options(),
+            Some(true),
+        );
+
         assert_eq!(
             plan.summary.total_bytes,
             1_000 + 4 + 1 + PRODUCT_GSI_SIZE_BYTES + 1 + 1
@@ -1204,28 +1275,45 @@ mod tests {
     }
 
     #[test]
-    fn build_gsi_execution_plan_does_not_use_full_userdata_partition_size_for_non_raw_wipe() {
+    fn build_gsi_execution_plan_counts_flashes_without_product_gsi() {
         let plan = build_gsi_execution_plan(
             FastbootMode::Fastbootd,
             2_048,
             8,
-            &UserdataInfo {
-                fs_type: "ext4".to_string(),
-                size: 256 * 1024 * 1024 * 1024,
-                max_download_size: None,
-                erase_block_size: None,
-                logical_block_size: None,
-            },
-            &GsiFlashOptions {
-                wipe_data: WipeDataOptions::default(),
-                cancel_token: None,
-            },
+            &sample_userdata_ext4(),
+            &default_gsi_options(),
             Some(false),
         );
 
         assert_eq!(plan.summary.flash_count, 2);
+    }
+
+    #[test]
+    fn build_gsi_execution_plan_counts_wipes_with_default_options() {
+        let plan = build_gsi_execution_plan(
+            FastbootMode::Fastbootd,
+            2_048,
+            8,
+            &sample_userdata_ext4(),
+            &default_gsi_options(),
+            Some(false),
+        );
+
         assert_eq!(plan.summary.wipe_count, 3);
         assert_eq!(plan.summary.skipped_count, 0);
+    }
+
+    #[test]
+    fn build_gsi_execution_plan_sums_total_bytes_without_product_gsi() {
+        let plan = build_gsi_execution_plan(
+            FastbootMode::Fastbootd,
+            2_048,
+            8,
+            &sample_userdata_ext4(),
+            &default_gsi_options(),
+            Some(false),
+        );
+
         assert_eq!(plan.summary.total_bytes, 2_048 + 8 + 1 + 1 + 1);
     }
 

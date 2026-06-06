@@ -535,7 +535,7 @@ async fn ensure_device_or_offer_force_fastboot(session: &Session) -> anyhow::Res
         }
     }
 
-    Ok(())
+    anyhow::bail!("no fastboot device found. Connect a device in fastboot mode and try again.")
 }
 
 fn finish_summary(session: &Session, summary: &FlashSummaryDto) -> anyhow::Result<()> {

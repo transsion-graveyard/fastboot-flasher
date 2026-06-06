@@ -437,6 +437,24 @@ pub fn plan_requires_connected_device(plan: &FlashPlan) -> bool {
     !matches!(plan.mode.as_str(), "dry_run" | "dry-run")
 }
 
+/// Whether a [`FlashAction`] is eligible to be skipped when its
+/// prerequisites are missing (e.g. no image path) or when it fails with a
+/// recoverable error.
+///
+/// Returns `false` for boot-critical partitions (`bootloader_critical`,
+/// `boot_critical`, `android_system`) whose absence would brick the device.
+/// Returns `true` for all other safety classes (firmware, regional,
+/// wipe_only, identity_or_calibration, dangerous, unknown).
+///
+/// NOTE: This is the shared definition used by both the execution-plan
+/// builder and the runtime workflow dispatcher.  Both copies must agree.
+pub(crate) fn action_is_skip_eligible(action: &FlashAction) -> bool {
+    !matches!(
+        action.safety_class.as_str(),
+        "bootloader_critical" | "boot_critical" | "android_system"
+    )
+}
+
 /// Sum the byte sizes for the selected flash actions.
 pub fn total_bytes_for_actions(actions: &[&FlashAction]) -> u64 {
     actions
