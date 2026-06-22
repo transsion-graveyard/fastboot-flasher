@@ -320,8 +320,17 @@ pub fn should_flash_product_gsi(system_partition_size: u64, gsi_expanded_size: u
 /// read-only inspection pass — we only need `PreparedImage.expanded_size`,
 /// not the actual pixel data.  `u32::MAX` guarantees the prepare step never
 /// rejects the image due to a size constraint during inspection.
+pub const INSPECT_MAX_DOWNLOAD_SIZE: u32 = u32::MAX;
+
+/// Prepare and inspect a GSI image to determine its expanded size.
+///
+/// Uses a large sentinel value as max-download-size because this is a
+/// read-only inspection pass — we only need `PreparedImage.expanded_size`,
+/// not the actual pixel data.  The sentinel guarantees the prepare step
+/// never rejects the image due to a size constraint during inspection.
 pub fn inspect_gsi_image(image: &Path) -> anyhow::Result<PreparedImage> {
-    prepare_image(image, u32::MAX).with_context(|| format!("inspect GSI image {}", image.display()))
+    prepare_image(image, INSPECT_MAX_DOWNLOAD_SIZE)
+        .with_context(|| format!("inspect GSI image {}", image.display()))
 }
 
 /// Build a [`GsiExecutionPlan`] describing the estimated work for a GSI flash.
@@ -496,8 +505,17 @@ async fn resolve_device_partition(
     resolve_target_partition(base, slot, &available).map(|partition| (partition, 0))
 }
 
-async fn wait_for_device_vars() -> anyhow::Result<(FastbootDevice, HashMap<String, String>)> {
+async fn wait_for_device_vars(
+    timeout: Duration,
+) -> anyhow::Result<(FastbootDevice, HashMap<String, String>)> {
+    let deadline = std::time::Instant::now() + timeout;
     loop {
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "timed out after {:?} waiting for device to reappear after mode transition",
+                timeout
+            );
+        }
         let mut dev = match try_connect_fastboot().await {
             Ok(dev) => dev,
             Err(_) => {
@@ -576,9 +594,13 @@ async fn transition_mode(
             }
             drop(dev);
 
-            let (next_dev, next_vars) = wait_for_device_vars().await.with_context(|| {
-                format!("waiting for {} after reboot failed", target_mode.as_str())
-            })?;
+            // Per-attempt timeout ensures the inner loop eventually
+            // progresses even if the outer timeout is not applied.
+            let per_attempt = Duration::from_secs(MODE_TRANSITION_TIMEOUT_SECS);
+            let (next_dev, next_vars) =
+                wait_for_device_vars(per_attempt).await.with_context(|| {
+                    format!("waiting for {} after reboot failed", target_mode.as_str())
+                })?;
             let next_mode = detect_fastboot_mode(&next_vars);
             if next_mode == target_mode {
                 report(GsiEvent::ModeReady(target_mode));

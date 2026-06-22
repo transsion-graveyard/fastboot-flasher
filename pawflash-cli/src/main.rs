@@ -24,7 +24,10 @@ use pawflash::{
     manual::{disable_vbmeta_actions, manual_flash_actions, resolved_disable_vbmeta_image_path},
     plan::build_scatter_preview_checked,
     reboot_device_bootloader_until_detected,
-    workflow::{execute_manual_actions, run_scatter_dry_run, run_scatter_flash, ManualActionExecution, ScatterFlashOptions},
+    workflow::{
+        execute_manual_actions, run_scatter_dry_run, run_scatter_flash, ManualActionExecution,
+        ScatterFlashOptions,
+    },
     ForceFastbootOptions, ForceFastbootStage,
 };
 

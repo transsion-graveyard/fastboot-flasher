@@ -124,7 +124,11 @@ impl PortDiscovery for SystemPortDiscovery {
     }
 
     fn try_open(&self, device: &str) -> Result<(), anyhow::Error> {
-        Self::open_port(device)?;
+        // Check device file accessibility without opening the serial port.
+        // Opening and immediately dropping the port can leave the USB
+        // device in a reserved state, causing a subsequent `open()` call
+        // to fail with "Resource busy".
+        std::fs::metadata(device)?;
         Ok(())
     }
 

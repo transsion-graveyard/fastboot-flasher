@@ -356,5 +356,4 @@ mod tests {
 
         assert_eq!(args.ui_mode(true), UiMode::Machine);
     }
-
 }

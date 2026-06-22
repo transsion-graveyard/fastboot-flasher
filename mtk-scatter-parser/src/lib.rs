@@ -923,9 +923,7 @@ fn select_partition_for_mode(
     explicit_names: &BTreeSet<String>,
 ) -> (bool, String) {
     match options.mode {
-        Mode::DryRun | Mode::DirtyFlash => {
-            (true, format!("mode {}", options.mode.as_python()))
-        }
+        Mode::DryRun | Mode::DirtyFlash => (true, format!("mode {}", options.mode.as_python())),
         Mode::Selective => {
             let by_part = explicit_names.contains(&part.name.to_lowercase())
                 || explicit_names.contains(&part.base_name().to_lowercase())

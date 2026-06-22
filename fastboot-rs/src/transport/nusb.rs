@@ -674,10 +674,13 @@ impl DataDownload<'_> {
 
         let left = self.current.capacity() - self.current.len();
         let size = left.min(max);
-        self.update_size(size as u32)?;
 
+        // Fill the buffer first so `update_size` only runs after the
+        // buffer operation succeeds — prevents partial state leaks.
         let len = self.current.len();
         self.current.extend_fill(size, 0);
+
+        self.update_size(size as u32)?;
         Ok(&mut self.current[len..])
     }
 
@@ -713,6 +716,10 @@ impl DataDownload<'_> {
     /// This should only be called if all data has been queued up (matching the total size)
     #[instrument(skip_all, err)]
     pub async fn finish(self) -> Result<(), DownloadError> {
+        if self.size == 0 {
+            return Ok(());
+        }
+
         if self.left != 0 {
             return Err(DownloadError::IncorrectDataLength {
                 expected: self.size,

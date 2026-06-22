@@ -343,10 +343,10 @@ fn request_cancel(state: &AppState) {
 fn start_force_fastboot_session(state: &AppState) -> Result<(u64, FlashRunControl), String> {
     let mut force = lock_force_fastboot(state)?;
     force.control.request_cancel();
+    force.active_session_id = None;
     let session_id = force.next_session_id.max(1);
     force.next_session_id = session_id.saturating_add(1);
     force.active_session_id = Some(session_id);
-    force.control = FlashRunControl::default();
     force.control.begin();
     Ok((session_id, force.control.clone()))
 }
@@ -836,7 +836,7 @@ async fn start_flash_inner(
     let mut summary = FlashSummaryDto {
         flash_count: 0,
         wipe_count: 0,
-        skipped_count: plan.summary.skipped_count,
+        skipped_count: 0,
         total_bytes,
     };
 
@@ -1108,12 +1108,12 @@ async fn reboot_device(state: tauri::State<'_, AppState>) -> Result<(), String> 
 #[tauri::command]
 async fn reboot_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut dev = connect_device_with_policy(&state, session_policy_for_mutating_command()).await?;
-    let result = pawflash::reboot_device_bootloader_until_detected(&mut dev, None)
+    let new_dev = pawflash::reboot_device_bootloader_until_detected(&mut dev, None)
         .await
-        .map(|_| ())
-        .map_err(|e| format!("reboot bootloader: {e}"));
-    drop(dev);
-    result
+        .map_err(|e| format!("reboot bootloader: {e}"))?;
+    // Cache the freshly reconnected device instead of dropping it.
+    put_device(&state, new_dev)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1158,16 +1158,15 @@ async fn lock_bootloader(state: tauri::State<'_, AppState>) -> Result<(), String
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 struct ParsedPlanRequest {
-    mode: FlashMode,
+    _mode: FlashMode,
     slot: Option<SlotArg>,
 }
 
 #[cfg(test)]
 fn parse_plan_request(mode: &str, slot: Option<&str>) -> Result<ParsedPlanRequest, String> {
     Ok(ParsedPlanRequest {
-        mode: parse_flash_mode(mode)?,
+        _mode: parse_flash_mode(mode)?,
         slot: pawflash::parse_slot(slot),
     })
 }

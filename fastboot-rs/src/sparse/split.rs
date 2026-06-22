@@ -83,7 +83,7 @@ impl SplitBuilder {
     }
 
     fn try_add_chunk(&mut self, chunk: &ChunkHeader, image_offset: usize) -> bool {
-        if self.space > chunk.total_size {
+        if self.space >= chunk.total_size {
             let split = SplitChunk {
                 header: chunk.clone(),
                 offset: image_offset,

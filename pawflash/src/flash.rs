@@ -37,12 +37,13 @@ pub fn is_scatter_skippable_error(err: &anyhow::Error) -> bool {
                 FastbootError::Nusb(NusbFastBootError::FastbootFailed(_))
             );
         }
-        // Payload materialisation failed (I/O, size too large) – skip.
-        if matches!(
-            source.downcast_ref::<FastbootExecutionError>(),
-            Some(FastbootExecutionError::Payload(_))
-        ) {
-            return true;
+        // Payload materialisation failed (I/O, missing file) – skip.
+        // SizeTooLarge is NOT skippable: the image will never fit on the
+        // target partition and retrying would produce the same error.
+        if let Some(FastbootExecutionError::Payload(payload_err)) =
+            source.downcast_ref::<FastbootExecutionError>()
+        {
+            return !matches!(payload_err, fastboot_rs::ImagePayloadError::SizeTooLarge(_));
         }
         // Image preparation failed (file not found, bad sparse, etc.) – skip.
         if source.downcast_ref::<ImagePreparationError>().is_some() {
@@ -319,11 +320,19 @@ mod tests {
     }
 
     #[test]
-    fn is_scatter_skippable_error_accepts_payload_errors() {
+    fn is_scatter_skippable_error_accepts_io_payload_errors() {
         let err = anyhow::Error::new(FastbootExecutionError::Payload(ImagePayloadError::Io(
             std::io::Error::new(std::io::ErrorKind::NotFound, "no file"),
         )));
         assert!(is_scatter_skippable_error(&err));
+    }
+
+    #[test]
+    fn is_scatter_skippable_error_rejects_sizetoolarge() {
+        let err = anyhow::Error::new(FastbootExecutionError::Payload(
+            ImagePayloadError::SizeTooLarge(1024),
+        ));
+        assert!(!is_scatter_skippable_error(&err));
     }
 
     #[test]

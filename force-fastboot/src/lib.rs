@@ -103,7 +103,8 @@ fn run_force_fastboot_with_discovery_mode_and_cancel(
     show_ui: bool,
     cancel_requested: Option<&AtomicBool>,
 ) -> Result<(), ForceFastbootError> {
-    if show_ui && permissions::is_running_as_root() && !cfg!(windows) {
+    #[cfg(not(windows))]
+    if show_ui && permissions::is_running_as_root() {
         eprintln!(
             "{}",
 notice_box(

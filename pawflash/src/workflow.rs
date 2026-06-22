@@ -128,8 +128,6 @@ where
             operation,
         })?;
 
-        emit_overall_progress(&mut self.emit, completed_before, 0, self.overall_total)?;
-
         let result = self
             .flash_one_partition_evented(partition, image_path, bytes, completed_before, operation)
             .await;
@@ -194,7 +192,6 @@ where
         (self.emit)(FlashEvent::Erasing {
             partition: partition.to_string(),
         })?;
-        emit_overall_progress(&mut self.emit, completed_before, 0, self.overall_total)?;
 
         match erase_one_partition(self.dev, partition).await {
             Ok(()) => {
@@ -322,9 +319,7 @@ where
                 }
                 FlashActionExecutionKind::FormatData => {
                     let Some(tools) = format_tools else {
-                        return Err(
-                            "missing format tools for format action".to_string()
-                        );
+                        return Err("missing format tools for format action".to_string());
                     };
                     let prepared = prepare_partition_reset(
                         self.dev,
@@ -473,9 +468,7 @@ where
                 }
                 ExecutionRoute::FormatData => {
                     let Some(tools) = format_tools else {
-                        return Err(
-                            "missing format tools for format action".to_string()
-                        );
+                        return Err("missing format tools for format action".to_string());
                     };
                     let prepared = prepare_partition_reset(
                         self.dev,
@@ -845,7 +838,28 @@ pub async fn format_userdata_flow(
     let info = detect_userdata(dev)
         .await
         .map_err(|e| format!("detect userdata: {e}"))?;
-    let result = format_userdata_with_info_flow(dev, tools, info, options, control, emit).await?;
+    // Read the device's max-download-size as a fallback in case
+    // UserdataInfo.max_download_size is None.
+    let device_max_download_size = if info.max_download_size.is_none() {
+        dev.get_var_optional("max-download-size")
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .and_then(|v| u32::try_from(v).ok())
+    } else {
+        None
+    };
+    let result = format_userdata_with_info_flow(
+        dev,
+        tools,
+        info,
+        options,
+        control,
+        emit,
+        device_max_download_size,
+    )
+    .await?;
     Ok(result)
 }
 
@@ -856,6 +870,7 @@ async fn format_userdata_with_info_flow(
     options: &FormatUserdataOptions,
     control: &FlashRunControl,
     emit: &mut impl FnMut(FlashEvent) -> Result<(), String>,
+    device_max_download_size: Option<u32>,
 ) -> Result<FlashSummaryDto, String> {
     let generated = match generate_userdata_image(tools, &info, options) {
         Ok(image) => image,
@@ -891,6 +906,7 @@ async fn format_userdata_with_info_flow(
 
     let max_download = info
         .max_download_size
+        .or(device_max_download_size.map(|v| v as u64))
         .context("missing userdata max-download-size")
         .and_then(|value| {
             u32::try_from(value).context("userdata max-download-size exceeds supported range")

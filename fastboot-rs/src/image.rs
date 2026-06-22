@@ -8,7 +8,8 @@ use thiserror::Error;
 
 use crate::sparse::{
     split::{split_image, split_raw, Split, SplitError},
-    ChunkHeader, FileHeader, FileHeaderBytes, CHUNK_HEADER_BYTES_LEN, FILE_HEADER_BYTES_LEN,
+    ChunkHeader, FileHeader, FileHeaderBytes, CHUNK_HEADER_BYTES_LEN, DEFAULT_BLOCKSIZE,
+    FILE_HEADER_BYTES_LEN,
 };
 
 /// The image encoding detected from the file header.
@@ -112,16 +113,19 @@ pub fn prepare_image(
     let mut file = File::open(path)?;
     let file_size = file.metadata()?.len();
     let mut header_bytes: FileHeaderBytes = [0; FILE_HEADER_BYTES_LEN];
-    let header_read = file.read(&mut header_bytes)?;
 
-    if header_read == FILE_HEADER_BYTES_LEN {
-        match FileHeader::from_bytes(&header_bytes) {
-            Ok(header) => {
-                return prepare_sparse(path, file, file_size, header, max_download_size);
-            }
-            Err(crate::sparse::ParseError::UnknownMagic) => {}
-            Err(err) => return Err(err.into()),
-        }
+    // Attempt to read the full sparse header.  Using read_exact guarantees
+    // we get all 28 bytes or none — a short read can't misidentify the
+    // image as sparse when it isn't.
+    // After read_exact, the file cursor is positioned after the header,
+    // which is exactly where prepare_sparse expects to be.
+    let is_sparse = file
+        .read_exact(&mut header_bytes)
+        .ok()
+        .and_then(|_| FileHeader::from_bytes(&header_bytes).ok());
+
+    if let Some(header) = is_sparse {
+        return prepare_sparse(path, file, file_size, header, max_download_size);
     }
 
     prepare_raw(path, file_size, max_download_size)
@@ -259,11 +263,22 @@ fn prepare_raw(
             .collect::<Result<Vec<_>, ImagePreparationError>>()?
     };
 
+    // When splitting a raw image into Android sparse format the file
+    // content is rounded up to DEFAULT_BLOCKSIZE boundaries.  Report the
+    // expanded (post-split) size so callers can accurately resize logical
+    // partitions.
+    let expanded_size = if file_size <= u64::from(max_download_size) {
+        file_size
+    } else {
+        let blocks = file_size.div_ceil(DEFAULT_BLOCKSIZE as u64);
+        blocks * DEFAULT_BLOCKSIZE as u64
+    };
+
     Ok(PreparedImage {
         path: path.to_path_buf(),
         file_size,
         kind: ImageKind::Raw,
-        expanded_size: file_size,
+        expanded_size,
         transfers,
     })
 }

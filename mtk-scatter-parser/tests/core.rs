@@ -287,7 +287,6 @@ fn flash_action_should_expose_scatter_image_type() {
     assert_eq!(action.image_type.as_deref(), Some("NORMAL_ROM"));
 }
 
-
 fn write_global_yaml_fixture(write_boot_image: bool) -> tempfile::TempDir {
     let temp = tempfile::tempdir().unwrap();
     if write_boot_image {
