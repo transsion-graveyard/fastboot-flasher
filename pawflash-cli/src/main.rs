@@ -443,6 +443,9 @@ async fn run_force_fastboot(session: &Session) -> anyhow::Result<()> {
         let spinner = StatusSpinner::new("Waiting for MTK preloader serial port...");
         let _detected = force_fastboot_until_detected_with_progress(&options, None, |stage| {
             spinner.set_message(force_fastboot_stage_message(stage));
+            if stage == ForceFastbootStage::Detected {
+                spinner.finish();
+            }
         })
         .await?;
     } else {

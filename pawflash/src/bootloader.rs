@@ -114,8 +114,19 @@ where
             Ok(()) => {}
             Err(error) if is_retryable_force_fastboot_error(&error) => {
                 ensure_not_cancelled(control)?;
-                report(ForceFastbootStage::Retrying);
-                continue;
+                // The device may already be in fastboot (e.g. a previous serial
+                // handshake succeeded but the fastboot probe timed out).  Check
+                // before looping back to a serial attempt that will never appear.
+                match probe_fastboot(FASTBOOT_DETECTION_GRACE).await {
+                    Ok(device) => {
+                        report(ForceFastbootStage::Detected);
+                        return Ok(device);
+                    }
+                    Err(_) => {
+                        report(ForceFastbootStage::Retrying);
+                        continue;
+                    }
+                }
             }
             Err(error) => return Err(error),
         }
@@ -199,6 +210,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(result, "fastboot-ready");
+        // force_attempt succeeds both times; probe fails once then succeeds.
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
     }
 
@@ -231,7 +243,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(result, "fastboot-ready");
-        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        // force_attempt failed once (attempt 0), but the fastboot probe
+        // succeeded immediately, so only 1 serial attempt was needed.
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

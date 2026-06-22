@@ -38,6 +38,16 @@ impl StatusSpinner {
             pb.set_message(message.to_string());
         }
     }
+
+    /// Finish the spinner and clear it from the terminal.
+    ///
+    /// After calling `finish` the spinner is no longer visible and future calls
+    /// to [`set_message`](Self::set_message) are no-ops.
+    pub fn finish(&self) {
+        if let Some(pb) = &self.pb {
+            pb.finish_and_clear();
+        }
+    }
 }
 
 impl Drop for StatusSpinner {
