@@ -11,7 +11,9 @@ use mtk_scatter_parser::{FlashAction, FlashPlan};
 
 /// Windows-specific driver hint used when device probing fails.
 pub const WINDOWS_FASTBOOTD_DRIVER_HINT: &str =
-    "On Windows, install the Google USB Driver, then reconnect.";
+    "On Windows, install the Google USB Driver (https://developer.android.com/studio/run/win-usb), \
+     then reconnect. If the device is still not detected, use Zadig (https://zadig.akeo.ie) to \
+     install the WinUSB driver for the fastboot interface.";
 
 /// A device snapshot shown to the UI or CLI.
 #[derive(Clone, Serialize)]

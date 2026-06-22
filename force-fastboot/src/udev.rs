@@ -64,7 +64,30 @@ pub fn auto_install_linux_rule(_candidate: &crate::serial::PortCandidate) -> boo
     true
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
+/// Windows stub: prints WinUSB driver guidance and returns `false`.
+pub fn auto_install_linux_rule(candidate: &crate::serial::PortCandidate) -> bool {
+    eprintln!(
+        "{}",
+        notice_box(
+            Tone::Warning,
+            "permission denied",
+            &format!(
+                "Permission denied opening {}\n\n\
+                 Windows requires a WinUSB driver for the MediaTek preloader serial port.\n\
+                 Install it using Zadig (https://zadig.akeo.ie):\n\
+                   1. Connect the device in preloader mode\n\
+                   2. Run Zadig, select the MediaTek device (VID 0x0E8D)\n\
+                   3. Install the WinUSB driver\n\
+                 Then reconnect the device.",
+                candidate.device
+            )
+        )
+    );
+    false
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 /// Non-Linux stub: prints a message that automatic udev setup is unsupported and returns `false`.
 pub fn auto_install_linux_rule(candidate: &crate::serial::PortCandidate) -> bool {
     eprintln!(
@@ -98,7 +121,29 @@ pub fn print_permission_guidance(candidate: &crate::serial::PortCandidate) {
     );
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
+/// Windows stub: prints WinUSB driver guidance.
+pub fn print_permission_guidance(candidate: &crate::serial::PortCandidate) {
+    eprintln!(
+        "{}",
+        notice_box(
+            Tone::Warning,
+            "permission denied",
+            &format!(
+                "Permission denied opening {}\n\n\
+                 Windows requires a WinUSB driver for the MediaTek preloader serial port.\n\
+                 Install it using Zadig (https://zadig.akeo.ie):\n\
+                   1. Connect the device in preloader mode\n\
+                   2. Run Zadig, select the MediaTek device (VID 0x0E8D)\n\
+                   3. Install the WinUSB driver\n\
+                 Then reconnect the device.",
+                candidate.device
+            )
+        )
+    );
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 /// Non-Linux stub: print a message that automatic udev setup is unsupported.
 pub fn print_permission_guidance(candidate: &crate::serial::PortCandidate) {
     eprintln!(

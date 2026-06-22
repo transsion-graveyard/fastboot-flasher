@@ -124,11 +124,15 @@ impl PortDiscovery for SystemPortDiscovery {
     }
 
     fn try_open(&self, device: &str) -> Result<(), anyhow::Error> {
-        // Check device file accessibility without opening the serial port.
-        // Opening and immediately dropping the port can leave the USB
-        // device in a reserved state, causing a subsequent `open()` call
-        // to fail with "Resource busy".
-        std::fs::metadata(device)?;
+        // Probe device accessibility with a brief open/close.
+        // Using a short timeout avoids hanging on ports that exist but
+        // are not responding.  On Windows, std::fs::metadata() is
+        // unreliable for COM ports (fails for COM10+), so we always
+        // go through the serialport crate.
+        let port = serialport::new(device, BAUD)
+            .timeout(Duration::from_millis(10))
+            .open()?;
+        drop(port);
         Ok(())
     }
 
@@ -330,10 +334,15 @@ mod tests {
         }
     }
 
+    /// Platform-aware serial device name for tests.
+    fn test_serial_device() -> String {
+        if cfg!(windows) { "COM3".into() } else { "/dev/ttyACM0".into() }
+    }
+
     #[test]
     fn find_new_port_finds_new_device() {
         let candidate = PortCandidate {
-            device: "/dev/ttyACM0".into(),
+            device: test_serial_device(),
             description: "Preloader".into(),
             hwid: "USB".into(),
             vid: Some(0x0E8D),
@@ -352,14 +361,15 @@ mod tests {
     #[test]
     fn find_new_port_skips_known_devices() {
         let candidate = PortCandidate {
-            device: "/dev/ttyACM0".into(),
+            device: test_serial_device(),
             description: "Preloader".into(),
             hwid: "USB".into(),
             vid: None,
             pid: None,
         };
+        let dev = test_serial_device();
         let discovery = FakeDiscovery::new(vec![candidate]);
-        let previous: HashSet<String> = ["/dev/ttyACM0".into()].into_iter().collect();
+        let previous: HashSet<String> = [dev].into_iter().collect();
 
         let result = find_new_port(&previous, &discovery);
 
@@ -374,14 +384,15 @@ mod tests {
     #[test]
     fn find_new_port_reports_permission_candidate() {
         let candidate = PortCandidate {
-            device: "/dev/ttyACM0".into(),
+            device: test_serial_device(),
             description: "Preloader".into(),
             hwid: "USB".into(),
             vid: Some(0x0E8D),
             pid: Some(0x2000),
         };
+        let dev = test_serial_device();
         let discovery =
-            FakeDiscovery::new(vec![candidate.clone()]).with_permission_denied(&["/dev/ttyACM0"]);
+            FakeDiscovery::new(vec![candidate.clone()]).with_permission_denied(&[&dev]);
 
         let result = find_new_port(&HashSet::new(), &discovery);
 
@@ -395,10 +406,11 @@ mod tests {
 
     #[test]
     fn candidate_for_device_returns_fallback_when_not_listed() {
+        let dev = test_serial_device();
         let discovery = FakeDiscovery::new(vec![]);
-        let candidate = candidate_for_device("/dev/ttyUSB0", &discovery);
+        let candidate = candidate_for_device(&dev, &discovery);
 
-        assert_eq!(candidate.device, "/dev/ttyUSB0");
+        assert_eq!(candidate.device, dev);
         assert_eq!(candidate.description, "selected by --port");
     }
 

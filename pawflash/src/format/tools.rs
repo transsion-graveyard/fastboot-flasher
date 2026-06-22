@@ -124,37 +124,26 @@ impl FormatTools {
 #[cfg(test)]
 mod tests {
     use super::FormatTools;
-    use std::path::Path;
 
     #[test]
     fn format_tools_should_build_linux_layout() {
-        let tools = FormatTools::from_platform_root(Path::new("/tmp/format-bin"), "linux");
+        let root = std::env::temp_dir().join("format-bin");
+        let tools = FormatTools::from_platform_root(&root, "linux");
 
-        assert_eq!(tools.dir, Path::new("/tmp/format-bin/linux"));
-        assert_eq!(tools.mke2fs, Path::new("/tmp/format-bin/linux/mke2fs"));
-        assert_eq!(
-            tools.make_f2fs,
-            Path::new("/tmp/format-bin/linux/make_f2fs")
-        );
-        assert_eq!(
-            tools.make_f2fs_casefold,
-            Path::new("/tmp/format-bin/linux/make_f2fs_casefold")
-        );
+        assert_eq!(tools.dir, root.join("linux"));
+        assert_eq!(tools.mke2fs, root.join("linux/mke2fs"));
+        assert_eq!(tools.make_f2fs, root.join("linux/make_f2fs"));
+        assert_eq!(tools.make_f2fs_casefold, root.join("linux/make_f2fs_casefold"));
     }
 
     #[test]
     fn format_tools_should_build_windows_layout() {
-        let tools = FormatTools::from_platform_root(Path::new("C:/format-bin"), "windows");
+        let root = std::env::temp_dir().join("format-bin");
+        let tools = FormatTools::from_platform_root(&root, "windows");
 
-        assert_eq!(tools.dir, Path::new("C:/format-bin/windows"));
-        assert_eq!(tools.mke2fs, Path::new("C:/format-bin/windows/mke2fs.exe"));
-        assert_eq!(
-            tools.make_f2fs,
-            Path::new("C:/format-bin/windows/make_f2fs.exe")
-        );
-        assert_eq!(
-            tools.make_f2fs_casefold,
-            Path::new("C:/format-bin/windows/make_f2fs_casefold.exe")
-        );
+        assert_eq!(tools.dir, root.join("windows"));
+        assert_eq!(tools.mke2fs, root.join("windows/mke2fs.exe"));
+        assert_eq!(tools.make_f2fs, root.join("windows/make_f2fs.exe"));
+        assert_eq!(tools.make_f2fs_casefold, root.join("windows/make_f2fs_casefold.exe"));
     }
 }

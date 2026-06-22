@@ -223,13 +223,17 @@ pub(crate) async fn run_gsi_worker_and_emit(
     let request_json =
         serde_json::to_vec(&request).map_err(|e| format!("serialize GSI worker request: {e}"))?;
     let current_exe = std::env::current_exe().map_err(|e| format!("resolve current exe: {e}"))?;
-    let mut child = Command::new(current_exe)
-        .arg(GSI_WORKER_ARG)
+    let mut cmd = Command::new(current_exe);
+    cmd.arg(GSI_WORKER_ARG)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| format!("spawn GSI worker: {e}"))?;
+        .stderr(Stdio::inherit());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("spawn GSI worker: {e}"))?;
 
     let mut stdin = child
         .stdin

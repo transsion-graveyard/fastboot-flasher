@@ -1,4 +1,4 @@
-#![cfg_attr(not(windows), deny(unsafe_code))]
+#![deny(unsafe_code)]
 #![deny(missing_docs)]
 
 //! Shared business logic for `pawflash` CLI and `pawflash-gui`.

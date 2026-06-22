@@ -1,4 +1,4 @@
-#![cfg_attr(not(windows), deny(unsafe_code))]
+#![deny(unsafe_code)]
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 

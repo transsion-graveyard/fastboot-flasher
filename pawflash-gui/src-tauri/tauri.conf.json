@@ -34,6 +34,7 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
+    "resources": ["../../pawflash/assets/bin/**/*"],
     "linux": {
       "deb": {
         "depends": []
